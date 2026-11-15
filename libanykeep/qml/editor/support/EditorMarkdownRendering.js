@@ -136,7 +136,7 @@ function markdownForRendering(source) {
     // link label. Give every uniform style run its own adjacent link.
     // The C++ serializer joins the runs back into one Markdown link.
     const linkPattern = /\[((?:\\.|[^\]\\\n])*)\]\(([^)\n]+)\)/g
-    return rendered.replace(linkPattern, function(fullMatch, label, destination, offset, wholeText) {
+    const linked = rendered.replace(linkPattern, function(fullMatch, label, destination, offset, wholeText) {
         if (offset > 0 && wholeText.charAt(offset - 1) === "!")
             return fullMatch
 
@@ -152,6 +152,52 @@ function markdownForRendering(source) {
         }
         return result.length > 0 ? result : fullMatch
     })
+    return inlineCodeMarkupForRendering(linked)
+}
+
+// Keep a sample of the enclosing emphasis outside each code span. Qt's
+// Markdown importer resets that format inside backticks; the backend applies
+// it from the sample and removes both markers synchronously during import.
+function inlineCodeMarkupForRendering(source) {
+    let result = ""
+    let copiedUntil = 0
+    for (let index = 0; index < source.length;) {
+        if (source.charAt(index) === "\\") {
+            index += 2
+            continue
+        }
+        if (source.charAt(index) !== "`") {
+            ++index
+            continue
+        }
+        let openingEnd = index + 1
+        while (openingEnd < source.length && source.charAt(openingEnd) === "`")
+            ++openingEnd
+        let closingEnd = -1
+        for (let next = openingEnd; next < source.length;) {
+            if (source.charAt(next) !== "`") {
+                ++next
+                continue
+            }
+            let runEnd = next + 1
+            while (runEnd < source.length && source.charAt(runEnd) === "`")
+                ++runEnd
+            if (runEnd - next === openingEnd - index) {
+                closingEnd = runEnd
+                break
+            }
+            next = runEnd
+        }
+        if (closingEnd < 0) {
+            index = openingEnd
+            continue
+        }
+        result += source.substring(copiedUntil, index) + "ANYKEEPCODEOPEN7F3A:"
+                + source.substring(index, closingEnd) + ":ANYKEEPCODECLOSE7F3A"
+        copiedUntil = closingEnd
+        index = closingEnd
+    }
+    return result + source.substring(copiedUntil)
 }
 
 function underlineMarkupForRendering(source) {
@@ -179,7 +225,9 @@ function underlineMarkupForRendering(source) {
         if (codeDelimiter.length === 0 && character === "<") {
             const match = source.substring(index).match(underlinePattern)
             if (match) {
-                result += "ANYKEEPINSOPEN7F3A" + match[2] + "ANYKEEPINSCLOSE7F3A"
+                // Punctuation keeps nested emphasis outside an intraword
+                // delimiter context, including Qt 6.12's strikethrough rules.
+                result += "ANYKEEPINSOPEN7F3A:" + match[2] + ":ANYKEEPINSCLOSE7F3A"
                 index += match[0].length
                 continue
             }

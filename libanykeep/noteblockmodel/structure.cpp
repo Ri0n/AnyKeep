@@ -2,8 +2,25 @@
 #include "../notetagline.h"
 #include "private.h"
 
+#include <algorithm>
+#include <utility>
+
 namespace AnyKeep {
 using namespace NoteBlockModelPrivate;
+
+namespace {
+    std::pair<int, int> selectedParagraphBounds(const QString &text, int start, int end)
+    {
+        const bool atSeparator     = text.mid(start, 2) == QStringLiteral("\n\n");
+        const int  separatorBefore = atSeparator ? start : text.lastIndexOf(QStringLiteral("\n\n"), qMax(0, start - 1));
+        const int  paragraphStart  = separatorBefore < 0 ? 0 : separatorBefore + 2;
+        int        endProbe        = qMax(paragraphStart, end - 1);
+        while (endProbe > paragraphStart && text.at(endProbe) == QLatin1Char('\n'))
+            --endProbe;
+        const int separatorAfter = text.indexOf(QStringLiteral("\n\n"), endProbe);
+        return { paragraphStart, separatorAfter < 0 ? int(text.size()) : separatorAfter };
+    }
+}
 
 void NoteBlockModel::coalesceTextNear(QList<Block> *blocks, int row, bool markdown, int *trackedRow)
 {
@@ -688,17 +705,7 @@ QVariantMap NoteBlockModel::convertTextRangeToList(int row, int start, int end, 
             end = qMin(text.size(), start + 1);
     }
 
-    const bool startsAtSeparator = text.mid(start, 2) == QStringLiteral("\n\n");
-    const int  separatorBefore
-        = startsAtSeparator ? start : text.lastIndexOf(QStringLiteral("\n\n"), qMax(0, start - 1));
-    const int paragraphStart = separatorBefore < 0 ? 0 : separatorBefore + 2;
-    if (startsAtSeparator)
-        start = paragraphStart;
-    int endProbe = qMax(paragraphStart, end - 1);
-    while (endProbe > paragraphStart && text.at(endProbe) == QLatin1Char('\n'))
-        --endProbe;
-    const int separatorAfter = text.indexOf(QStringLiteral("\n\n"), endProbe);
-    const int paragraphEnd   = separatorAfter < 0 ? text.size() : separatorAfter;
+    const auto [paragraphStart, paragraphEnd] = selectedParagraphBounds(text, start, end);
 
     QList<Block> replacement;
     if (paragraphStart > 0) {
@@ -752,6 +759,150 @@ QVariantMap NoteBlockModel::convertTextRangeToList(int row, int start, int end, 
              { QStringLiteral("row"), resolvedListRow },
              { QStringLiteral("item"), precedingListItems + focusedItem },
              { QStringLiteral("position"), focusedPosition } };
+}
+
+QVariantMap NoteBlockModel::convertSelectionToList(QList<NoteBlockSelectionRange> ranges, BlockType type,
+                                                   bool backwards)
+{
+    if (ranges.isEmpty() || !isListType(type))
+        return {};
+    std::sort(ranges.begin(), ranges.end(), [](const auto &left, const auto &right) {
+        return left.blockIndex == right.blockIndex ? left.listItemIndex < right.listItemIndex
+                                                   : left.blockIndex < right.blockIndex;
+    });
+    const auto &first = ranges.constFirst();
+    const auto &last  = ranges.constLast();
+    if (first.blockIndex <= 0 || last.blockIndex >= blocks_.size())
+        return {};
+    for (int row = first.blockIndex; row <= last.blockIndex; ++row) {
+        if (blocks_.at(row).type != Text && !isListType(blocks_.at(row).type))
+            return {};
+    }
+    for (const auto &range : ranges) {
+        if (range.blockIndex < first.blockIndex || range.blockIndex > last.blockIndex || range.tableCellIndex >= 0)
+            return {};
+        const auto &block = blocks_.at(range.blockIndex);
+        if (isListType(block.type) && (range.listItemIndex < 0 || range.listItemIndex >= block.items.size()))
+            return {};
+    }
+
+    const auto convertItems = [type](Block *list, int begin, int end) {
+        normalizeListStorage(list);
+        for (int item = begin; item <= end; ++item) {
+            if (list->itemTypes.at(item).toInt() != type)
+                list->checked[item] = false;
+            list->itemTypes[item] = type;
+        }
+        recomputeTaskParentChecks(list);
+    };
+    if (first.blockIndex == last.blockIndex && isListType(blocks_.at(first.blockIndex).type)) {
+        auto &list = blocks_[first.blockIndex];
+        convertItems(&list, first.listItemIndex, last.listItemIndex);
+        const int item = backwards ? first.listItemIndex : last.listItemIndex;
+        const int position
+            = qBound(0, int(backwards ? first.before.size() : list.items.at(item).size() - last.after.size()),
+                     int(list.items.at(item).size()));
+        changed(first.blockIndex, { ItemTypesRole, CheckedRole });
+        return { { QStringLiteral("handled"), true },
+                 { QStringLiteral("row"), first.blockIndex },
+                 { QStringLiteral("item"), item },
+                 { QStringLiteral("position"), position } };
+    }
+
+    QList<Block> updated;
+    int          focusRow      = -1;
+    int          focusItem     = 0;
+    int          focusPosition = 0;
+    const int    endpointRow   = backwards ? first.blockIndex : last.blockIndex;
+    for (int row = 0; row < blocks_.size(); ++row) {
+        const Block &source = blocks_.at(row);
+        if (row < first.blockIndex || row > last.blockIndex) {
+            updated.append(source);
+            continue;
+        }
+        if (isListType(source.type)) {
+            Block list = source;
+            normalizeListStorage(&list);
+            const int begin = row == first.blockIndex ? first.listItemIndex : 0;
+            const int end   = row == last.blockIndex ? last.listItemIndex : list.items.size() - 1;
+            convertItems(&list, begin, end);
+            if (row == endpointRow) {
+                focusRow      = updated.size();
+                focusItem     = backwards ? begin : end;
+                focusPosition = backwards ? first.before.size() : list.items.at(end).size() - last.after.size();
+            }
+            updated.append(std::move(list));
+            continue;
+        }
+
+        const QString &text  = source.text;
+        int            start = row == first.blockIndex ? qBound(0, int(first.before.size()), int(text.size())) : 0;
+        const int end   = row == last.blockIndex ? qBound(start, int(text.size() - last.after.size()), int(text.size()))
+                                                 : text.size();
+        const int caret = backwards ? start : end;
+        const auto [paragraphStart, paragraphEnd] = selectedParagraphBounds(text, start, end);
+        if (paragraphStart > 0) {
+            Block before = source;
+            before.text  = text.left(paragraphStart - 2);
+            updated.append(std::move(before));
+        }
+        Block list;
+        list.type  = type;
+        list.items = text.mid(paragraphStart, paragraphEnd - paragraphStart).split(QStringLiteral("\n\n"));
+        normalizeListStorage(&list);
+        if (row == endpointRow) {
+            focusRow   = updated.size();
+            int offset = qBound(0, caret - paragraphStart, paragraphEnd - paragraphStart);
+            for (int item = 0; item < list.items.size(); ++item) {
+                focusItem     = item;
+                focusPosition = qMin(offset, int(list.items.at(item).size()));
+                if (offset <= list.items.at(item).size())
+                    break;
+                offset -= list.items.at(item).size() + 2;
+            }
+        }
+        updated.append(std::move(list));
+        if (paragraphEnd < text.size()) {
+            Block after = source;
+            after.text  = text.mid(paragraphEnd + 2);
+            updated.append(std::move(after));
+        }
+    }
+
+    // Explicit conversion retains each item's requested marker type. The drag
+    // coalescer deliberately adopts surrounding marker types, so it is not the
+    // right policy for a selection spanning existing lists and paragraphs.
+    int affectedEnd = updated.size() - (blocks_.size() - last.blockIndex - 1);
+    for (int row = qMax(0, first.blockIndex - 1); row + 1 < updated.size() && row < affectedEnd;) {
+        if (!isListType(updated.at(row).type) || !isListType(updated.at(row + 1).type)) {
+            ++row;
+            continue;
+        }
+        auto &left  = updated[row];
+        auto  right = updated.at(row + 1);
+        normalizeListStorage(&left);
+        normalizeListStorage(&right);
+        if (focusRow == row + 1) {
+            focusItem += left.items.size();
+            focusRow = row;
+        } else if (focusRow > row + 1) {
+            --focusRow;
+        }
+        left.items.append(right.items);
+        left.indents.append(right.indents);
+        left.itemTypes.append(right.itemTypes);
+        left.checked.append(right.checked);
+        recomputeTaskParentChecks(&left);
+        updated.removeAt(row + 1);
+        --affectedEnd;
+    }
+    normalizeTagLinePositions(&updated, markdown_);
+    replaceBlocks(std::move(updated));
+    emit contentsChanged();
+    return { { QStringLiteral("handled"), true },
+             { QStringLiteral("row"), focusRow },
+             { QStringLiteral("item"), focusItem },
+             { QStringLiteral("position"), focusPosition } };
 }
 
 bool NoteBlockModel::splitStructuredBlockToText(int row, const QString &before, const QString &after)

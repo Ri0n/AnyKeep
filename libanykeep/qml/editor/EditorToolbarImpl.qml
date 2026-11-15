@@ -116,6 +116,18 @@ ToolBar {
 
     function runMarkdownCommand(kind, command) { return actions.runMarkdownCommand(kind, command) }
     function insertList(type) { return actions.insertList(type) }
+    property var listCommandTarget: null
+    property bool listCommandTargetPrepared: false
+
+    function captureListCommandTarget() {
+        listCommandTarget = root.blockEditor ? root.blockEditor.captureListConversionTarget() : null
+        listCommandTargetPrepared = true
+    }
+
+    function insertCapturedList(type) {
+        listCommandTargetPrepared = false
+        return actions.insertListAtTarget(type, listCommandTarget)
+    }
     function insertCodeBlock() { return actions.insertCodeBlock() }
     function insertTable() { return actions.insertTable() }
     function insertBlockQuote() { return actions.insertBlockQuote() }
@@ -368,6 +380,9 @@ ToolBar {
 
         ToolButton {
             id: listButton
+            objectName: "editorInsertListButton"
+            focusPolicy: Qt.NoFocus
+            onPressed: root.captureListCommandTarget()
             visible: root.optionalSlotCount >= 1
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
@@ -387,9 +402,12 @@ ToolBar {
 
             Menu {
                 id: listMenu
-                MenuItem { text: qsTr("Bullet list"); onTriggered: root.insertList(root.bulletListType) }
-                MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertList(root.numberedListType) }
-                MenuItem { text: qsTr("Task list"); onTriggered: root.insertList(root.taskListType) }
+                objectName: "editorListMenu"
+                onAboutToShow: if (!root.listCommandTargetPrepared) root.captureListCommandTarget()
+                onClosed: root.listCommandTargetPrepared = false
+                MenuItem { objectName: "editorBulletListAction"; text: qsTr("Bullet list"); onTriggered: root.insertCapturedList(root.bulletListType) }
+                MenuItem { objectName: "editorNumberedListAction"; text: qsTr("Numbered list"); onTriggered: root.insertCapturedList(root.numberedListType) }
+                MenuItem { objectName: "editorTaskListAction"; text: qsTr("Task list"); onTriggered: root.insertCapturedList(root.taskListType) }
             }
         }
 
@@ -652,6 +670,8 @@ ToolBar {
             text: qsTr("⋮")
             font.pixelSize: 23
             padding: 0
+            focusPolicy: Qt.NoFocus
+            onPressed: root.captureListCommandTarget()
             Accessible.name: qsTr("More actions")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
@@ -664,6 +684,8 @@ ToolBar {
 
             Menu {
                 id: desktopOverflowMenu
+                onAboutToShow: if (!root.listCommandTargetPrepared) root.captureListCommandTarget()
+                onClosed: root.listCommandTargetPrepared = false
 
                 MenuItem {
                     text: root.editorBackend && root.editorBackend.undoText.length > 0
@@ -693,9 +715,9 @@ ToolBar {
 
                 Menu {
                     title: qsTr("Insert")
-                    MenuItem { text: qsTr("Bullet list"); onTriggered: root.insertList(root.bulletListType) }
-                    MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertList(root.numberedListType) }
-                    MenuItem { text: qsTr("Task list"); onTriggered: root.insertList(root.taskListType) }
+                    MenuItem { text: qsTr("Bullet list"); onTriggered: root.insertCapturedList(root.bulletListType) }
+                    MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertCapturedList(root.numberedListType) }
+                    MenuItem { text: qsTr("Task list"); onTriggered: root.insertCapturedList(root.taskListType) }
                     MenuItem { text: qsTr("Block quote"); onTriggered: root.insertBlockQuote() }
                     MenuItem { text: qsTr("Code block"); onTriggered: root.insertCodeBlock() }
                     MenuItem { text: qsTr("Table"); onTriggered: root.insertTable() }
@@ -762,6 +784,8 @@ ToolBar {
 
             Menu {
                 id: mobileOverflowMenu
+                onAboutToShow: if (!root.listCommandTargetPrepared) root.captureListCommandTarget()
+                onClosed: root.listCommandTargetPrepared = false
 
                 MenuItem {
                     text: root.editorBackend && root.editorBackend.undoText.length > 0
@@ -790,9 +814,9 @@ ToolBar {
 
                 Menu {
                     title: qsTr("Insert")
-                    MenuItem { text: qsTr("Bullet list"); onTriggered: root.insertList(root.bulletListType) }
-                    MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertList(root.numberedListType) }
-                    MenuItem { text: qsTr("Task list"); onTriggered: root.insertList(root.taskListType) }
+                    MenuItem { text: qsTr("Bullet list"); onTriggered: root.insertCapturedList(root.bulletListType) }
+                    MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertCapturedList(root.numberedListType) }
+                    MenuItem { text: qsTr("Task list"); onTriggered: root.insertCapturedList(root.taskListType) }
                     MenuItem { text: qsTr("Block quote"); onTriggered: root.insertBlockQuote() }
                     MenuItem { text: qsTr("Code block"); onTriggered: root.insertCodeBlock() }
                     MenuItem { text: qsTr("Table"); onTriggered: root.insertTable() }

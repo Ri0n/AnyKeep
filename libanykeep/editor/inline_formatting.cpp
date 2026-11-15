@@ -35,6 +35,47 @@ namespace {
     QString unwrapMarkdownWriterLines(const QString &markdown);
     QString markdownWithSerializedInlineFormats(QTextDocument *document);
 
+    void applyInlineRenderingFormats(QTextDocument *document)
+    {
+        const auto applyMarkers = [document](const QString &openMarker, const QString &closeMarker, bool underline) {
+            QTextCursor search(document);
+            while (true) {
+                QTextCursor open = document->find(openMarker, search);
+                if (open.isNull())
+                    break;
+                QTextCursor close = document->find(closeMarker, open);
+                if (close.isNull())
+                    break;
+
+                QTextCharFormat format;
+                if (underline) {
+                    format.setFontUnderline(true);
+                } else {
+                    // Qt's Markdown importer resets emphasis inside code spans.
+                    // The marker outside the backticks retains the enclosing
+                    // format; copy only emphasis, keeping the code font intact.
+                    const QTextCharFormat inherited = open.charFormat();
+                    format.setFontWeight(inherited.fontWeight());
+                    format.setFontItalic(inherited.fontItalic());
+                    format.setFontStrikeOut(inherited.fontStrikeOut());
+                    format.setFontUnderline(inherited.fontUnderline());
+                }
+                const int start = open.selectionStart();
+                const int end   = close.selectionStart() - openMarker.size();
+                close.removeSelectedText();
+                open.removeSelectedText();
+
+                QTextCursor content(document);
+                content.setPosition(start);
+                content.setPosition(qMax(start, end), QTextCursor::KeepAnchor);
+                content.mergeCharFormat(format);
+                search.setPosition(qMax(start, end));
+            }
+        };
+        applyMarkers(QStringLiteral("ANYKEEPINSOPEN7F3A:"), QStringLiteral(":ANYKEEPINSCLOSE7F3A"), true);
+        applyMarkers(QStringLiteral("ANYKEEPCODEOPEN7F3A:"), QStringLiteral(":ANYKEEPCODECLOSE7F3A"), false);
+    }
+
     QString unusedPrivateMarker(const QTextDocument *document, ushort firstCandidate, const QSet<QChar> &reserved = {})
     {
         const QString contents = document ? document->toPlainText() : QString();
@@ -366,7 +407,8 @@ namespace {
                 const QTextCharFormat format = fragment.charFormat();
                 const InlineStyle     style  = explicitInlineStyle(format);
                 if ((format.isAnchor() && !format.anchorHref().isEmpty())
-                    || (!style.bold && !style.italic && !style.code && !style.strike && !style.underline))
+                    || (!style.bold && !style.italic && !style.code && !style.strike && !style.underline
+                        && !fragment.text().contains(QLatin1Char('<')) && !fragment.text().contains(QLatin1Char('&'))))
                     continue;
                 // Keep adjoining style runs together, so a changing bold or
                 // italic range cannot produce crossing or doubled delimiters.
@@ -383,16 +425,6 @@ namespace {
                 group.end = fragment.position() + fragment.length();
             }
         }
-        // Include neighbouring emphasis in a protected span, but leave
-        // ordinary bold/italic-only text to Qt's existing Markdown writer.
-        groups.erase(std::remove_if(groups.begin(), groups.end(),
-                                    [](const InlineTextGroup &group) {
-                                        return std::none_of(group.styles.cbegin(), group.styles.cend(),
-                                                            [](const InlineStyle &style) {
-                                                                return style.code || style.strike || style.underline;
-                                                            });
-                                    }),
-                     groups.end());
         return groups;
     }
 
@@ -523,9 +555,9 @@ namespace {
         if (links.isEmpty() && inlines.isEmpty())
             return document->toMarkdown(QTextDocument::MarkdownDialectGitHub);
 
-        // Qt's writer can emit crossed delimiters such as **~~text**~~ for
-        // bold strikethrough. Serialize these spans with the same nested
-        // delimiter stack used for link labels; Qt still writes block syntax.
+        // Qt's writer can cross emphasis delimiters or expose literal HTML.
+        // Serialize styled spans with the same nested delimiter stack and
+        // escaping used for link labels; Qt still writes block syntax.
         std::unique_ptr<QTextDocument> copy(document->clone());
         struct Replacement {
             int     start = 0;
@@ -823,34 +855,8 @@ bool NoteEditor::setInlineFormat(QQuickTextDocument *quickDocument, int start, i
 
 void NoteEditor::applyInlineHtmlFormatting(QQuickTextDocument *quickDocument) const
 {
-    if (!quickDocument || !quickDocument->textDocument())
-        return;
-
-    static const QString openMarker  = QStringLiteral("ANYKEEPINSOPEN7F3A");
-    static const QString closeMarker = QStringLiteral("ANYKEEPINSCLOSE7F3A");
-    auto                *document    = quickDocument->textDocument();
-    QTextCursor          search(document);
-    while (true) {
-        QTextCursor open = document->find(openMarker, search);
-        if (open.isNull())
-            break;
-        QTextCursor close = document->find(closeMarker, open);
-        if (close.isNull())
-            break;
-
-        const int start = open.selectionStart();
-        const int end   = close.selectionStart() - openMarker.size();
-        close.removeSelectedText();
-        open.removeSelectedText();
-
-        QTextCursor content(document);
-        content.setPosition(start);
-        content.setPosition(qMax(start, end), QTextCursor::KeepAnchor);
-        QTextCharFormat underline;
-        underline.setFontUnderline(true);
-        content.mergeCharFormat(underline);
-        search.setPosition(qMax(start, end));
-    }
+    if (quickDocument && quickDocument->textDocument())
+        applyInlineRenderingFormats(quickDocument->textDocument());
 }
 
 void NoteEditor::refreshInlineCodeSize(QQuickTextDocument *quickDocument) const
@@ -964,6 +970,7 @@ QVariantList NoteEditor::markdownCellWidths(const QStringList &markdown, const Q
     for (int index = 0; index < markdown.size(); ++index) {
         document.setDefaultFont(index < boldCount ? bold : cellFont);
         document.setMarkdown(markdown.at(index), QTextDocument::MarkdownDialectGitHub);
+        applyInlineRenderingFormats(&document);
         result.append(documentWidths(&document));
     }
     return result;

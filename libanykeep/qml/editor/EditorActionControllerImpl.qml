@@ -28,11 +28,17 @@ QtObject {
     }
 
     function insertList(type) {
+        return insertListAtTarget(type, root.blockEditor ? root.blockEditor.captureListConversionTarget() : null)
+    }
+
+    function insertListAtTarget(type, target) {
+        if (target && target.hasSelection)
+            return root.blockEditor.insertListAtTarget(type, target)
         const wasMarkdown = root.editorBackend && root.editorBackend.markdown
         const row = root.blockEditor ? root.blockEditor.insertionBlockIndex() : 0
         return runMarkdownCommand("insert-or-convert-list", function() {
             if (wasMarkdown)
-                return root.blockEditor.insertListBlock(type)
+                return root.blockEditor.insertListAtTarget(type, target)
             root.blockEditor.blockModel.insertList(row, type)
             root.blockEditor.focusBlock(row)
             return true
