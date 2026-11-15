@@ -306,7 +306,8 @@ TextArea {
         const oldSelectionEnd = selectionEnd
         syncingSourceText = true
         text = sourceText
-        if (renderedMarkdown && sourceText.indexOf("ANYKEEPINSOPEN7F3A") >= 0
+        if (renderedMarkdown && (sourceText.indexOf("ANYKEEPINSOPEN7F3A:") >= 0
+                                 || sourceText.indexOf("ANYKEEPCODEOPEN7F3A:") >= 0)
                 && typeof editorView.editorBackend !== "undefined" && editorView.editorBackend !== null)
             editorView.editorBackend.applyInlineHtmlFormatting(textDocument)
         syncingSourceText = false

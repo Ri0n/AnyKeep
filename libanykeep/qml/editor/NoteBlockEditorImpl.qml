@@ -514,7 +514,13 @@ ListView {
         })
     }
 
-    function insertListBlock(type) {
+    function captureListConversionTarget() { return selectionController.captureListConversionTarget() }
+
+    function insertListBlock(type) { return insertListAtTarget(type, captureListConversionTarget()) }
+
+    function insertListAtTarget(type, target) {
+        if (target && target.hasSelection)
+            return selectionController.convertListSelection(type, target)
         return runEditTransaction("insert-or-convert-list", function() {
             if (activeEditor && activeEditor.blockIndex >= 0 && !activeEditor.titleDocument
                     && !selectionSpansEditors) {

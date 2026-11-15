@@ -50,6 +50,12 @@ inline QQuickItem *ancestorWithProperty(QQuickItem *item, const char *propertyNa
     return nullptr;
 }
 
+template <typename Window> void clickQuickItem(Window *window, QQuickItem *item)
+{
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                      item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint());
+}
+
 template <typename Window>
 void moveMouseAlong(Window *window, const QPointF &from, const QPointF &to, int steps, int delayMs = 15,
                     int settleMs = 0)

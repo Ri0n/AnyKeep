@@ -483,3 +483,85 @@ void NoteBlockModelTest::movesStyledImageBlocksWithoutChangingPresentation()
              QStringLiteral("first\n\nlast\n\n<p align=\"right\"><img src=\"media://image\" "
                             "alt=\"diagram\" width=\"320\" /></p>"));
 }
+
+void NoteBlockModelTest::convertsCrossBlockSelectionToListIncrementally()
+{
+    for (const bool backwards : { false, true }) {
+        NoteBlockModel model;
+        model.load(QStringLiteral("Title\n\nbefore\n\nfirst\n\n- [x] parent\n  - [ ] child\n- "
+                                  "peer\n\nlast\n\nafter\n\n```\nkeep code\n```"),
+                   true);
+        QCOMPARE(model.rowCount(), 5);
+        const QPersistentModelIndex title(model.index(0));
+        const QPersistentModelIndex code(model.index(4));
+        QSignalSpy                  resets(&model, &QAbstractItemModel::modelReset);
+        NoteBlockSelectionRange     first;
+        first.blockIndex = 1;
+        first.before     = QStringLiteral("before\n\n");
+        NoteBlockSelectionRange last;
+        last.blockIndex   = 3;
+        last.after        = QStringLiteral("\n\nafter");
+        const auto result = model.convertSelectionToList({ first, last }, NoteBlockModel::NumberedList, backwards);
+        QVERIFY(result.value(QStringLiteral("handled")).toBool());
+        QCOMPARE(result.value(QStringLiteral("row")).toInt(), 2);
+        QCOMPARE(result.value(QStringLiteral("item")).toInt(), backwards ? 0 : 4);
+        QCOMPARE(result.value(QStringLiteral("position")).toInt(), backwards ? 0 : 4);
+        QCOMPARE(model.data(model.index(2), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ "first", "parent", "child", "peer", "last" }));
+        QCOMPARE(model.data(model.index(2), NoteBlockModel::IndentsRole).toList(), QVariantList({ 0, 0, 1, 0, 0 }));
+        QCOMPARE(model.data(model.index(2), NoteBlockModel::ItemTypesRole).toList(),
+                 QVariantList(5, int(NoteBlockModel::NumberedList)));
+        QCOMPARE(model.blockTextAt(1), QStringLiteral("before"));
+        QCOMPARE(model.blockTextAt(3), QStringLiteral("after"));
+        QVERIFY(title.isValid());
+        QCOMPARE(title.row(), 0);
+        QVERIFY(code.isValid());
+        QCOMPARE(code.row(), 4);
+        QCOMPARE(code.data(NoteBlockModel::TextRole).toString(), QStringLiteral("keep code"));
+        QCOMPARE(resets.count(), 0);
+    }
+}
+
+void NoteBlockModelTest::convertsOnlySelectedListItems()
+{
+    NoteBlockModel model;
+    model.load(QStringLiteral("Title\n\n- [x] keep\n- [ ] first\n- [ ] last\n- [x] keep after"), true);
+    QCOMPARE(model.rowCount(), 2);
+    const QPersistentModelIndex list(model.index(1));
+    QSignalSpy                  resets(&model, &QAbstractItemModel::modelReset);
+    QSignalSpy                  inserted(&model, &QAbstractItemModel::rowsInserted);
+    QSignalSpy                  removed(&model, &QAbstractItemModel::rowsRemoved);
+    NoteBlockSelectionRange     first;
+    first.blockIndex    = 1;
+    first.listItemIndex = 1;
+    NoteBlockSelectionRange last;
+    last.blockIndex    = 1;
+    last.listItemIndex = 2;
+    const auto result  = model.convertSelectionToList({ first, last }, NoteBlockModel::NumberedList, false);
+    QVERIFY(result.value(QStringLiteral("handled")).toBool());
+    QCOMPARE(model.rowCount(), 2);
+    QVERIFY(list.isValid());
+    QCOMPARE(list.row(), 1);
+    QCOMPARE(list.data(NoteBlockModel::ItemTypesRole).toList(),
+             QVariantList({ int(NoteBlockModel::CheckList), int(NoteBlockModel::NumberedList),
+                            int(NoteBlockModel::NumberedList), int(NoteBlockModel::CheckList) }));
+    QCOMPARE(list.data(NoteBlockModel::CheckedRole).toList(), QVariantList({ true, false, false, true }));
+    QCOMPARE(resets.count(), 0);
+    QCOMPARE(inserted.count(), 0);
+    QCOMPARE(removed.count(), 0);
+}
+
+void NoteBlockModelTest::rejectsListSelectionAcrossUnsupportedBlocks()
+{
+    NoteBlockModel model;
+    model.load(QStringLiteral("Title\n\nfirst\n\n```\nliteral\n```\n\nlast"), true);
+    const QString           original = model.contents();
+    QSignalSpy              changes(&model, &NoteBlockModel::contentsChanged);
+    NoteBlockSelectionRange first;
+    first.blockIndex = 1;
+    NoteBlockSelectionRange last;
+    last.blockIndex = 3;
+    QVERIFY(model.convertSelectionToList({ first, last }, NoteBlockModel::BulletList, false).isEmpty());
+    QCOMPARE(model.contents(), original);
+    QCOMPARE(changes.count(), 0);
+}

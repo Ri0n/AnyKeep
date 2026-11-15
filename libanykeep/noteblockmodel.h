@@ -160,6 +160,7 @@ public:
     NoteFragment extractBlockFragment(int firstRow, int lastRow) const;
     NoteFragment extractSelectionFragment(const QList<NoteBlockSelectionRange> &ranges) const;
     int          removeSelectionRanges(const QList<NoteBlockSelectionRange> &ranges);
+    QVariantMap  convertSelectionToList(QList<NoteBlockSelectionRange> ranges, BlockType type, bool backwards);
     int  replaceTextSelectionWithCodeBlock(const QList<NoteBlockSelectionRange> &ranges, const QString &plainText,
                                            const QString &language = QString());
     bool insertBlockFragment(int row, const NoteFragment &fragment, QString *error = nullptr);

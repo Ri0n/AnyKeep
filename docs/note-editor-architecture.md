@@ -91,6 +91,14 @@ values are a fallback for events without native information. `ShortcutOverride`
 reserves the combination and `KeyPress` invokes the view's `insertListBlock()`
 once, through the same document transaction as the toolbar.
 
+List conversion captures model-addressed selection ranges and direction before
+a toolbar popup takes focus. The captured range contains values, not editor
+delegate pointers, so it survives native selection loss and view virtualization.
+Toolbar, keyboard and programmatic commands share the same conversion path and
+history transaction. A changed document invalidates the captured range; the
+command must then stop rather than insert at a fallback caret. Plain-text
+conversion uses the shared literal-to-Markdown transfer contract.
+
 Lists keep one canonical representation in `NoteBlockModel`. The QML list
 component mirrors model roles only for delegate creation; a drag preview does
 not incrementally mutate either model. On release, one `moveListSubtree()`

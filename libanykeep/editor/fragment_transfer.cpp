@@ -27,6 +27,39 @@ using EditorOperationsPrivate::decodeSelectionRanges;
 using EditorOperationsPrivate::documentEnd;
 using EditorOperationsPrivate::markdownRange;
 
+QVariantMap NoteEditor::convertSelectionToList(const QVariantList &encodedRanges, int type, bool backwards)
+{
+    if (type != NoteBlockModel::BulletList && type != NoteBlockModel::NumberedList && type != NoteBlockModel::CheckList)
+        return {};
+    QVariantList selected;
+    for (const QVariant &encoded : encodedRanges) {
+        const QVariantMap range = encoded.toMap();
+        if (!range.value(QStringLiteral("boundaryOnly")).toBool()
+            && range.value(QStringLiteral("blockIndex")).toInt() > 0)
+            selected.append(encoded);
+    }
+    auto ranges = decodeSelectionRanges(selected);
+    if (ranges.isEmpty())
+        return {};
+    if (!model_->markdown()) {
+        for (const auto &range : ranges) {
+            if (range.blockIndex >= model_->rowCount() || range.tableCellIndex >= 0 || range.listItemIndex >= 0
+                || model_->blockTypeAt(range.blockIndex) != NoteBlockModel::Text)
+                return {};
+        }
+        // Convert literal text through the existing transfer contract, retaining
+        // line boundaries and escaping Markdown before the delegates change.
+        for (auto &range : ranges) {
+            range.before = NoteTransferController::convertTextFormat(range.before, Note::PlainText, Note::Markdown);
+            range.after  = NoteTransferController::convertTextFormat(range.after, Note::PlainText, Note::Markdown);
+        }
+        const QString markdown
+            = NoteTransferController::convertTextFormat(model_->contents(), Note::PlainText, Note::Markdown);
+        loadDocument(markdown, Note::Markdown, LoadPolicy::RecordFormatConversion);
+    }
+    return model_->convertSelectionToList(std::move(ranges), static_cast<NoteBlockModel::BlockType>(type), backwards);
+}
+
 QVariantMap NoteEditor::deleteSelection(const QVariantList &encodedRanges)
 {
     const QList<NoteBlockSelectionRange> ranges   = decodeSelectionRanges(encodedRanges);
@@ -175,25 +208,23 @@ int NoteEditor::insertDroppedCodeBlock(int row, const QString &before, const QSt
 }
 
 namespace {
-QString stripLeadingPasteNoise(QString text)
-{
-    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
-    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    QString stripLeadingPasteNoise(QString text)
+    {
+        text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+        text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
 
-    int content = 0;
-    while (content < text.size()) {
-        const QChar ch = text.at(content);
-        if (ch == QLatin1Char('\n') || ch.isSpace()
-            || ch.category() == QChar::Other_Format
-            || ch.category() == QChar::Separator_Line
-            || ch.category() == QChar::Separator_Paragraph) {
-            ++content;
-            continue;
+        int content = 0;
+        while (content < text.size()) {
+            const QChar ch = text.at(content);
+            if (ch == QLatin1Char('\n') || ch.isSpace() || ch.category() == QChar::Other_Format
+                || ch.category() == QChar::Separator_Line || ch.category() == QChar::Separator_Paragraph) {
+                ++content;
+                continue;
+            }
+            break;
         }
-        break;
+        return text.mid(content);
     }
-    return text.mid(content);
-}
 } // namespace
 
 int NoteEditor::insertPlainText(QQuickTextDocument *quickDocument, int start, int end, const QString &value)

@@ -403,11 +403,80 @@ QtObject {
         }
     }
 
-    function beginEditTransaction(kind, flushEditors) {
+    function captureListConversionTarget() {
+        if (!blockModel || !editorBackend)
+            return null
+        const active = editorView.activeEditor
+        if (active && active.inputMethodComposing)
+            Qt.inputMethod.commit()
+        flushPendingEditorChanges()
+        const hasSelection = hasDocumentSelection() || selectionSpansEditors
+        let ranges = structuredSelectionRanges(true).filter(range => range.blockIndex > 0 && !range.boundaryOnly)
+        if (wholeDocumentSelected && blockModel.rowCount() > 1) {
+            const lastRow = blockModel.rowCount() - 1
+            const firstType = blockModel.blockTypeAt(1)
+            const lastType = blockModel.blockTypeAt(lastRow)
+            const listTypes = [NoteBlockType.BulletList, NoteBlockType.CheckList, NoteBlockType.NumberedList]
+            ranges = [ { blockIndex: 1, listItemIndex: listTypes.indexOf(firstType) >= 0 ? 0 : -1,
+                         tableCellIndex: -1, before: "", after: "", wholeEditor: true },
+                       { blockIndex: lastRow, listItemIndex: listTypes.indexOf(lastType) >= 0
+                                                   ? blockModel.listItemCountAt(lastRow) - 1 : -1,
+                         tableCellIndex: -1, before: "", after: "", wholeEditor: true } ]
+        } else if (!editorBackend.markdown) {
+            for (const range of ranges) {
+                const textEditor = editorView.editors.find(candidate => candidate && candidate.blockIndex === range.blockIndex
+                                                       && candidate.listItemIndex === range.listItemIndex
+                                                       && candidate.tableCellIndex === range.tableCellIndex)
+                if (textEditor) {
+                    const plain = textEditor.currentPlainText()
+                    range.before = plain.substring(0, range.selectionStart)
+                    range.after = plain.substring(range.selectionEnd)
+                }
+            }
+        }
+        return { model: blockModel, contents: blockModel.contents,
+                 hasSelection: hasSelection, ranges: ranges,
+                 backwards: Boolean(active && active.selectionStart !== active.selectionEnd
+                                    && active.cursorPosition === active.selectionStart),
+                 viewState: editorView.captureEditorState() }
+    }
+
+    function convertListSelection(type, target) {
+        if (!target || !target.hasSelection || target.model !== blockModel
+                || target.contents !== blockModel.contents || target.ranges.length === 0)
+            return false
+        const first = target.ranges[0].blockIndex
+        const last = target.ranges[target.ranges.length - 1].blockIndex
+        for (let row = first; row <= last; ++row) {
+            const kind = blockModel.blockTypeAt(row)
+            if (kind !== NoteBlockType.Text && kind !== NoteBlockType.BulletList
+                    && kind !== NoteBlockType.NumberedList && kind !== NoteBlockType.CheckList)
+                return false
+        }
+        beginEditTransaction("insert-or-convert-list", true, target.viewState)
+        try {
+            // A changed document invalidates addressed ranges. Never turn a
+            // rejected selection command into an insertion at a fallback caret.
+            if (target.contents !== blockModel.contents)
+                return false
+            prepareForStructuralMutation()
+            const result = editorBackend.convertSelectionToList(target.ranges, type, target.backwards)
+            if (!result.handled)
+                return false
+            editorView.focusEditorAddress({ blockIndex: Number(result.row), listItemIndex: Number(result.item),
+                                            tableCellIndex: -1, field: "listItem",
+                                            markdownSourcePosition: Number(result.position) })
+            return true
+        } finally {
+            endEditTransaction()
+        }
+    }
+
+    function beginEditTransaction(kind, flushEditors, beforeView) {
         if (editTransactionDepth === 0) {
             if (flushEditors !== false)
                 flushPendingEditorChanges()
-            editorBackend.beginHistoryTransaction(kind, editorView.captureEditorState())
+            editorBackend.beginHistoryTransaction(kind, beforeView || editorView.captureEditorState())
         }
         ++editTransactionDepth
     }
@@ -742,6 +811,7 @@ QtObject {
                 wholeEditor: !boundaryOnly && rangeStart === 0 && rangeEnd === editor.length,
                 boundaryOnly: boundaryOnly,
                 selectionStart: rangeStart,
+                selectionEnd: rangeEnd,
                 before: selected ? editor.markdownRange(0, rangeStart)
                                  : (boundaryOnly && rangeStart > 0
                                     ? editor.markdownRange(0, rangeStart) : ""),

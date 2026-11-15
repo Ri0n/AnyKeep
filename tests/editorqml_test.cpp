@@ -11,6 +11,8 @@
 #include <QMimeDatabase>
 #include <QMimeType>
 #include <QPalette>
+#include <QPersistentModelIndex>
+#include <QPointer>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -2656,8 +2658,16 @@ private slots:
                     QTextCursor cursor(documents.at(index));
                     cursor.setPosition(position);
                     cursor.setPosition(position + 1, QTextCursor::KeepAnchor);
-                    QCOMPARE(cursor.charFormat().fontWeight() >= QFont::Bold,
-                             firstStyle == QLatin1String("bold") && step < 3);
+                    QVERIFY2((cursor.charFormat().fontWeight() >= QFont::Bold)
+                                 == (firstStyle == QLatin1String("bold") && step < 3),
+                             qPrintable(QStringLiteral("Bold mismatch: step=%1 item=%2 position=%3 source=%4")
+                                            .arg(step)
+                                            .arg(index)
+                                            .arg(position)
+                                            .arg(editor.model()
+                                                     ->data(editor.model()->index(1), NoteBlockModel::ItemsRole)
+                                                     .toStringList()
+                                                     .join(" | "))));
                     QCOMPARE(cursor.charFormat().fontItalic(), firstStyle == QLatin1String("italic") && step < 3);
                     QCOMPARE(cursor.charFormat().fontUnderline(), firstStyle == QLatin1String("underline") && step < 3);
                     QCOMPARE(cursor.charFormat().fontStrikeOut(), step == 1);
@@ -2688,6 +2698,339 @@ private slots:
             QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
                      snapshots.at(step));
         }
+    }
+
+    void listMenuConvertsCapturedSelectionInPlace_data()
+    {
+        QTest::addColumn<int>("listType");
+        QTest::addColumn<QString>("actionName");
+        QTest::addColumn<QString>("scenario");
+        QTest::addColumn<bool>("reverse");
+        for (const QString &scenario :
+             { QStringLiteral("text"), QStringLiteral("cross-block"), QStringLiteral("native-selection-cleared"),
+               QStringLiteral("plain-text"), QStringLiteral("single-line"), QStringLiteral("formatted"),
+               QStringLiteral("ime-commit") }) {
+            QTest::newRow(qPrintable(scenario + "-bullet"))
+                << int(NoteBlockModel::BulletList) << QStringLiteral("editorBulletListAction") << scenario << false;
+            QTest::newRow(qPrintable(scenario + "-numbered-reverse"))
+                << int(NoteBlockModel::NumberedList) << QStringLiteral("editorNumberedListAction") << scenario << true;
+            QTest::newRow(qPrintable(scenario + "-task"))
+                << int(NoteBlockModel::CheckList) << QStringLiteral("editorTaskListAction") << scenario << false;
+        }
+    }
+
+    void listMenuConvertsCapturedSelectionInPlace()
+    {
+        QFETCH(int, listType);
+        QFETCH(QString, actionName);
+        QFETCH(QString, scenario);
+        QFETCH(bool, reverse);
+        const bool crossBlock = scenario == QLatin1String("cross-block");
+        const bool plainText  = scenario == QLatin1String("plain-text");
+        const bool imeCommit  = scenario == QLatin1String("ime-commit");
+        const bool singleLine = scenario == QLatin1String("single-line");
+        const bool formatted  = scenario == QLatin1String("formatted");
+        Note       note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(
+            crossBlock      ? QStringLiteral("before\n\nfirst selected\n\n- second selected\n\nlast selected\n\nafter")
+                : plainText ? QStringLiteral("before\nfirst selected\nsecond selected\nlast selected\nafter")
+                            : QStringLiteral("before\n\nfirst selected\n\nsecond selected\n\nlast selected\n\nafter"),
+            plainText ? Note::PlainText : Note::Markdown);
+        if (formatted)
+            note.setText(QStringLiteral("before\n\n**first selected**\n\n[second "
+                                        "selected](https://example.org)\n\n~~last selected~~\n\nafter"),
+                         Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        QString               originalContents = editor.model()->contents();
+        DesktopNoteEditorHost host(&editor);
+        host.resize(1000, 520);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *first = nullptr;
+        QQuickItem *last  = nullptr;
+        QTRY_VERIFY((first = textEditorForBlock(root, 1)));
+        QTRY_VERIFY((last = textEditorForBlock(root, crossBlock ? 3 : 1)));
+        auto *blockEditor = ancestorWithProperty(first, "currentFindText");
+        QVERIFY(blockEditor);
+        if (imeCommit) {
+            first->setProperty("androidImeWorkaround", true);
+            first->forceActiveFocus(Qt::MouseFocusReason);
+            QTRY_VERIFY(first->hasActiveFocus());
+            first->setProperty("cursorPosition", first->property("length"));
+            QInputMethodEvent preedit(QStringLiteral(" tail"), {});
+            QCoreApplication::sendEvent(first, &preedit);
+            QInputMethodEvent commit;
+            commit.setCommitString(QStringLiteral(" tail"));
+            QCoreApplication::sendEvent(first, &commit);
+            originalContents += QStringLiteral(" tail");
+        }
+        QSignalSpy resets(editor.model(), &QAbstractItemModel::modelReset);
+        auto      *titleEditor = textEditorForBlock(root, 0);
+        QVERIFY(titleEditor);
+        const QString firstText
+            = first->property("textDocument").value<QQuickTextDocument *>()->textDocument()->toPlainText();
+        const QString lastText
+            = last->property("textDocument").value<QQuickTextDocument *>()->textDocument()->toPlainText();
+        const int start
+            = firstText.indexOf(singleLine ? QStringLiteral("second selected") : QStringLiteral("first selected"));
+        const int end
+            = lastText.indexOf(singleLine ? QStringLiteral("second selected") : QStringLiteral("last selected"))
+            + (singleLine ? QStringLiteral("second selected").size() : QStringLiteral("last selected").size());
+        QVERIFY(start >= 0);
+        QVERIFY(end >= QStringLiteral("last selected").size());
+        if (crossBlock) {
+            QVERIFY(QMetaObject::invokeMethod(
+                blockEditor, "applyDocumentSelection",
+                Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(reverse ? last : first))),
+                Q_ARG(QVariant, reverse ? end : start),
+                Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(reverse ? first : last))),
+                Q_ARG(QVariant, reverse ? start : end), Q_ARG(QVariant, false)));
+        } else {
+            first->forceActiveFocus(Qt::MouseFocusReason);
+            QTRY_VERIFY(first->hasActiveFocus());
+            QVERIFY(QMetaObject::invokeMethod(first, "select", Q_ARG(int, reverse ? end : start),
+                                              Q_ARG(int, reverse ? start : end)));
+        }
+        auto *button = quickItemByName(root, QStringLiteral("editorInsertListButton"));
+        QVERIFY(button);
+        QVERIFY(button->isVisible());
+        auto *menu = root->findChild<QObject *>(QStringLiteral("editorListMenu"));
+        QVERIFY(menu);
+        clickQuickItem(host.quickWidget(), button);
+        QTRY_VERIFY(menu->property("visible").toBool());
+        if (scenario == QLatin1String("native-selection-cleared")) {
+            // An Android focus/IME handoff may invalidate the native selection
+            // while the list-type popup is open. The command still owns the
+            // range captured when the toolbar was activated.
+            QVERIFY(QMetaObject::invokeMethod(blockEditor, "clearDocumentSelection"));
+        }
+        auto *action = root->findChild<QQuickItem *>(actionName);
+        QVERIFY(action);
+        clickQuickItem(host.quickWidget(), action);
+        QCOMPARE(editor.model()->rowCount(), 4);
+        QCOMPARE(editor.model()->blockTypeAt(2), listType);
+        const QStringList expected = singleLine ? QStringList { QStringLiteral("second selected") }
+            : formatted ? QStringList { QStringLiteral("**first selected**"),
+                                        QStringLiteral("[second selected](https://example.org)"),
+                                        QStringLiteral("~~last selected~~") }
+                        : QStringList { QStringLiteral("first selected"), QStringLiteral("second selected"),
+                                        QStringLiteral("last selected") };
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::ItemsRole).toStringList(), expected);
+        QCOMPARE(editor.model()->blockTextAt(1),
+                 singleLine ? QStringLiteral("before\n\nfirst selected") : QStringLiteral("before"));
+        QCOMPARE(editor.model()->blockTextAt(3),
+                 singleLine      ? QStringLiteral("last selected\n\nafter")
+                     : imeCommit ? QStringLiteral("after tail")
+                                 : QStringLiteral("after"));
+        QCOMPARE(resets.count(), plainText ? 1 : 0);
+        if (!plainText)
+            QCOMPARE(textEditorForBlock(root, 0), titleEditor);
+        QQuickItem *focusedItem  = nullptr;
+        const int   focusedIndex = reverse || singleLine ? 0 : expected.size() - 1;
+        QTRY_VERIFY((focusedItem = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"),
+                                                              "listItemIndex", focusedIndex)));
+        QTRY_VERIFY(focusedItem->hasActiveFocus());
+        QCOMPARE(focusedItem->property("cursorPosition").toInt(),
+                 reverse ? 0 : focusedItem->property("length").toInt());
+        const QString converted = editor.model()->contents();
+        QVERIFY(editor.undo());
+        QCOMPARE(editor.model()->contents(), originalContents);
+        QCOMPARE(editor.isMarkdown(), !plainText);
+        if (!imeCommit)
+            QVERIFY(!editor.canUndo());
+        QVERIFY(editor.redo());
+        QCOMPARE(editor.model()->contents(), converted);
+    }
+
+    void listMenuConvertsSelectedItemsWithoutReplacingEditors()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("- [x] keep\n- [ ] first\n- [ ] last\n- [x] keep after"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        const QString         original = editor.model()->contents();
+        DesktopNoteEditorHost host(&editor);
+        host.resize(1000, 500);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *first = nullptr;
+        QQuickItem *last  = nullptr;
+        QTRY_VERIFY(
+            (first = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 1)));
+        QTRY_VERIFY((last = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 2)));
+        QPointer<QQuickItem> keptFirst(first);
+        QPointer<QQuickItem> keptLast(last);
+        auto                *view = ancestorWithProperty(first, "currentFindText");
+        QVERIFY(view);
+        QVERIFY(QMetaObject::invokeMethod(
+            view, "applyDocumentSelection", Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(first))),
+            Q_ARG(QVariant, 0), Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(last))),
+            Q_ARG(QVariant, last->property("length")), Q_ARG(QVariant, false)));
+        auto *button = quickItemByName(root, QStringLiteral("editorInsertListButton"));
+        auto *menu   = root->findChild<QObject *>(QStringLiteral("editorListMenu"));
+        auto *action = root->findChild<QQuickItem *>(QStringLiteral("editorNumberedListAction"));
+        QVERIFY(button);
+        QVERIFY(menu);
+        QVERIFY(action);
+        clickQuickItem(host.quickWidget(), button);
+        QTRY_VERIFY(menu->property("visible").toBool());
+        clickQuickItem(host.quickWidget(), action);
+        QCOMPARE(editor.model()->rowCount(), 2);
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemTypesRole).toList(),
+                 QVariantList({ int(NoteBlockModel::CheckList), int(NoteBlockModel::NumberedList),
+                                int(NoteBlockModel::NumberedList), int(NoteBlockModel::CheckList) }));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::CheckedRole).toList(),
+                 QVariantList({ true, false, false, true }));
+        QVERIFY(keptFirst);
+        QVERIFY(keptLast);
+        QCOMPARE(quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 1),
+                 keptFirst.data());
+        QCOMPARE(quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 2),
+                 keptLast.data());
+        QTRY_VERIFY(keptLast->hasActiveFocus());
+        QVERIFY(editor.undo());
+        QCOMPARE(editor.model()->contents(), original);
+        QVERIFY(!editor.canUndo());
+    }
+
+    void listMenuRecapturesAfterCancellationAndRepeatedUndo()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("before\n\nfirst\n\nsecond\n\nafter"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        const QString         original = editor.model()->contents();
+        DesktopNoteEditorHost host(&editor);
+        host.resize(1000, 500);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        auto *button = quickItemByName(root, QStringLiteral("editorInsertListButton"));
+        auto *menu   = root->findChild<QObject *>(QStringLiteral("editorListMenu"));
+        auto *action = root->findChild<QQuickItem *>(QStringLiteral("editorBulletListAction"));
+        QVERIFY(button);
+        QVERIFY(menu);
+        QVERIFY(action);
+        QSignalSpy resets(editor.model(), &QAbstractItemModel::modelReset);
+        for (int repeat = 0; repeat < 20; ++repeat) {
+            QQuickItem *body = nullptr;
+            QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+            QTRY_COMPARE(body->property("textDocument").value<QQuickTextDocument *>()->textDocument()->toPlainText(),
+                         QStringLiteral("before\nfirst\nsecond\nafter"));
+            body->forceActiveFocus(Qt::MouseFocusReason);
+            QVERIFY(QMetaObject::invokeMethod(body, "select", Q_ARG(int, 7), Q_ARG(int, 19)));
+            clickQuickItem(host.quickWidget(), button);
+            QTRY_VERIFY(menu->property("visible").toBool());
+            QVERIFY(QMetaObject::invokeMethod(menu, "close"));
+            QTRY_VERIFY(!menu->property("visible").toBool());
+            body->forceActiveFocus(Qt::MouseFocusReason);
+            const bool oneLine = repeat % 2;
+            QVERIFY(QMetaObject::invokeMethod(body, "select", Q_ARG(int, oneLine ? 13 : 7), Q_ARG(int, 19)));
+            clickQuickItem(host.quickWidget(), button);
+            QTRY_VERIFY(menu->property("visible").toBool());
+            if (repeat % 3 == 0) {
+                auto *view = ancestorWithProperty(body, "currentFindText");
+                QVERIFY(view);
+                QVERIFY(QMetaObject::invokeMethod(view, "clearDocumentSelection"));
+            }
+            clickQuickItem(host.quickWidget(), action);
+            QCOMPARE(editor.model()->rowCount(), 4);
+            const QStringList expected = oneLine ? QStringList { QStringLiteral("second") }
+                                                 : QStringList { QStringLiteral("first"), QStringLiteral("second") };
+            QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::ItemsRole).toStringList(),
+                     expected);
+            QCOMPARE(editor.model()->blockTextAt(3), QStringLiteral("after"));
+            QVERIFY(editor.undo());
+            QCOMPARE(editor.model()->contents(), original);
+            QVERIFY(!editor.canUndo());
+        }
+        QCOMPARE(resets.count(), 0);
+    }
+
+    void listMenuDoesNotInsertAfterItsDocumentChanges()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("before\n\nfirst\n\nsecond\n\nafter"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(1000, 500);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QVERIFY(QMetaObject::invokeMethod(body, "select", Q_ARG(int, 7), Q_ARG(int, 19)));
+        auto *button = quickItemByName(root, QStringLiteral("editorInsertListButton"));
+        auto *menu   = root->findChild<QObject *>(QStringLiteral("editorListMenu"));
+        auto *action = root->findChild<QQuickItem *>(QStringLiteral("editorBulletListAction"));
+        QVERIFY(button);
+        QVERIFY(menu);
+        QVERIFY(action);
+        clickQuickItem(host.quickWidget(), button);
+        QTRY_VERIFY(menu->property("visible").toBool());
+        editor.model()->setBlockText(1, QStringLiteral("A different document revision"));
+        const QString changed  = editor.model()->contents();
+        const QString undoText = editor.undoText();
+        clickQuickItem(host.quickWidget(), action);
+        QCOMPARE(editor.model()->rowCount(), 2);
+        QCOMPARE(editor.model()->contents(), changed);
+        QCOMPARE(editor.undoText(), undoText);
+    }
+
+    void listMenuKeepsTheTargetAfterEditorDelegateUnloads()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("before\n\nfirst\n\nsecond\n\nafter\n\n```\n")
+                         + QStringLiteral("long code line\n").repeated(180) + QStringLiteral("```\n\nlast"),
+                     Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(1000, 500);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        auto *view = ancestorWithProperty(body, "currentFindText");
+        QVERIFY(view);
+        view->setProperty("cacheBuffer", 0);
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QVERIFY(QMetaObject::invokeMethod(body, "select", Q_ARG(int, 7), Q_ARG(int, 19)));
+        auto *button = quickItemByName(root, QStringLiteral("editorInsertListButton"));
+        auto *menu   = root->findChild<QObject *>(QStringLiteral("editorListMenu"));
+        auto *action = root->findChild<QQuickItem *>(QStringLiteral("editorBulletListAction"));
+        QVERIFY(button);
+        QVERIFY(menu);
+        QVERIFY(action);
+        QPointer<QQuickItem>        retired(body);
+        const QPersistentModelIndex codeIndex(editor.model()->index(2));
+        QSignalSpy                  resets(editor.model(), &QAbstractItemModel::modelReset);
+        clickQuickItem(host.quickWidget(), button);
+        QTRY_VERIFY(menu->property("visible").toBool());
+        view->setProperty("contentY", view->property("contentHeight").toReal() - view->height());
+        QVERIFY(QMetaObject::invokeMethod(view, "forceLayout"));
+        QTRY_VERIFY(retired.isNull());
+        clickQuickItem(host.quickWidget(), action);
+        QCOMPARE(editor.model()->rowCount(), 6);
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ QStringLiteral("first"), QStringLiteral("second") }));
+        QCOMPARE(editor.model()->blockTextAt(1), QStringLiteral("before"));
+        QCOMPARE(editor.model()->blockTextAt(3), QStringLiteral("after"));
+        QVERIFY(codeIndex.isValid());
+        QCOMPARE(codeIndex.row(), 4);
+        QCOMPARE(codeIndex.data(NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::CodeBlock));
+        QCOMPARE(resets.count(), 0);
     }
 
     void listToolbarConvertsMultilineTextSelection()

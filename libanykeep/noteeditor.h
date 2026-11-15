@@ -138,6 +138,7 @@ public:
     Q_INVOKABLE bool        copyMarkdownToPrimarySelection(const QString &markdown);
     Q_INVOKABLE bool        copySelectionToPrimarySelection(const QVariantList &ranges);
     Q_INVOKABLE QVariantMap deleteSelection(const QVariantList &ranges);
+    Q_INVOKABLE QVariantMap convertSelectionToList(const QVariantList &ranges, int type, bool backwards);
     Q_INVOKABLE QVariantMap replaceListSelectionWithText(const QVariantList &ranges, int focusBlock, int focusItem,
                                                          const QString &text);
     Q_INVOKABLE QVariantMap replaceListSelectionFromClipboard(const QVariantList &ranges, int focusBlock,
