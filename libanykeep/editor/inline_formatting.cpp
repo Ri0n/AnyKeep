@@ -407,7 +407,8 @@ namespace {
                 const QTextCharFormat format = fragment.charFormat();
                 const InlineStyle     style  = explicitInlineStyle(format);
                 if ((format.isAnchor() && !format.anchorHref().isEmpty())
-                    || (!style.bold && !style.italic && !style.code && !style.strike && !style.underline))
+                    || (!style.bold && !style.italic && !style.code && !style.strike && !style.underline
+                        && !fragment.text().contains(QLatin1Char('<')) && !fragment.text().contains(QLatin1Char('&'))))
                     continue;
                 // Keep adjoining style runs together, so a changing bold or
                 // italic range cannot produce crossing or doubled delimiters.
