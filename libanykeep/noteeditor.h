@@ -107,6 +107,8 @@ public:
     Q_INVOKABLE bool setMediaTranscript(int row, const QString &transcript);
     void             setFolderId(const QUuid &folderId);
     void             setFavorite(bool favorite);
+    /** Add a canonical tag line without replacing an active Markdown document. */
+    bool             addTag(const QString &name);
     /** Preserves a direct user folder choice against automatic routing rules. */
     void setFolderUserOverride(bool enabled = true) { folderUserOverride_ = enabled; }
     /** Marks the current folder metadata as durably stored without touching document content. */
