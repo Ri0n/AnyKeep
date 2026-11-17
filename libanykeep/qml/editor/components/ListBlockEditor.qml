@@ -57,7 +57,8 @@ Column {
     function syncItems(forceEditorText) {
         syncingItems = true
         const values = itemData || []
-        if (listModel.count !== values.length) {
+        const resized = listModel.count !== values.length
+        if (resized) {
             // Resize at the changed range, keeping the editors on both sides.
             // Trimming the tail and rewriting shifted rows loses their focus,
             // QTextDocument state and any in-progress swipe displacement.
@@ -114,6 +115,11 @@ Column {
         }
         syncingItems = false
         ++itemsRevision
+        // Repeater creates rows synchronously, but Column positions them on
+        // polish. Finish that layout before the command transfers focus: the
+        // new editor's initial y=0 would otherwise reveal the list's beginning.
+        if (resized)
+            forceLayout()
     }
 
     // Carry the known range only while the canonical model publishes its
@@ -437,23 +443,10 @@ Column {
                 const row = listRoot.blockIndex
                 const firstItem = index
                 const endItem = list.subtreeEnd(firstItem)
-                const removesWholeList = firstItem === 0 && endItem === list.itemCount()
-                const focusItem = Math.min(firstItem,
-                                           list.itemCount() - (endItem - firstItem) - 1)
                 controller.runEditTransaction("delete-list-items", function() {
                     controller.prepareForStructuralMutation()
                     list.removeItems(firstItem, endItem - 1)
-                    if (removesWholeList) {
-                        controller.focusBlock(Math.min(row, controller.blockModel.rowCount() - 1))
-                    } else {
-                        controller.focusEditorAddress({
-                            blockIndex: row,
-                            listItemIndex: focusItem,
-                            tableCellIndex: -1,
-                            field: "listItem",
-                            cursorPosition: 0
-                        })
-                    }
+                    controller.focusAfterListItemsRemoved(row, firstItem)
                 })
             }
 

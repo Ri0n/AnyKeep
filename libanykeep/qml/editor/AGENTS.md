@@ -46,13 +46,22 @@
 - Structural `NoteBlockModel` edits publish row removals/insertions through
   `replaceBlocks()`, never a model reset: `ListView` regenerates a reset model
   from the top of the document, which makes the viewport jump.
+- After a list's row count changes, complete its `Column` layout before
+  transferring focus or querying caret geometry. A newly created Repeater row
+  initially has `y = 0`; revealing it before positioning scrolls to the list's
+  beginning even when all surviving delegates remain intact. Selection, swipe,
+  and drag-out deletion use `focusAfterListItemsRemoved()` to target the surviving
+  neighbour at the removed range. Swipe and drag-out removals pass the known
+  range through the list's projection helper to preserve identical-item delegates.
 - Never position the editor view (`positionViewAtIndex`, `contentY`) from code
   that runs while `ListView` creates a delegate (`Component.onCompleted`,
   `registerEditor`). Defer to the next event-loop turn; otherwise ListView
   discards every delegate and rebuilds the viewport from an estimated offset.
 - Bring focus targets into view with `revealBlock()` / `revealEditorRange()`
   (smallest scroll), never `ListView.Contain`, and never restore an absolute
-  `contentY` after undo/redo. Focus regained through window activation or a
+  `contentY` after undo/redo. When a target text editor is already instantiated,
+  reveal its caret/selection rather than the enclosing list or table, even if
+  the whole block fits in the viewport. Focus regained through window activation or a
   closing popup must not scroll to the caret. The view has no current row:
   keep `currentIndex: -1` and ListView key navigation disabled.
 - Root-level facade files remain intentionally tiny and preserve compatibility

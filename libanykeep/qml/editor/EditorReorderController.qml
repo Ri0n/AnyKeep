@@ -666,8 +666,8 @@ Item {
         if (droppedOutside) {
             editorView.runEditTransaction("delete-list-items", function() {
                 editorView.prepareForStructuralMutation()
-                blockModel.removeListItems(fromBlock, fromItem, fromEnd - 1)
-                editorView.focusBlock(Math.min(fromBlock, blockModel.rowCount() - 1))
+                sourceBlock.removeItems(fromItem, fromEnd - 1)
+                editorView.focusAfterListItemsRemoved(fromBlock, fromItem)
             })
             return true
         }

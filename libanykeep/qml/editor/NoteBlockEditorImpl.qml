@@ -145,7 +145,7 @@ ListView {
         if (takeFocus)
             return focusEditorAddress(address)
 
-        focusController.revealBlock(address.blockIndex)
+        focusController.revealBlock(address.blockIndex, address)
         function revealWithoutFocus() {
             const editor = editorForAddress(address)
             if (!editor)
@@ -312,6 +312,9 @@ ListView {
     function focusInitialEditor() { return focusController.focusInitialEditor() }
     function focusTagLineBlock(blockIndex, atEnd, focusDraft) { return focusController.focusTagLineBlock(blockIndex, atEnd, focusDraft) }
     function focusBlock(blockIndex, atEnd, position) { return focusController.focusBlock(blockIndex, atEnd, position) }
+    function focusAfterListItemsRemoved(blockIndex, firstItem) {
+        return focusController.focusAfterListItemsRemoved(blockIndex, firstItem)
+    }
     function focusBlockAtMarkdownSourcePosition(blockIndex, sourcePosition) {
         return focusController.focusBlockAtMarkdownSourcePosition(blockIndex, sourcePosition)
     }

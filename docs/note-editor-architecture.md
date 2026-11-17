@@ -105,6 +105,20 @@ not incrementally mutate either model. On release, one `moveListSubtree()`
 operation transfers the item and its descendants, preserves marker kinds and
 task state, and adjusts relative indentation.
 
+Item insertion and removal retain the surviving row editors and their text
+documents. The list `Column` completes positioning after its row count changes,
+before a command hands focus to a new editor. This makes caret visibility use
+the row's actual coordinates instead of its initial position at the top of the
+list. Deleting selected items, swiping, and dragging out of the viewport share
+`focusAfterListItemsRemoved()`: focus the surviving sibling at the removed
+range, or the final remaining item when deleting the tail. Swipe and drag-out
+removals pass the exact range through the list's projection helper so identical text
+does not cause the wrong delegate to be discarded. Removing every item enters
+the paragraph that replaces the list. Focus and history restoration
+reveal the target editor's caret or selection. The enclosing block is located
+only when that editor still needs to be instantiated; showing a complete list
+that fits in the viewport must not displace a user editing its lower items.
+
 ```mermaid
 flowchart LR
     H[reorder/ReorderDragHandle.qml] -->|absolute dx/dy| RC[EditorReorderController.qml]
