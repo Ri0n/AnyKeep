@@ -147,4 +147,46 @@ void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()
     QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, inboxPoint.toPoint());
     QTRY_VERIFY(!searchField->hasActiveFocus());
     QTRY_VERIFY(inbox->hasActiveFocus());
+
+    // The Android selection bar must remain compact even at a narrow
+    // navigation width. Check every action, not just the three from #207.
+    page->setProperty("touchActions", true);
+    QObject *selection = nullptr;
+    for (auto *child : page->findChildren<QObject *>()) {
+        if (child->property("anchorKey").isValid() && child->property("selectedNotes").isValid()) {
+            // FoldersPage has a second local selection controller; the
+            // manager controller is bound to the page's selectedNotes.
+            child->setProperty("selectedNotes", QVariantMap {
+                { QStringLiteral("store\\nnote"),
+                  QVariantMap { { QStringLiteral("storageId"), QStringLiteral("store") },
+                                { QStringLiteral("noteId"), QStringLiteral("note") },
+                                { QStringLiteral("title"), QStringLiteral("Note") },
+                                { QStringLiteral("favorite"), false } } }
+            });
+            if (page->property("selectionMode").toBool()) {
+                selection = child;
+                break;
+            }
+        }
+    }
+    QVERIFY(selection);
+    auto *actions = quickItemByName(page, QStringLiteral("mobileNoteSelectionActionBar"));
+    QVERIFY(actions);
+    QTRY_VERIFY(actions->isVisible());
+    const QStringList buttons {
+        QStringLiteral("mobileSelectionDelete"),
+        QStringLiteral("mobileSelectionMoveStorage"),
+        QStringLiteral("mobileSelectionMoveFolder"),
+        QStringLiteral("mobileSelectionArchive"),
+        QStringLiteral("mobileSelectionTag"),
+        QStringLiteral("mobileSelectionFavorite"),
+        QStringLiteral("mobileSelectionClear"),
+    };
+    for (const auto &name : buttons) {
+        auto *button = quickItemByName(page, name);
+        QVERIFY2(button, qPrintable(name));
+        QCOMPARE(button->property("text").toString(), QString());
+        QVERIFY(button->property("width").toReal() <= 44);
+    }
+    QVERIFY(actions->height() <= 52);
 }
