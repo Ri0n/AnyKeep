@@ -1033,15 +1033,23 @@ private slots:
         QTRY_VERIFY(attachment->hasActiveFocus());
     }
 
+    void mediaNavigationWaitsForTheAdjacentBlockOutsideTheDelegateCache_data()
+    {
+        QTest::addColumn<QString>("afterBlock");
+        QTest::newRow("paragraph") << QStringLiteral("After tall video");
+        QTest::newRow("list") << QStringLiteral("- first item\n- last item");
+        QTest::newRow("table") << QStringLiteral("| A | B |\n| --- | --- |\n| first | last |");
+    }
+
     void mediaNavigationWaitsForTheAdjacentBlockOutsideTheDelegateCache()
     {
+        QFETCH(QString, afterBlock);
         auto note = plainNote();
-        note.setText(QStringLiteral("Before tall video"), Note::Markdown);
+        note.setText(QStringLiteral("Before tall video\n\n") + afterBlock, Note::Markdown);
         DraftManager drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor   editor(note, drafts);
         editor.model()->insertMedia(2, QStringLiteral("anykeep-media:/missing/tall-video"), QStringLiteral("Video"),
                                     QStringLiteral("video/mp4"), 0, 640, 2560);
-        editor.model()->appendText(QStringLiteral("After tall video"));
         bool                  unrelatedTextFocused = false;
         DesktopNoteEditorHost host(&editor);
         host.resize(520, 360);
@@ -1054,7 +1062,24 @@ private slots:
         view->setProperty("cacheBuffer", 0);
         QVERIFY(QMetaObject::invokeMethod(media, "selectAndFocus"));
         QTRY_VERIFY(media->hasActiveFocus());
-        QTRY_VERIFY(!textEditorForBlock(root, 3));
+        const auto firstTargetEditor = [root]() -> QQuickItem * {
+            for (auto *field : textEditors(root))
+                if (field->property("blockIndex").toInt() == 3 && field->property("listItemIndex").toInt() <= 0
+                    && field->property("tableCellIndex").toInt() <= 0)
+                    return field;
+            return nullptr;
+        };
+        QTRY_VERIFY(!firstTargetEditor());
+        // Qt 6.4 detaches the cached editors before running their destruction
+        // handlers. Their stale registry entries must not satisfy navigation.
+        const QVariant address
+            = QVariantMap { { QStringLiteral("blockIndex"), 3 }, { QStringLiteral("blockBoundary"), true } };
+        QVariant resolved;
+        QVERIFY(QMetaObject::invokeMethod(view, "editorForAddress", Q_RETURN_ARG(QVariant, resolved),
+                                          Q_ARG(QVariant, address), Q_ARG(QVariant, QVariant())));
+        const auto *resolvedObject
+            = resolved.canConvert<QJSValue>() ? resolved.value<QJSValue>().toQObject() : resolved.value<QObject *>();
+        QVERIFY(!resolvedObject);
         for (auto *field : textEditors(root)) {
             connect(field, &QQuickItem::activeFocusChanged, &host, [field, &unrelatedTextFocused] {
                 if (field->hasActiveFocus() && field->property("blockIndex").toInt() != 3)
@@ -1063,7 +1088,7 @@ private slots:
         }
         QTest::keyClick(host.quickWidget(), Qt::Key_Down);
         QQuickItem *after = nullptr;
-        QTRY_VERIFY((after = textEditorForBlock(root, 3)) && after->hasActiveFocus());
+        QTRY_VERIFY((after = firstTargetEditor()) && after->hasActiveFocus());
         QVERIFY(!unrelatedTextFocused);
         QCOMPARE(after->property("cursorPosition").toInt(), 0);
     }
@@ -2289,6 +2314,232 @@ private slots:
             QVERIFY2(qAbs(value - imageViewportY) < blockEditor->height(),
                      qPrintable(QStringLiteral("Media navigation scrolled too far through %1").arg(recorder.trace())));
         QVERIFY(!title->hasActiveFocus());
+    }
+
+    void longListEditsKeepViewportAndSurvivingEditors_data()
+    {
+        QTest::addColumn<QString>("operation");
+        QTest::addColumn<bool>("touch");
+        QTest::addColumn<int>("editedItem");
+        QTest::addColumn<bool>("sectioned");
+        QTest::newRow("desktop-return") << QStringLiteral("return") << false << 60 << false;
+        QTest::newRow("touch-sized-return") << QStringLiteral("return") << true << 60 << false;
+        QTest::newRow("touch-ime-return") << QStringLiteral("ime-return") << true << 60 << false;
+        QTest::newRow("desktop-backspace") << QStringLiteral("backspace") << false << 60 << false;
+        QTest::newRow("touch-sized-backspace") << QStringLiteral("backspace") << true << 60 << false;
+        QTest::newRow("desktop-delete") << QStringLiteral("delete") << false << 60 << false;
+        QTest::newRow("touch-swipe") << QStringLiteral("swipe") << true << 60 << false;
+        QTest::newRow("desktop-append") << QStringLiteral("return") << false << 79 << false;
+        QTest::newRow("ime-append") << QStringLiteral("ime-return") << true << 79 << false;
+        QTest::newRow("native-item-selection") << QStringLiteral("native-selection") << false << 60 << false;
+        QTest::newRow("native-tail-selection") << QStringLiteral("native-selection") << false << 78 << false;
+        QTest::newRow("sectioned-nested-return") << QStringLiteral("return") << false << 27 << true;
+        QTest::newRow("sectioned-nested-backspace") << QStringLiteral("backspace") << false << 27 << true;
+        QTest::newRow("sectioned-nested-selection") << QStringLiteral("native-selection") << false << 26 << true;
+        QTest::newRow("desktop-drag-outside") << QStringLiteral("drag-outside") << false << 60 << false;
+        QTest::newRow("desktop-duplicate-drag-outside")
+            << QStringLiteral("drag-duplicate-outside") << false << 60 << false;
+        QTest::newRow("desktop-tail-drag-outside") << QStringLiteral("drag-outside") << false << 79 << false;
+        QTest::newRow("sectioned-drag-outside") << QStringLiteral("drag-outside") << false << 27 << true;
+        QTest::newRow("sectioned-subtree-drag-outside")
+            << QStringLiteral("drag-subtree-outside") << false << 25 << true;
+    }
+
+    void longListEditsKeepViewportAndSurvivingEditors()
+    {
+        QFETCH(QString, operation);
+        QFETCH(bool, touch);
+        QFETCH(int, editedItem);
+        QFETCH(bool, sectioned);
+        const int        count     = sectioned ? 28 : 80;
+        const int        listBlock = sectioned ? 2 : 1;
+        QStringList      items;
+        const QList<int> depths { 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 2, 2, 3, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1 };
+        const QString    link
+            = QStringLiteral("https://example.test/docs/encoded%20document?revision=123456789&view=details");
+        for (int item = 0; item < count; ++item) {
+            QString text = QStringLiteral("Item %1").arg(item);
+            if (sectioned) {
+                text = QStringLiteral("Review the platform work for item %1").arg(item);
+                if (item == 0)
+                    text = QStringLiteral("[%1](%1) assign work for [unstable tests](%1)").arg(link);
+                else if (item == 13)
+                    text = QStringLiteral(
+                        "Consider automating the generation of extension modules and their documentation");
+                else if (item == 27)
+                    text = QStringLiteral("Configure [assistant](%1)").arg(link);
+            }
+            items << QString(sectioned ? depths[item] * 4 : 0, QLatin1Char(' ')) + QStringLiteral("- [ ] ") + text;
+        }
+        if (operation == QLatin1String("drag-duplicate-outside"))
+            items[editedItem + 1] = items[editedItem];
+        QString body = items.join(QLatin1Char('\n'));
+        if (sectioned) {
+            body.prepend(QStringLiteral("# Priority\n\n"));
+            for (int section = 0; section < 6; ++section)
+                body += QStringLiteral("\n\n### **Section %1**\n\n- [ ] Later task\n- [ ] Another task\n\n%2")
+                            .arg(section)
+                            .arg(QStringLiteral("A longer explanatory paragraph after the list. ").repeated(8));
+            body += QStringLiteral("\n\n```python\nsetting = ['first', 'second']\n```\n\n# Final section");
+        }
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Long list"));
+        note.setText(body, Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        if (operation == QLatin1String("backspace"))
+            editor.model()->setListItem(listBlock, editedItem, QString());
+        DesktopNoteEditorHost host(&editor);
+        host.resize(sectioned ? 700 : 520, sectioned ? 700 : 360);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        const auto listEditor = [root, listBlock](int item) -> QQuickItem * {
+            for (auto *candidate : textEditors(root))
+                if (candidate->property("blockIndex").toInt() == listBlock
+                    && candidate->property("listItemIndex").toInt() == item)
+                    return candidate;
+            return nullptr;
+        };
+        QQuickItem *cell = nullptr;
+        QTRY_VERIFY((cell = listEditor(editedItem)));
+        auto *view = ancestorWithProperty(cell, "currentFindText");
+        QVERIFY(view);
+        if (sectioned) {
+            auto *list = ancestorWithProperty(cell, "itemData");
+            QVERIFY(list);
+            QTRY_VERIFY(list->height() > 0 && view->height() > 0);
+            QTest::qWait(50);
+            // The first list fits in this viewport, but the note continues
+            // below it. Editing a lower item must reveal that caret alone.
+            const qreal chrome = host.height() - view->height();
+            const qreal margin = 3 * view->property("editorFontMetricsHeight").toReal();
+            host.resize(700, qCeil(chrome + list->height() + margin));
+            QTRY_VERIFY(view->height() > list->height());
+        }
+        // Exercise the shared editor with Android-sized rows as well as the
+        // desktop geometry. The soft-Return case uses the real IME handler.
+        if (touch) {
+            for (int item = 0; item < count; ++item) {
+                auto *marker = quickItemByName(root, QStringLiteral("listMarker-%1-%2").arg(listBlock).arg(item));
+                auto *field  = listEditor(item);
+                QVERIFY(marker && field);
+                QVERIFY(
+                    QQmlProperty(marker, QStringLiteral("Layout.preferredHeight"), QQmlEngine::contextForObject(marker))
+                        .write(44));
+                field->setProperty("topPadding", 4);
+                field->setProperty("bottomPadding", 4);
+            }
+        }
+        QTest::qWait(50);
+        const qreal itemTop  = cell->mapToItem(view, QPointF()).y() + view->property("contentY").toReal();
+        const qreal maximumY = view->property("originY").toReal() + view->property("contentHeight").toReal()
+            + view->property("bottomMargin").toReal() - view->height();
+        QVERIFY(view->setProperty("contentY", qMin(maximumY, itemTop - view->height() / 3)));
+        cell->forceActiveFocus();
+        cell->setProperty("cursorPosition", cell->property("length"));
+        QTRY_VERIFY(cell->hasActiveFocus());
+        QTest::qWait(80);
+        const qreal initialY = view->property("contentY").toReal();
+        QVERIFY(initialY > view->height() * (sectioned ? 0.3 : 2));
+        const bool inserting      = operation.endsWith(QLatin1String("return"));
+        const int  removedCount   = operation == QLatin1String("native-selection") ? 2
+            : operation == QLatin1String("drag-subtree-outside")                   ? 3
+                                                                                   : 1;
+        const int  afterCandidate = qMin(count - 1, editedItem + 2);
+        const int  afterItem = !inserting && afterCandidate >= editedItem && afterCandidate < editedItem + removedCount
+            ? qMax(0, editedItem - 2)
+            : afterCandidate;
+        QPointer<QQuickItem> before(listEditor(editedItem - 1));
+        QPointer<QQuickItem> after(listEditor(afterItem));
+        QPointer<QQuickItem> original(cell);
+        QVERIFY(before && after);
+        const auto           *afterDocument = after->property("textDocument").value<QQuickTextDocument *>();
+        QPersistentModelIndex listIndex(editor.model()->index(listBlock));
+        QPersistentModelIndex followingIndex(editor.model()->index(listBlock + 1));
+        QPointer<QQuickItem>  followingEditor(sectioned ? textEditorForBlock(root, listBlock + 1) : nullptr);
+        if (sectioned)
+            QVERIFY(followingEditor && followingIndex.isValid());
+        QSignalSpy       resets(editor.model(), &QAbstractItemModel::modelReset);
+        ContentYRecorder recorder(view);
+        auto *editedRow = quickItemByName(root, QStringLiteral("listRow-%1-%2").arg(listBlock).arg(editedItem));
+        QVERIFY(editedRow);
+        const qreal maximumScroll = editedRow->property("naturalHeight").toReal() * 2 + 1;
+        if (operation == QLatin1String("native-selection")) {
+            auto *next = listEditor(editedItem + 1);
+            QVERIFY(next);
+            QVERIFY(
+                QMetaObject::invokeMethod(cell, "select", Q_ARG(int, 0), Q_ARG(int, cell->property("length").toInt())));
+            QVERIFY(
+                QMetaObject::invokeMethod(next, "select", Q_ARG(int, 0), Q_ARG(int, next->property("length").toInt())));
+            QTest::keyClick(host.quickWidget(), Qt::Key_Delete);
+        } else if (operation == QLatin1String("ime-return")) {
+            QVERIFY(cell->setProperty("androidImeWorkaround", true));
+            QInputMethodEvent enter;
+            enter.setCommitString(QStringLiteral("\n"));
+            QCoreApplication::sendEvent(cell, &enter);
+        } else if (operation == QLatin1String("swipe")) {
+            QVERIFY(QMetaObject::invokeMethod(editedRow, "removeBySwipe"));
+        } else if (operation.startsWith(QLatin1String("drag-"))) {
+            auto *controller = root->findChild<QObject *>(QStringLiteral("editorReorderController"));
+            auto *list       = ancestorWithProperty(cell, "itemData");
+            QVERIFY(controller && list);
+            QVERIFY(QMetaObject::invokeMethod(controller, "startListDrag", Q_ARG(QVariant, QVariant::fromValue(list)),
+                                              Q_ARG(QVariant, QVariant::fromValue(editedRow))));
+            QTRY_VERIFY(controller->property("dragging").toBool());
+            QTest::qWait(180);
+            // Drag horizontally out of the viewport so vertical autoscroll
+            // cannot obscure the focus/viewport effect of deleting the range.
+            QVERIFY(QMetaObject::invokeMethod(controller, "moveListDrag", Q_ARG(QVariant, view->width() + 100),
+                                              Q_ARG(QVariant, 0.0)));
+            QVERIFY(QMetaObject::invokeMethod(controller, "finishListDrag"));
+            QTRY_VERIFY(!controller->property("dragging").toBool());
+        } else {
+            QTest::keyClick(host.quickWidget(),
+                            inserting                                  ? Qt::Key_Return
+                                : operation == QLatin1String("delete") ? Qt::Key_Delete
+                                                                       : Qt::Key_Backspace);
+        }
+        QTRY_COMPARE(
+            editor.model()->data(editor.model()->index(listBlock), NoteBlockModel::ItemsRole).toStringList().size(),
+            inserting ? count + 1 : count - removedCount);
+        const int targetItem = inserting              ? editedItem + 1
+            : operation == QLatin1String("backspace") ? editedItem - 1
+                                                      : qMin(editedItem, count - removedCount - 1);
+        QTRY_VERIFY(listEditor(targetItem) && listEditor(targetItem)->hasActiveFocus());
+        QTest::qWait(100);
+        QVERIFY(listIndex.isValid());
+        QVERIFY(before && after);
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(listEditor(editedItem - 1), before.data());
+        QCOMPARE(listEditor(afterItem + (afterItem > editedItem ? (inserting ? 1 : -removedCount) : 0)), after.data());
+        QCOMPARE(after->property("textDocument").value<QQuickTextDocument *>(), afterDocument);
+        if (inserting)
+            QCOMPARE(listEditor(editedItem), original.data());
+        else if (operation.startsWith(QLatin1String("drag-")))
+            QTRY_VERIFY(!original);
+        if (sectioned && inserting) {
+            QVERIFY(editor.undo());
+            QTRY_COMPARE(editor.model()->listItemCountAt(listBlock), count);
+            QTRY_VERIFY(listEditor(editedItem) && listEditor(editedItem)->hasActiveFocus());
+            QTest::qWait(50);
+            QVERIFY(editor.redo());
+            QTRY_COMPARE(editor.model()->listItemCountAt(listBlock), count + 1);
+            QTRY_VERIFY(listEditor(targetItem) && listEditor(targetItem)->hasActiveFocus());
+            QTest::qWait(100);
+            // History can replace the affected list block. Other sections
+            // retain their delegates/indexes, and every scroll change remains
+            // subject to the same caret-only visibility assertion below.
+            QVERIFY(followingEditor && followingIndex.isValid());
+            QCOMPARE(textEditorForBlock(root, listBlock + 1), followingEditor.data());
+            QCOMPARE(resets.count(), 0);
+        }
+        // The caret and its new/previous sibling fit in the viewport. Observe
+        // every contentY change, so a later correction cannot hide a jump.
+        for (const qreal y : std::as_const(recorder.values))
+            QVERIFY2(
+                qAbs(y - initialY) < maximumScroll,
+                qPrintable(QStringLiteral("Editing at %1 scrolled through %2").arg(initialY).arg(recorder.trace())));
     }
 
     void listEditsAtDocumentTopKeepViewport()
@@ -5967,8 +6218,16 @@ private slots:
         QTRY_VERIFY(paragraph->hasActiveFocus());
     }
 
-    void swipingOnlyChecklistItemKeepsOtherBlocks()
+    void removingOnlyChecklistItemKeepsOtherBlocks_data()
     {
+        QTest::addColumn<bool>("dragOutside");
+        QTest::newRow("swipe") << false;
+        QTest::newRow("drag-outside") << true;
+    }
+
+    void removingOnlyChecklistItemKeepsOtherBlocks()
+    {
+        QFETCH(bool, dragOutside);
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("Checklist"));
         note.setText(QStringLiteral("Before\n\n- [ ] Only item\n\nAfter"), Note::Markdown);
@@ -5988,7 +6247,22 @@ private slots:
         const QPointer<QQuickItem> originalBefore(before), originalAfter(after);
         QSignalSpy                 reset(editor.model(), &QAbstractItemModel::modelReset);
         QSignalSpy                 removed(editor.model(), &QAbstractItemModel::rowsRemoved);
-        QVERIFY(QMetaObject::invokeMethod(row, "removeBySwipe"));
+        if (dragOutside) {
+            auto *controller = root->findChild<QObject *>(QStringLiteral("editorReorderController"));
+            auto *list       = ancestorWithProperty(row, "itemData");
+            auto *view       = ancestorWithProperty(row, "currentFindText");
+            QVERIFY(controller && list && view);
+            QVERIFY(QMetaObject::invokeMethod(controller, "startListDrag", Q_ARG(QVariant, QVariant::fromValue(list)),
+                                              Q_ARG(QVariant, QVariant::fromValue(row))));
+            QTRY_VERIFY(controller->property("dragging").toBool());
+            QTest::qWait(180);
+            QVERIFY(QMetaObject::invokeMethod(controller, "moveListDrag", Q_ARG(QVariant, view->width() + 100),
+                                              Q_ARG(QVariant, 0.0)));
+            QVERIFY(QMetaObject::invokeMethod(controller, "finishListDrag"));
+            QTRY_VERIFY(!controller->property("dragging").toBool());
+        } else {
+            QVERIFY(QMetaObject::invokeMethod(row, "removeBySwipe"));
+        }
         QTRY_COMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::Text));
         QCOMPARE(editor.model()->rowCount(), 4);
         QCOMPARE(reset.count(), 0);

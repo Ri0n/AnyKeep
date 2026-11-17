@@ -89,11 +89,19 @@ QtObject {
     // fits completely; of a taller one only bring the nearer edge in when it
     // is entirely off screen and leave the rest to the caret or selection
     // reveal. Only a row without a delegate is located through ListView.
-    function revealBlock(blockIndex) {
+    function revealBlock(blockIndex, address) {
         // Until ListView lays out pending model changes, itemAtIndex() still
         // answers with the delegate that used to be at that row, and a newly
         // inserted row has no editor to receive the pending focus request.
         editorView.forceLayout()
+        if (address) {
+            const editor = editorForAddress(address)
+            // A resident editor reveals its caret/selection after applying the
+            // address. Showing the enclosing block here would move a partially
+            // visible list to its beginning whenever it fits in the viewport.
+            if (editor && addressMatchesEditor(address, editor, true))
+                return
+        }
         const item = editorView.itemAtIndex(blockIndex)
         if (!item) {
             editorView.positionViewAtIndex(blockIndex, ListView.Contain)
@@ -223,20 +231,34 @@ QtObject {
                 || !address.field || String(address.field) === String(editor.editorField || "text")
     }
 
+    function editorHasLiveDelegate(editor) {
+        if (!editor || editor.blockIndex < 0)
+            return false
+        const delegate = editorView.itemAtIndex(editor.blockIndex)
+        if (!delegate)
+            return false
+        // Qt 6.4 can detach an evicted delegate before destroying its editors.
+        // Those editors still report their old index and visible=true, but
+        // cannot receive focus. Resolve against the row ListView actually owns.
+        for (let item = editor; item; item = item.parent)
+            if (item === delegate)
+                return true
+        return false
+    }
+
     function editorForAddress(address, candidate) {
+        if (candidate && !(address && address.blockBoundary)
+                && addressMatchesEditor(address, candidate, true)
+                && editorHasLiveDelegate(candidate))
+            return candidate
+        const ordered = orderedEditors().filter(editor => editorHasLiveDelegate(editor))
         if (address && address.blockBoundary) {
             // A normal block transition waits for that exact row to be
             // instantiated. History may fall back from a removed field, but
             // navigation must never jump to a different resident text block.
-            const fields = orderedEditors().filter(editor => addressMatchesEditor(address, editor, true))
+            const fields = ordered.filter(editor => addressMatchesEditor(address, editor, true))
             return fields.length > 0 ? fields[address.atEnd ? fields.length - 1 : 0] : null
         }
-        if (candidate && addressMatchesEditor(address, candidate, true))
-            return candidate
-        // A delegate that ListView is removing reports row -1 until it is
-        // destroyed. It must never take a restored cursor: focus would vanish
-        // together with it.
-        const ordered = orderedEditors().filter(editor => editor.blockIndex >= 0)
         for (const editor of ordered)
             if (addressMatchesEditor(address, editor, true))
                 return editor
@@ -306,7 +328,7 @@ QtObject {
         Qt.callLater(function() {
             if (editor !== editorView.activeEditor || !editor.activeFocus)
                 return
-            revealBlock(editor.blockIndex)
+            revealBlock(editor.blockIndex, editorAddress(editor))
             editorView.scheduleCursorVisibility(editor)
             Qt.callLater(function() {
                 if (editor === editorView.activeEditor && editor.activeFocus)
@@ -409,7 +431,7 @@ QtObject {
         } else {
             ++viewportRestoreGeneration
             suppressCursorVisibility = false
-            revealBlock(Number(address.blockIndex))
+            revealBlock(Number(address.blockIndex), address)
         }
         if (!tryPendingEditorFocus())
             pendingFocusRetry.restart()
@@ -447,7 +469,7 @@ QtObject {
         // began would move a document the user has scrolled since.
         const target = state.active || state.selectionStart || state.selectionEnd
         if (target && Number(target.blockIndex) >= 0)
-            revealBlock(Number(target.blockIndex))
+            revealBlock(Number(target.blockIndex), target)
         if (!tryRestorePendingEditorState())
             pendingFocusRetry.restart()
         return true
@@ -712,6 +734,22 @@ QtObject {
             selectionStart: position === undefined ? -1 : position,
             selectionEnd: position === undefined ? -1 : position,
             atEnd: Boolean(atEnd)
+        })
+    }
+
+    function focusAfterListItemsRemoved(blockIndex, firstItem) {
+        const row = Math.min(blockIndex, blockModel.rowCount() - 1)
+        const remaining = blockModel.listItemCountAt(row)
+        if (remaining <= 0)
+            return focusBlock(row)
+        // Enter the surviving neighbour, including the previous item when
+        // removing the tail. Block focus would enter the list's first item.
+        return focusEditorAddress({
+            blockIndex: row,
+            listItemIndex: Math.min(firstItem, remaining - 1),
+            tableCellIndex: -1,
+            field: "listItem",
+            cursorPosition: 0
         })
     }
 

@@ -1258,9 +1258,10 @@ QtObject {
         const listItems = selected.filter(editor => editor.listItemIndex >= 0)
         if (listItems.length === selected.length) {
             const indexes = listItems.map(editor => editor.listItemIndex)
+            const first = Math.min(...indexes)
             prepareForStructuralMutation()
-            blockModel.removeListItems(block, Math.min(...indexes), Math.max(...indexes))
-            editorView.focusBlock(block)
+            blockModel.removeListItems(block, first, Math.max(...indexes))
+            editorView.focusAfterListItemsRemoved(block, first)
             return true
         }
         const tableCells = selected.filter(editor => editor.tableRow >= 0)
