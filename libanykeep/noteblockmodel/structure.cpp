@@ -387,6 +387,47 @@ QVariantMap NoteBlockModel::setTagLineTag(int row, int tagIndex, const QString &
     return result;
 }
 
+bool NoteBlockModel::addTagsToDocument(const QStringList &names)
+{
+    if (!markdown_ || names.isEmpty())
+        return false;
+    QStringList additions;
+    for (const auto &name : names) {
+        if (!NoteTagLine::isValidTagName(name))
+            return false;
+        if (!additions.contains(name))
+            additions.append(name);
+    }
+    for (int row = 0; row < blocks_.size(); ++row) {
+        if (blocks_.at(row).type != TagLine)
+            continue;
+        auto &current = blocks_[row].tags;
+        bool changedTags = false;
+        for (const auto &name : additions) {
+            if (current.contains(name))
+                continue;
+            current.append(name);
+            changedTags = true;
+        }
+        if (changedTags) {
+            changed(row, { TagsRole, TextRole });
+            emit contentsChanged();
+        }
+        return true;
+    }
+
+    Block tagLine;
+    tagLine.type = TagLine;
+    tagLine.tags = additions;
+    const int row = qMin(1, int(blocks_.size()));
+    beginInsertRows({}, row, row);
+    blocks_.insert(row, tagLine);
+    endInsertRows();
+    notifyNormalizedTagLines();
+    emit contentsChanged();
+    return true;
+}
+
 QVariantMap NoteBlockModel::appendTagLineTag(int row, const QString &value, int cursorPosition)
 {
     QVariantMap result;
