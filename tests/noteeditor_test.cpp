@@ -169,6 +169,42 @@ private slots:
         QCOMPARE(durable.value.tags, QStringList({ QStringLiteral("alpha"), QStringLiteral("beta") }));
     }
 
+    void bulkMetadataUpdatesOnePendingDraft()
+    {
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        FavoriteStorage storage;
+        auto note = storage.createNote();
+        note.setId(QStringLiteral("remote-note"));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        QUuid draftId;
+        {
+            NoteEditor editor(note, drafts);
+            draftId = editor.draftId();
+            QVERIFY(editor.addTag(QStringLiteral("original")));
+            QVERIFY(editor.save());
+            QVERIFY(editor.close());
+        }
+
+        const auto before = drafts.pendingDraftForNote(storage.systemName(), note.id());
+        QVERIFY(before);
+        QCOMPARE(before.value.id, draftId);
+        const auto originalRevision = before.value.revision;
+        QVERIFY(!drafts.updatePendingMetadata(draftId, QStringLiteral("added"), 1));
+        const auto after = drafts.pendingDraftForNote(storage.systemName(), note.id());
+        QVERIFY(after);
+        QCOMPARE(after.value.id, draftId);
+        QVERIFY(after.value.revision > originalRevision);
+        QVERIFY(after.value.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool());
+        QCOMPARE(after.value.tags, QStringList({ QStringLiteral("original"), QStringLiteral("added") }));
+        QVERIFY(after.value.body.contains(QStringLiteral("#original #added")));
+        QVERIFY(after.value.body.contains(QStringLiteral("Body")));
+        const auto unchanged = after.value.revision;
+        QVERIFY(!drafts.updatePendingMetadata(draftId, QStringLiteral("added"), 1));
+        QCOMPARE(drafts.pendingDraftForNote(storage.systemName(), note.id()).value.revision, unchanged);
+        QVERIFY(drafts.updatePendingMetadata(draftId, QStringLiteral("invalid tag!")));
+    }
+
     void derivedMediaPreviewsSurviveUndoWithoutAddingAnUndoStep()
     {
         DraftManager   drafts(std::make_unique<MemoryDraftStore>());
