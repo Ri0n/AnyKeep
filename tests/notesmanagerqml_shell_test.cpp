@@ -151,25 +151,16 @@ void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()
     // The Android selection bar must remain compact even at a narrow
     // navigation width. Check every action, not just the three from #207.
     page->setProperty("touchActions", true);
-    QObject *selection = nullptr;
-    for (auto *child : page->findChildren<QObject *>()) {
-        if (child->property("anchorKey").isValid() && child->property("selectedNotes").isValid()) {
-            // FoldersPage has a second local selection controller; the
-            // manager controller is bound to the page's selectedNotes.
-            child->setProperty("selectedNotes", QVariantMap {
-                { QStringLiteral("store\\nnote"),
-                  QVariantMap { { QStringLiteral("storageId"), QStringLiteral("store") },
-                                { QStringLiteral("noteId"), QStringLiteral("note") },
-                                { QStringLiteral("title"), QStringLiteral("Note") },
-                                { QStringLiteral("favorite"), false } } }
-            });
-            if (page->property("selectionMode").toBool()) {
-                selection = child;
-                break;
-            }
-        }
-    }
+    auto *selection = page->findChild<QObject *>(QStringLiteral("notesManagerSelectionController"));
     QVERIFY(selection);
+    selection->setProperty("selectedNotes", QVariantMap {
+        { QStringLiteral("store\\nnote"),
+          QVariantMap { { QStringLiteral("storageId"), QStringLiteral("store") },
+                        { QStringLiteral("noteId"), QStringLiteral("note") },
+                        { QStringLiteral("title"), QStringLiteral("Note") },
+                        { QStringLiteral("favorite"), false } } }
+    });
+    QTRY_VERIFY(page->property("selectionMode").toBool());
     auto *actions = quickItemByName(page, QStringLiteral("mobileNoteSelectionActionBar"));
     QVERIFY(actions);
     QTRY_VERIFY(actions->isVisible());
