@@ -1,0 +1,148 @@
+name: Gate and tag AnyKeep release
+
+# Start on master and enter the desired application version. This workflow
+# alone creates the version tag after both the normal and expanded CI pass.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "New application release tag (for example 4.0.6 or 4.0.6_rc1)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Do not tag two candidate versions concurrently.
+concurrency:
+  group: anykeep-release-gate
+  cancel-in-progress: false
+
+env:
+  ANDROID_NDK_VERSION: r27c
+  ANDROID_API: 28
+  ANDROID_OPENSSL_REVISION: b71f1470962019bd89534a2919f5925f93bc5779
+  AQT_QT6_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
+
+jobs:
+  validate:
+    name: Validate release candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Require master and unused application tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != refs/heads/master ]]; then
+            echo "::error::Release gate must be started from master" >&2
+            exit 1
+          fi
+          if [[ ! "$RELEASE_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([_-](rc|alpha|beta)[0-9]+)?$ ]]; then
+            echo "::error::Expected a version tag such as 4.0.6 or 4.0.6_rc1" >&2
+            exit 1
+          fi
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if git show-ref --quiet --verify "refs/tags/$RELEASE_TAG"; then
+            echo "::error::Tag $RELEASE_TAG already exists" >&2
+            exit 1
+          fi
+
+  standard-ci:
+    name: Complete standard CI
+    needs: validate
+    # Reuse the same build/test coverage as pull requests, including arm64 SDK.
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  extended-android:
+    name: Extended Android / ${{ matrix.abi }} / ${{ matrix.qca }} QCA
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: x86_64
+            qt-arch: android_x86_64
+            qca: sdk
+          - abi: arm64-v8a
+            qt-arch: android_arm64_v8a
+            qca: bundled
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Load dependency versions
+        uses: ./.github/actions/load-dependencies
+
+      - name: Build extended Android APK
+        uses: ./.github/actions/build-android-apk
+        with:
+          allow-debug-signing: 'true'
+          abi: ${{ matrix.abi }}
+          qt-arch: ${{ matrix.qt-arch }}
+          qt-version: ${{ env.QT_VERSION }}
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+          android-api: ${{ env.ANDROID_API }}
+          android-openssl-revision: ${{ env.ANDROID_OPENSSL_REVISION }}
+          qca-tag: ${{ env.QCA_TAG }}
+          source-qca: ${{ matrix.qca == 'bundled' }}
+          iris-tag: ${{ env.IRIS_TAG }}
+          aqt-source: ${{ env.AQT_QT6_SOURCE }}
+          github-token: ${{ github.token }}
+
+  tag-and-package:
+    name: Create version tag and start packaging
+    needs: [validate, standard-ci, extended-android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Checkout verified commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Tag verified master and dispatch packages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          # A newer push to master requires another verification run, rather
+          # than publishing a tag on an outdated release candidate.
+          current_master="$(git ls-remote origin refs/heads/master | cut -f1)"
+          if [[ "$current_master" != "$GITHUB_SHA" ]]; then
+            echo "::error::master moved during release checks; restart the gate" >&2
+            exit 1
+          fi
+          if [[ -n "$(git ls-remote --tags --refs origin "refs/tags/$RELEASE_TAG")" ]]; then
+            echo "::error::Tag $RELEASE_TAG already exists" >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" -m "AnyKeep $RELEASE_TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$RELEASE_TAG"
+
+          # Tags created with GITHUB_TOKEN do not trigger push-tag workflows.
+          # Explicit workflow_dispatch runs packages.yml at the new tag.
+          gh workflow run packages.yml --repo "$GITHUB_REPOSITORY" \
+            --ref "$RELEASE_TAG" --field update_channel=stable
+          echo "Release $RELEASE_TAG passed verification; packaging was dispatched."
