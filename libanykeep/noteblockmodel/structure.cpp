@@ -409,10 +409,8 @@ bool NoteBlockModel::addTagsToDocument(const QStringList &names)
             current.append(name);
             changedTags = true;
         }
-        if (changedTags) {
+        if (changedTags)
             changed(row, { TagsRole, TextRole });
-            emit contentsChanged();
-        }
         return true;
     }
 
