@@ -42,6 +42,7 @@ class ANYKEEP_EXPORT NotesWorkspaceController final : public QObject {
     Q_PROPERTY(QString currentFolderId READ currentFolderId NOTIFY currentFolderIdChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(bool metadataBatchBusy READ metadataBatchBusy NOTIFY metadataBatchBusyChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorStringChanged)
     Q_PROPERTY(int noteCount READ noteCount NOTIFY noteCountChanged)
     Q_PROPERTY(QString searchText READ searchText WRITE setSearchText NOTIFY searchTextChanged)
@@ -75,6 +76,7 @@ public:
     QString             currentFolderId() const;
     bool                loading() const { return loading_; }
     bool                busy() const;
+    bool                metadataBatchBusy() const { return metadataBatchBusy_; }
     QString             errorString() const { return errorString_; }
     int                 noteCount() const;
     QString             searchText() const;
@@ -143,6 +145,8 @@ public:
     Q_INVOKABLE bool    assignNoteFolder(const QString &storageId, const QString &noteId, const QString &folderId);
     Q_INVOKABLE bool    assignCurrentNoteFolder(const QString &folderId);
     Q_INVOKABLE bool    createNoteInFolder(const QString &folderId, const QString &storageId = {});
+    Q_INVOKABLE bool    addTagToNotes(const QVariantList &notes, const QString &tag);
+    Q_INVOKABLE bool    setNotesFavorite(const QVariantList &notes, bool favorite);
 
 public slots:
     void setSearchText(const QString &text);
@@ -154,6 +158,8 @@ signals:
     void currentFolderIdChanged();
     void loadingChanged();
     void busyChanged();
+    void metadataBatchBusyChanged();
+    void metadataBatchFinished(const QVariantList &failedNotes, const QString &errorSummary);
     void errorStringChanged();
     void noteCountChanged();
     void searchTextChanged();
@@ -220,6 +226,7 @@ private:
     void    rememberPendingFolderAssignment(const QUuid &draftId, const QUuid &folderId);
     bool    restoreFolderTrashAt(qsizetype index);
     void    removeNoteTrashUndo(const QString &storageId, const QString &noteId);
+    bool    updateNotesMetadata(const QVariantList &notes, const QString &tag, int favoriteChange);
 
     NotesModel                           *notesModel_ { nullptr };
     NotesSearchModel                     *searchModel_ { nullptr };
@@ -236,6 +243,7 @@ private:
     QHash<QUuid, PendingFolderAssignment> pendingFolderAssignments_;
     QList<TrashUndoEntry>                 trashUndoEntries_;
     bool                                  loading_ { false };
+    bool                                  metadataBatchBusy_ { false };
     int                                   pendingOperations_ { 0 };
     QString                               errorString_;
 };
