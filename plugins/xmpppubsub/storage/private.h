@@ -13,6 +13,7 @@ inline const QString AnyKeepKeychainService    = QStringLiteral("org.xmpp.privat
 inline const QString PsiKeychainService        = QStringLiteral("xmpp");
 inline const QString IndexRecordTemplateKey    = QStringLiteral("xmpp.xml.v1.index-template");
 inline const QString ContentRecordTemplateKey  = QStringLiteral("xmpp.xml.v1.content-template");
+inline const QString PendingRevisionBackendKey = QStringLiteral("xmpp.pending-index-revision");
 inline const QString ContentRevisionBackendKey = QStringLiteral("xmpp.xml.v1.content-revision");
 inline const QString FolderPathBackendKey      = QStringLiteral("xmpp.xml.v1.folder-path");
 inline const QString SystemFolderBackendKey    = QStringLiteral("xmpp.xml.v1.system-folder-id");

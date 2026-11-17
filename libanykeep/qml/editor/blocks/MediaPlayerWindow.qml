@@ -47,6 +47,7 @@ Window {
             readonly property string mediaTranscript: ""
         }
         readonly property var editorView: QtObject {
+            readonly property bool touchMode: false
             readonly property color documentCardColor: colors.alternateBase
             readonly property color documentTextColor: colors.text
             readonly property color documentSecondaryTextColor: colors.placeholderText
@@ -124,7 +125,7 @@ Window {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: 48
+            height: implicitHeight
         }
     }
     Menu {

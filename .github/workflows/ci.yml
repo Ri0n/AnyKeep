@@ -554,3 +554,56 @@ jobs:
           export QCA_PLUGIN_PATH="$qca_prefix/lib/qca3-qt6"
           export DYLD_LIBRARY_PATH="$qca_prefix/lib:$PWD/iris-sdk/lib:${DYLD_LIBRARY_PATH:-}"
           ctest --test-dir build/macos -R '^cryptoproviders_test$' --output-on-failure --timeout 180
+
+  # A branch-scoped installable preview, produced only after *all* CI jobs
+  # succeed. Keep release/nightly packaging separate from an unmerged PR.
+  android-preview-package:
+    name: Android preview package / ${{ matrix.abi }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/android-audio-transcript-layout-20261115' }}
+    needs: [package-plan-check, windows, linux, debian13-package, android, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+            qt-arch: android_arm64_v8a
+          - abi: x86_64
+            qt-arch: android_x86_64
+
+    steps:
+      - name: Checkout PR commit
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Load dependency versions
+        uses: ./.github/actions/load-dependencies
+
+      - name: Build installable Android APK
+        uses: ./.github/actions/build-android-apk
+        with:
+          allow-debug-signing: 'true'
+          abi: ${{ matrix.abi }}
+          qt-arch: ${{ matrix.qt-arch }}
+          qt-version: ${{ env.QT_VERSION }}
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+          android-api: ${{ env.ANDROID_API }}
+          android-openssl-revision: ${{ env.ANDROID_OPENSSL_REVISION }}
+          qca-tag: ${{ env.QCA_TAG }}
+          iris-tag: ${{ env.IRIS_TAG }}
+          aqt-source: ${{ env.AQT_QT6_SOURCE }}
+          github-token: ${{ github.token }}
+          signing-keystore-base64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          signing-key-alias: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          signing-store-password: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          signing-key-password: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+
+      - name: Upload installable Android preview
+        uses: actions/upload-artifact@v7
+        with:
+          name: anykeep-pr218-android-${{ matrix.abi }}
+          path: packages/AnyKeep-${{ matrix.abi }}.apk
+          if-no-files-found: error
+          compression-level: 0

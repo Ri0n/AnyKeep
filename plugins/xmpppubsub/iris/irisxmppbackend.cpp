@@ -60,8 +60,8 @@
 #include <QTemporaryFile>
 #include <QThreadPool>
 #include <QTimer>
-#include <QXmlStreamReader>
 #include <QUuid>
+#include <QXmlStreamReader>
 
 #include <algorithm>
 #include <limits>
@@ -72,13 +72,6 @@ Q_LOGGING_CATEGORY(lcIrisXmpp, "anykeep.xmpp.iris")
 
 namespace AnyKeep {
 namespace {
-
-    QString mediaChunkIdentity(const MediaChunkWireParameters &parameters)
-    {
-        const QByteArray identity = parameters.rootKey + parameters.noncePrefix + parameters.plainChecksum
-            + QByteArray::number(parameters.plainSize) + ':' + QByteArray::number(parameters.chunkSize);
-        return QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
-    }
 
     class BoundedRangeBuffer final : public QBuffer {
     public:
@@ -485,9 +478,11 @@ void IrisXmppBackend::destroyClientObjects()
 {
     pendingInboundKeyRequests_.clear();
     jinglePublicationProvider_ = nullptr;
-    keySyncTask_               = nullptr;
-    pubSub_                    = nullptr;
-    omemo_                     = nullptr;
+    mediaReplicaWatches_.clear();
+    pendingMediaPublicationNotes_.clear();
+    keySyncTask_ = nullptr;
+    pubSub_      = nullptr;
+    omemo_       = nullptr;
 
     if (client_) {
         client_->close(true);
@@ -546,8 +541,7 @@ void IrisXmppBackend::createClient()
     // SMState defaults to false). Enable stream resumption before login.
     stream_->setSMEnabled(true);
     streamManagementActive_ = false;
-    connect(stream_, &XMPP::ClientStream::incomingXml, this,
-            [this](const QString &xml) { handleWakeProbeXml(xml); });
+    connect(stream_, &XMPP::ClientStream::incomingXml, this, [this](const QString &xml) { handleWakeProbeXml(xml); });
     connect(stream_, &XMPP::ClientStream::stanzasAcked, this, [this](int) {
         if (wakeProbe_ == WakeProbe::StreamManagement)
             finishWakeProbe();
@@ -558,22 +552,20 @@ void IrisXmppBackend::createClient()
 #ifdef IRIS_FT_DEFERRED_RECEIPTS
     // Availability is per publishing resource, not the account's connection.
     // Only the matching media task is resumed when its device returns.
-    connect(client_, &XMPP::Client::resourceAvailable, this,
-            [this](const XMPP::Jid &jid, const XMPP::Resource &) {
-                // A snapshot avoids invalidated QHash iterators if status
-                // observers create another media job synchronously.
-                const auto jobs = mediaSyncJobs_.values();
-                for (const auto &job : jobs)
-                    if (job)
-                        job->setPublisherAvailable(jid, true);
-            });
-    connect(client_, &XMPP::Client::resourceUnavailable, this,
-            [this](const XMPP::Jid &jid, const XMPP::Resource &) {
-                const auto jobs = mediaSyncJobs_.values();
-                for (const auto &job : jobs)
-                    if (job)
-                        job->setPublisherAvailable(jid, false);
-            });
+    connect(client_, &XMPP::Client::resourceAvailable, this, [this](const XMPP::Jid &jid, const XMPP::Resource &) {
+        // A snapshot avoids invalidated QHash iterators if status
+        // observers create another media job synchronously.
+        const auto jobs = mediaSyncJobs_.values();
+        for (const auto &job : jobs)
+            if (job)
+                job->setPublisherAvailable(jid, true);
+    });
+    connect(client_, &XMPP::Client::resourceUnavailable, this, [this](const XMPP::Jid &jid, const XMPP::Resource &) {
+        const auto jobs = mediaSyncJobs_.values();
+        for (const auto &job : jobs)
+            if (job)
+                job->setPublisherAvailable(jid, false);
+    });
 #endif
     client_->jingleManager()->setRemoteJidChecker(
         [owner = bareJid(config_)](const XMPP::Jid &requester) { return requester.compare(owner, false); });
@@ -608,6 +600,14 @@ void IrisXmppBackend::createClient()
             qCDebug(lcIrisJingleMedia) << "Jingle publication registry state: publication=" << id << "state=" << state;
         });
     client_->jingleManager()->publicationManager()->registerProvider(jinglePublicationProvider_);
+    connect(jinglePublicationProvider_, &XMPP::Jingle::PublishedSessionProvider::stateChanged, this,
+            [this](XMPP::Jingle::PublishedSessionProvider::State state) {
+                if (state != XMPP::Jingle::PublishedSessionProvider::State::Synchronized)
+                    return;
+                const auto pending = std::exchange(pendingMediaPublicationNotes_, {});
+                for (const auto &note : pending)
+                    checkMediaPublicationsAsync(note);
+            });
     if (!jinglePublicationProvider_->errorString().isEmpty())
         qCWarning(lcIrisXmpp).noquote() << "Could not load the Jingle capability store:"
                                         << jinglePublicationProvider_->errorString();
@@ -858,8 +858,7 @@ void IrisXmppBackend::failWakeProbe()
 
 void IrisXmppBackend::checkConnectionAfterResume()
 {
-    if (!acceptingWork_ || !connected_ || !stream_ || !stream_->isAuthenticated()
-        || wakeProbe_ != WakeProbe::None)
+    if (!acceptingWork_ || !connected_ || !stream_ || !stream_->isAuthenticated() || wakeProbe_ != WakeProbe::None)
         return;
 
     constexpr int WakeProbeTimeoutMs = 15000;
@@ -871,11 +870,11 @@ void IrisXmppBackend::checkConnectionAfterResume()
     } else {
         // Old servers can lack SM entirely. Probe with an ordinary XEP-0199
         // server IQ ping rather than sending them an invalid SM element.
-        wakeProbe_ = WakeProbe::ServerPing;
+        wakeProbe_  = WakeProbe::ServerPing;
         wakePingId_ = QStringLiteral("anykeep-wake-") + newUuid();
         qInfo() << "XMPP resume: checking server IQ ping (SM not negotiated)";
-        stream_->writeDirect(QStringLiteral("<iq type='get' id='%1'><ping xmlns='urn:xmpp:ping'/></iq>")
-                                 .arg(wakePingId_));
+        stream_->writeDirect(
+            QStringLiteral("<iq type='get' id='%1'><ping xmlns='urn:xmpp:ping'/></iq>").arg(wakePingId_));
     }
 }
 
@@ -1720,6 +1719,140 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
     (*next)();
 }
 
+#ifdef IRIS_FT_DEFERRED_RECEIPTS
+IrisMediaSync *IrisXmppBackend::mediaSyncJob(const MediaReference &reference, const IrisChunkedMediaSource &descriptor)
+{
+    const auto publications = [this, descriptor, attachmentId = reference.id] {
+        QList<XMPP::Jingle::JinglePub> result;
+        for (const auto &source : descriptor.sources.items()) {
+            if (source.type() == XMPP::StatelessFileSharing::Source::Type::JinglePub && source.jinglePub().isValid()
+                && source.jinglePub().from().compare(bareJid(config_), false))
+                result.append(source.jinglePub());
+        }
+        if (jinglePublicationProvider_)
+            result.append(jinglePublicationProvider_->matchingPublications(descriptor, attachmentId));
+        return result;
+    };
+    const auto cacheId = irisMediaChunkIdentity(descriptor.parameters);
+    auto       job     = mediaSyncJobs_.value(cacheId);
+    if (!job) {
+        const auto offers = publications();
+        if (offers.isEmpty())
+            return nullptr;
+        auto cache = LocalMediaStore::instance()->opaqueMediaCache(QStringLiteral("xmpp"), cacheId);
+        if (!cache)
+            return nullptr;
+        job = new IrisMediaSync(client_, offers.first(), descriptor.parameters, std::move(cache), config_.timeoutMs,
+                                this, reference);
+        mediaSyncJobs_.insert(cacheId, job);
+        if (jinglePublicationProvider_)
+            connect(jinglePublicationProvider_, &IrisJinglePublicationProvider::publicationsChanged, job,
+                    [job, publications] {
+                        if (job)
+                            job->setPublications(publications());
+                    });
+    }
+    job->setPublications(publications());
+    job->setConnected(connected_, client_);
+    return job;
+}
+#endif
+
+void IrisXmppBackend::checkMediaPublicationsAsync(XmppRemoteNote note)
+{
+    if (!connected_ || !prepared_ || !client_ || !jinglePublicationProvider_ || note.id.isEmpty()
+        || note.contentRevision.isEmpty())
+        return;
+    using Provider = XMPP::Jingle::PublishedSessionProvider;
+    if (jinglePublicationProvider_->state() != Provider::State::Synchronized) {
+        if (jinglePublicationProvider_->state() == Provider::State::Synchronizing)
+            pendingMediaPublicationNotes_.insert(note.id, std::move(note));
+        return;
+    }
+    for (const auto &media : note.media) {
+        const auto reference = media.reference;
+        const auto sharing   = parseFileSharing(media.fileSharingXml);
+        if (!sharing || !reference.isValid() || reference.size < 0 || reference.checksum.size() != 32)
+            continue;
+        IrisChunkedMediaSource descriptor;
+        for (const auto &source : sharing->sources().items()) {
+            if (source.type() == XMPP::StatelessFileSharing::Source::Type::Other) {
+                const auto parsed = IrisChunkedMediaSource::fromSource(source, reference.size, reference.checksum);
+                if (parsed)
+                    descriptor = parsed.value;
+            }
+        }
+        IrisJingleCapability capability;
+        capability.from            = bareJid(config_).withResource(config_.resource).full();
+        capability.noteId          = note.id;
+        capability.contentRevision = note.contentRevision;
+        capability.reference       = reference;
+        if (descriptor.isValid()) {
+            capability.representation = IrisJingleMediaRepresentation::ChunkedAnyKeep;
+            capability.chunked        = descriptor.parameters;
+            capability.cipherHash     = descriptor.wireHash;
+            capability.wireSize       = *MediaChunkWire::wireSize(descriptor.parameters);
+        } else if (const auto encrypted = encryptedSource(*sharing)) {
+            capability.cipher     = encrypted->cipher();
+            capability.key        = encrypted->key();
+            capability.iv         = encrypted->iv();
+            capability.cipherHash = sha256Hash(encrypted->hashes()).data();
+            const auto size       = XMPP::StatelessFileSharing::encryptedSize(capability.cipher, reference.size);
+            if (!size)
+                continue;
+            capability.wireSize = *size;
+        } else
+            continue;
+        if (LocalMediaStore::instance()->contains(reference)) {
+            jinglePublicationProvider_->ensurePublishedAsync(std::move(capability));
+            continue;
+        }
+#ifdef IRIS_FT_DEFERRED_RECEIPTS
+        if (!descriptor.isValid())
+            continue;
+        const auto cacheId  = irisMediaChunkIdentity(descriptor.parameters);
+        const auto watchKey = note.id + QLatin1Char(':') + cacheId;
+        auto       job      = mediaSyncJobs_.value(cacheId);
+        if (job && job->complete()) {
+            jinglePublicationProvider_->ensurePublishedAsync(std::move(capability));
+            continue;
+        }
+        if (mediaReplicaWatches_.contains(watchKey))
+            continue;
+        mediaReplicaWatches_.insert(watchKey);
+        const auto publish
+            = [provider = QPointer<IrisJinglePublicationProvider>(jinglePublicationProvider_), capability] {
+                  if (provider)
+                      QMetaObject::invokeMethod(
+                          provider,
+                          [provider, capability] {
+                              if (provider)
+                                  provider->ensurePublishedAsync(capability);
+                          },
+                          Qt::QueuedConnection);
+              };
+        if (job) {
+            connect(job, &IrisMediaSync::cacheComplete, job, publish);
+        } else {
+            auto cache = LocalMediaStore::instance()->opaqueMediaCache(QStringLiteral("xmpp"), cacheId);
+            if (!cache || cache->storedChunkNames().size() != qsizetype(descriptor.parameters.chunkCount())) {
+                mediaReplicaWatches_.remove(watchKey);
+                continue;
+            }
+            // Authenticate an existing complete cache asynchronously in small
+            // batches. This probe has no client and never starts a download.
+            auto *probe = new IrisMediaSync(nullptr, {}, descriptor.parameters, cache, config_.timeoutMs, this);
+            connect(probe, &IrisMediaSync::cacheRestored, probe, [this, probe, publish, watchKey](bool complete) {
+                mediaReplicaWatches_.remove(watchKey);
+                if (complete)
+                    publish();
+                probe->deleteLater();
+            });
+        }
+#endif
+    }
+}
+
 void IrisXmppBackend::observeMedia(const MediaReference &reference)
 {
 #ifdef IRIS_FT_DEFERRED_RECEIPTS
@@ -1736,28 +1869,7 @@ void IrisXmppBackend::observeMedia(const MediaReference &reference)
     }
     if (!descriptor.isValid())
         return;
-    const QString cacheId = mediaChunkIdentity(descriptor.parameters);
-    auto         *job     = mediaSyncJobs_.value(cacheId).data();
-    if (!job) {
-        XMPP::Jingle::JinglePub publication;
-        for (const auto &source : descriptor.sources.items()) {
-            if (source.type() == XMPP::StatelessFileSharing::Source::Type::JinglePub) {
-                publication = source.jinglePub();
-                break;
-            }
-        }
-        if (!publication.isValid() || !publication.from().compare(bareJid(config_), false))
-            return;
-        // Opening a note starts a storage-owned background cache restoration
-        // and missing-range synchronization. No player is required.
-        auto cache = LocalMediaStore::instance()->opaqueMediaCache(QStringLiteral("xmpp"), cacheId);
-        if (!cache)
-            return;
-        job = new IrisMediaSync(client_, publication, descriptor.parameters, std::move(cache), config_.timeoutMs, this,
-                                reference);
-        mediaSyncJobs_.insert(cacheId, job);
-    }
-    job->setConnected(connected_, client_);
+    mediaSyncJob(reference, descriptor);
 #else
     Q_UNUSED(reference)
 #endif
@@ -1865,7 +1977,7 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
         ++windowCount;
     }
     const auto    wireLength = std::optional<quint64>(windowLength);
-    const QString cacheId    = mediaChunkIdentity(parameters);
+    const QString cacheId    = irisMediaChunkIdentity(parameters);
     auto          cache      = LocalMediaStore::instance()->opaqueMediaCache(QStringLiteral("xmpp"), cacheId);
     if (!cache) {
         callback({}, QStringLiteral("Cannot open encrypted XMPP media cache"));
@@ -1886,28 +1998,8 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
               callback(plain.mid(qsizetype(within), qsizetype(qMin<qint64>(length, plain.size() - within))), {});
           };
 #ifdef IRIS_FT_DEFERRED_RECEIPTS
-    auto syncJob = [this, cacheId, cache, descriptor, reference]() -> IrisMediaSync * {
-        if (!connected_ || !client_)
-            return nullptr;
-        auto job = mediaSyncJobs_.value(cacheId);
-        if (!job) {
-            XMPP::Jingle::JinglePub publication;
-            for (const auto &source : descriptor.sources.items()) {
-                if (source.type() == XMPP::StatelessFileSharing::Source::Type::JinglePub) {
-                    publication = source.jinglePub();
-                    break;
-                }
-            }
-            if (!publication.isValid() || !publication.from().compare(bareJid(config_), false))
-                return nullptr;
-            job = new IrisMediaSync(client_, publication, descriptor.parameters, cache, config_.timeoutMs, this,
-                                    reference);
-            mediaSyncJobs_.insert(cacheId, job);
-        }
-        // A foreground read may create this job before observeMedia().
-        // Initialize its per-publisher presence immediately in that path too.
-        job->setConnected(connected_, client_);
-        return job;
+    auto syncJob = [this, descriptor, reference]() -> IrisMediaSync * {
+        return connected_ && client_ ? mediaSyncJob(reference, descriptor) : nullptr;
     };
     auto prioritizeSync = [syncJob, index, prioritize] {
         if (prioritize)
@@ -2039,17 +2131,6 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
                     finish(*bytes, {});
             });
         };
-        XMPP::Jingle::JinglePub publication;
-        for (const auto &source : descriptor.sources.items()) {
-            if (source.type() == XMPP::StatelessFileSharing::Source::Type::JinglePub) {
-                publication = source.jinglePub();
-                break;
-            }
-        }
-        if (!publication.isValid() || !publication.from().compare(bareJid(config_), false)) {
-            startHttp();
-            return;
-        }
 #ifdef IRIS_FT_DEFERRED_RECEIPTS
         auto job = syncJob();
         if (!job) {
@@ -2068,6 +2149,17 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
             },
             prioritize);
 #else
+        XMPP::Jingle::JinglePub publication;
+        for (const auto &source : descriptor.sources.items()) {
+            if (source.type() == XMPP::StatelessFileSharing::Source::Type::JinglePub) {
+                publication = source.jinglePub();
+                break;
+            }
+        }
+        if (!publication.isValid() || !publication.from().compare(bareJid(config_), false)) {
+            startHttp();
+            return;
+        }
         fetchPublishedRangeAsync(publication.from(), publication.id(), *wireSize, *wireOffset, *wireLength,
                                  [finish, startHttp](QByteArray bytes, QString error) {
                                      if (error.isEmpty())
@@ -3389,7 +3481,7 @@ void IrisXmppBackend::onlineResourcesAsync(ResourcesCallback callback)
 }
 
 void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress,
-                                             std::optional<QStringList> onlyResources)
+                                            std::optional<QStringList> onlyResources)
 {
     if (progress)
         progress({ tr("Preparing OMEMO key discovery…") });
@@ -3413,9 +3505,9 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgress
 
         if (progress)
             progress({ tr("Discovering online AnyKeep devices…") });
-        onlinePrivateNotesResourcesAsync([this, output, callback = std::move(callback),
-                                          progress, onlyResources = std::move(onlyResources)]
-                                         (QStringList resources, QString discoveryError) mutable {
+        onlinePrivateNotesResourcesAsync([this, output, callback = std::move(callback), progress,
+                                          onlyResources = std::move(onlyResources)](QStringList resources,
+                                                                                    QString discoveryError) mutable {
             output->onlineResources = resources;
             if (onlyResources) {
                 QStringList selected;

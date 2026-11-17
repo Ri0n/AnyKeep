@@ -1,9 +1,11 @@
 #include "iris/irismediasync.h"
 #include "mediapartialchunkcache.h"
 #include <QCryptographicHash>
+#include <QDomDocument>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <iris/jingle-pub.h>
 #include <iris/xmpp_client.h>
 
 using namespace AnyKeep;
@@ -152,7 +154,10 @@ private slots:
             QCOMPARE(file.write(wire), wire.size());
         }
         {
-            IrisMediaSync sync(nullptr, {}, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000, nullptr, reference);
+            IrisMediaSync sync(nullptr, {}, p,
+                               std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque,
+                                                                        directory.path()),
+                               1000, nullptr, reference);
             QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(13));
             QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
             // Reprioritization, offline/online changes and cached reads cannot
@@ -175,7 +180,10 @@ private slots:
                         if (key == MediaSyncService::key(reference))
                             restoredProgress.append(MediaSyncService::instance()->snapshot(reference).verifiedBytes);
                     });
-            IrisMediaSync restored(nullptr, {}, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000, nullptr, reference);
+            IrisMediaSync restored(nullptr, {}, p,
+                                   std::make_shared<MediaPartialChunkCache>(
+                                       MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()),
+                                   1000, nullptr, reference);
             QTest::qWait(25);
             QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(13));
             for (const auto bytes : restoredProgress)
@@ -205,7 +213,10 @@ private slots:
             QCOMPARE(file.write(wire), wire.size());
         }
         {
-            IrisMediaSync sync(nullptr, {}, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000, nullptr, reference);
+            IrisMediaSync sync(nullptr, {}, p,
+                               std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque,
+                                                                        directory.path()),
+                               1000, nullptr, reference);
             QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(5));
             QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
         }
@@ -215,7 +226,10 @@ private slots:
             const auto wire = records(p, i, 1);
             QCOMPARE(file.write(wire), wire.size());
         }
-        IrisMediaSync completed(nullptr, {}, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000, nullptr, reference);
+        IrisMediaSync completed(
+            nullptr, {}, p,
+            std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()),
+            1000, nullptr, reference);
         QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(plain.size()));
         QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Complete);
     }
@@ -236,7 +250,10 @@ private slots:
         publication.setFrom(XMPP::Jid(QStringLiteral("source@example.test/device")));
         publication.setId(QStringLiteral("offline-publication"));
         QSignalSpy    outgoing(&client, &XMPP::Client::xmlOutgoing);
-        IrisMediaSync sync(&client, publication, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000, nullptr, reference);
+        IrisMediaSync sync(
+            &client, publication, p,
+            std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()),
+            1000, nullptr, reference);
         sync.setConnected(false, &client);
         sync.prioritize(0);
         // Wait beyond the handover timeout: an accidentally started request
@@ -252,27 +269,137 @@ private slots:
         QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
     }
 
+    void offlineOriginalUsesOnlineReplicaAndPreservesReaders()
+    {
+        const auto    p = parameters();
+        QTemporaryDir directory;
+        auto          cache  = std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque,
+                                                                        directory.path());
+        const auto    cached = records(p, 0, 1);
+        QVERIFY(cache->write(0, cached, cached.size(), [p](quint64 i, const QByteArray &wire) {
+            return bool(MediaChunkWire::decryptChunk(p, i, wire));
+        }));
+        const auto offer = [p](const QString &resource) {
+            XMPP::Jingle::FileTransfer::File file;
+            file.setSize(*MediaChunkWire::wireSize(p));
+            file.addHash(XMPP::Hash(XMPP::Hash::Sha256));
+            QDomDocument document;
+            auto description = document.createElementNS(XMPP::Jingle::FileTransfer::NS, QStringLiteral("description"));
+            description.appendChild(file.toXml(&document));
+            XMPP::Jingle::JinglePub publication;
+            publication.setFrom(XMPP::Jid(QStringLiteral("source@example.test/") + resource));
+            publication.setId(resource);
+            publication.addDescription(description);
+            return publication;
+        };
+        const auto original = offer(QStringLiteral("original"));
+        const auto replica  = offer(QStringLiteral("replica"));
+        QVERIFY(original.isValid());
+        QVERIFY(replica.isValid());
+        XMPP::Client  client;
+        IrisMediaSync sync(&client, original, p, cache, 1000);
+        sync.setConnected(true, &client);
+        int pendingCalls = 0;
+        sync.readWireChunk(1, [&](QByteArray, QString) { ++pendingCalls; });
+        QTest::qWait(50);
+        QVERIFY(sync.findChildren<XMPP::Jingle::PublishedSessionRequest *>().isEmpty());
+        // Presence may precede the catalog snapshot. Learning the offer later
+        // must wake the existing job, including its already pending reader.
+        sync.setPublisherAvailable(replica.from(), true);
+        sync.setPublications({ original, replica, replica });
+        const auto requestedPublisher = [&sync] {
+            for (auto *request : sync.findChildren<XMPP::Jingle::PublishedSessionRequest *>())
+                if (request->state() == XMPP::Jingle::PublishedSessionRequest::State::Pending)
+                    return request->publisher().full();
+            return QString();
+        };
+        QTRY_COMPARE(requestedPublisher(), replica.from().full());
+        QCOMPARE(pendingCalls, 0);
+        // Catalog refreshes retain an existing live source and its request.
+        sync.setPublications({ original, replica });
+        QCOMPARE(requestedPublisher(), replica.from().full());
+        int cachedCalls = 0;
+        sync.readWireChunk(
+            0,
+            [&](QByteArray wire, QString error) {
+                QCOMPARE(wire, cached);
+                QVERIFY(error.isEmpty());
+                ++cachedCalls;
+            },
+            false);
+        QTRY_COMPARE(cachedCalls, 1);
+        sync.setPublisherAvailable(replica.from(), false);
+        sync.setPublisherAvailable(original.from(), true);
+        QTRY_COMPARE_WITH_TIMEOUT(requestedPublisher(), original.from().full(), 3000);
+        QCOMPARE(pendingCalls, 0);
+        sync.cancel();
+        QTRY_COMPARE(pendingCalls, 1);
+        QCOMPARE(cache->read(
+                     0, cached.size(),
+                     [p](quint64 i, const QByteArray &wire) { return bool(MediaChunkWire::decryptChunk(p, i, wire)); }),
+                 cached);
+    }
+
+    void stalledSourceTriesAnotherOnlineReplica()
+    {
+        const auto                       p = parameters();
+        QTemporaryDir                    directory;
+        XMPP::Jingle::FileTransfer::File file;
+        file.setSize(*MediaChunkWire::wireSize(p));
+        QDomDocument document;
+        auto description = document.createElementNS(XMPP::Jingle::FileTransfer::NS, QStringLiteral("description"));
+        description.appendChild(file.toXml(&document));
+        XMPP::Jingle::JinglePub original;
+        original.setFrom(XMPP::Jid(QStringLiteral("source@example.test/original")));
+        original.setId(QStringLiteral("original"));
+        original.addDescription(description);
+        auto replica = original;
+        replica.setFrom(XMPP::Jid(QStringLiteral("source@example.test/replica")));
+        replica.setId(QStringLiteral("replica"));
+        auto foreign = original;
+        foreign.setFrom(XMPP::Jid(QStringLiteral("other@example.test/foreign")));
+        XMPP::Client  client;
+        IrisMediaSync sync(
+            &client, original, p,
+            std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()),
+            1000);
+        sync.setConnected(true, &client);
+        sync.setPublications({ original, replica, foreign });
+        sync.setPublisherAvailable(original.from(), true);
+        sync.setPublisherAvailable(replica.from(), true);
+        sync.setPublisherAvailable(foreign.from(), true);
+        const auto requestedPublisher = [&sync] {
+            for (auto *request : sync.findChildren<XMPP::Jingle::PublishedSessionRequest *>())
+                if (request->state() == XMPP::Jingle::PublishedSessionRequest::State::Pending)
+                    return request->publisher().full();
+            return QString();
+        };
+        QTRY_COMPARE_WITH_TIMEOUT(requestedPublisher(), original.from().full(), 2000);
+        QTRY_COMPARE_WITH_TIMEOUT(requestedPublisher(), replica.from().full(), 2000);
+        sync.cancel();
+    }
+
     void absentPublisherWaitsWithoutStartingNewSessions()
     {
-        const auto p = parameters();
+        const auto    p = parameters();
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         MediaReference reference;
-        reference.id = QUuid::createUuid();
+        reference.id           = QUuid::createUuid();
         reference.portableName = QStringLiteral("waiting.bin");
-        reference.size = plain.size();
-        reference.checksum = p.plainChecksum;
+        reference.size         = plain.size();
+        reference.checksum     = p.plainChecksum;
         reference.remoteData.insert(QStringLiteral("xmpp.instance"), reference.id.toString());
-        XMPP::Client client;
+        XMPP::Client            client;
         XMPP::Jingle::JinglePub publication;
-        const XMPP::Jid publisher(QStringLiteral("source@example.test/device"));
+        const XMPP::Jid         publisher(QStringLiteral("source@example.test/device"));
         publication.setFrom(publisher);
         publication.setId(QStringLiteral("waiting-publication"));
-        QSignalSpy outgoing(&client, &XMPP::Client::xmlOutgoing);
-        IrisMediaSync sync(&client, publication, p,
-                           std::make_shared<MediaPartialChunkCache>(
-                               MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()),
-                           1000, nullptr, reference);
+        QSignalSpy    outgoing(&client, &XMPP::Client::xmlOutgoing);
+        IrisMediaSync sync(
+            &client, publication, p,
+            std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()),
+            1000, nullptr, reference);
         // The account is connected but this particular publishing resource
         // is missing from the self-presence list: do not attempt Jingle.
         sync.setConnected(true, &client);
@@ -293,27 +420,27 @@ private slots:
 
     void offlinePublisherKeepsRangeReaderPendingUntilCancel()
     {
-        const auto p = parameters();
+        const auto    p = parameters();
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         MediaReference reference;
-        reference.id = QUuid::createUuid();
+        reference.id           = QUuid::createUuid();
         reference.portableName = QStringLiteral("pending-image.png");
-        reference.size = plain.size();
-        reference.checksum = p.plainChecksum;
+        reference.size         = plain.size();
+        reference.checksum     = p.plainChecksum;
         reference.remoteData.insert(QStringLiteral("xmpp.instance"), reference.id.toString());
-        XMPP::Client client;
+        XMPP::Client            client;
         XMPP::Jingle::JinglePub publication;
-        const XMPP::Jid publisher(QStringLiteral("source@example.test/device"));
+        const XMPP::Jid         publisher(QStringLiteral("source@example.test/device"));
         publication.setFrom(publisher);
         publication.setId(QStringLiteral("pending-publication"));
-        QSignalSpy outgoing(&client, &XMPP::Client::xmlOutgoing);
-        IrisMediaSync sync(&client, publication, p,
-                           std::make_shared<MediaPartialChunkCache>(
-                               MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()),
-                           1000, nullptr, reference);
+        QSignalSpy    outgoing(&client, &XMPP::Client::xmlOutgoing);
+        IrisMediaSync sync(
+            &client, publication, p,
+            std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()),
+            1000, nullptr, reference);
 
-        int calls = 0;
+        int     calls = 0;
         QString failure;
         sync.setConnected(false, &client);
         sync.readWireChunk(0, [&](QByteArray bytes, QString error) {
@@ -355,10 +482,13 @@ private slots:
         XMPP::Client client;
         int          stanzas = 0;
         connect(&client, &XMPP::Client::xmlOutgoing, this, [&] { ++stanzas; });
-        IrisMediaSync job(&client, {}, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000);
-        QByteArray    result;
-        QString       error;
-        int           completions = 0;
+        IrisMediaSync job(
+            &client, {}, p,
+            std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()),
+            1000);
+        QByteArray result;
+        QString    error;
+        int        completions = 0;
         job.readWireChunk(2, [&](QByteArray data, QString failure) {
             result = std::move(data);
             error  = std::move(failure);
@@ -379,10 +509,13 @@ private slots:
         const auto record = records(p, 0, 1);
         QCOMPARE(file.write(record), record.size());
         file.close();
-        IrisMediaSync job(nullptr, {}, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000);
-        int           completions = 0;
-        QString       error;
-        QByteArray    result;
+        IrisMediaSync job(
+            nullptr, {}, p,
+            std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()),
+            1000);
+        int        completions = 0;
+        QString    error;
+        QByteArray result;
         job.readWireChunk(0, [&](QByteArray bytes, QString failure) {
             ++completions;
             result = std::move(bytes);

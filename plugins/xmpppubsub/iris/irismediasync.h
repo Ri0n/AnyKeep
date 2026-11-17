@@ -81,16 +81,23 @@ private:
 // One storage-owned synchronization task per immutable encrypted representation.
 // Playback reads change its priority but do not own or terminate its download.
 class IrisMediaSync final : public QObject {
+    Q_OBJECT
 public:
     IrisMediaSync(XMPP::Client *client, XMPP::Jingle::JinglePub publication, MediaChunkWireParameters parameters,
-                  std::shared_ptr<MediaPartialChunkCache> cache, int timeoutMs,
-                  QObject *parent = nullptr, MediaReference reference = {});
+                  std::shared_ptr<MediaPartialChunkCache> cache, int timeoutMs, QObject *parent = nullptr,
+                  MediaReference reference = {});
     ~IrisMediaSync() override;
     void readWireChunk(quint64 index, MediaRangeService::Completion callback, bool prioritize = true);
     void prioritize(quint64 index);
+    void setPublications(QList<XMPP::Jingle::JinglePub> publications);
+    bool complete() const;
     void setConnected(bool connected, XMPP::Client *client);
     void setPublisherAvailable(const XMPP::Jid &jid, bool available);
     void cancel();
+
+signals:
+    void cacheComplete();
+    void cacheRestored(bool complete);
 
 private:
     class Impl;

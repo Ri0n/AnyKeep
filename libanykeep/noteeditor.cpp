@@ -21,7 +21,9 @@
 #include <QMetaObject>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QScopedValueRollback>
 #include <QTimer>
+#include <QUrl>
 
 #include <algorithm>
 
@@ -168,6 +170,16 @@ NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draf
             history_->observeChange({ model_->state(), media_ }, captureEditorViewState());
     });
     mediaSync_ = new MediaSyncController(this, this);
+    if (auto *storage = note_.storage()) {
+        connect(storage, &NoteStorage::noteRefreshed, this, [this](const Note &note) { applyStorageRefresh(note); });
+        QMetaObject::invokeMethod(
+            storage,
+            [guard = QPointer<NoteEditor>(this), storage] {
+                if (guard && guard->note_.storage() == storage)
+                    storage->observeNote(guard->note(), guard);
+            },
+            Qt::QueuedConnection);
+    }
 }
 
 NoteEditor::~NoteEditor()
@@ -578,6 +590,10 @@ bool NoteEditor::releaseViewsForLifecycleMutation()
 
 void NoteEditor::setDirty(bool dirty)
 {
+    if (dirty && applyingStorageRefresh_)
+        return;
+    if (dirty)
+        localEditsStarted_ = true;
     if (contentDirty_ == dirty)
         return;
     contentDirty_ = dirty;
@@ -586,6 +602,10 @@ void NoteEditor::setDirty(bool dirty)
 
 void NoteEditor::setMetadataDirty(bool dirty)
 {
+    if (dirty && applyingStorageRefresh_)
+        return;
+    if (dirty)
+        localEditsStarted_ = true;
     if (metadataDirty_ == dirty)
         return;
     metadataDirty_ = dirty;
@@ -691,6 +711,24 @@ QString NoteEditor::undoText() const { return history_->undoText(); }
 QString NoteEditor::redoText() const { return history_->redoText(); }
 
 bool NoteEditor::supportsMedia() const { return note_.storage() && note_.storage()->supportsMedia(); }
+
+QString NoteEditor::mediaFileName(const QString &sourceUri) const
+{
+    const auto reference = std::find_if(media_.cbegin(), media_.cend(),
+                                        [&sourceUri](const MediaReference &item) { return item.uri() == sourceUri; });
+    if (reference != media_.cend()) {
+        // A media title is user-editable, whereas the original filename is
+        // stable metadata. Do not display the title or a placeholder here.
+        QString name = reference->originalName.isEmpty() ? reference->portableName : reference->originalName;
+        name.replace(QLatin1Char('\\'), QLatin1Char('/'));
+        const QString basename = name.section(QLatin1Char('/'), -1);
+        if (!basename.isEmpty())
+            return basename;
+    }
+    // Legacy/remote notes can contain a media URI before its manifest arrives.
+    // A MediaReference URI carries the percent-encoded portable filename.
+    return QUrl(sourceUri).path().section(QLatin1Char('/'), -1);
+}
 
 bool NoteEditor::canInsertMedia() const { return supportsMedia(); }
 
@@ -1039,6 +1077,32 @@ void NoteEditor::updateMediaPreviewUrls()
             ++it;
     }
     model_->setPreviewUrls(urls);
+}
+
+bool NoteEditor::applyStorageRefresh(const Note &note)
+{
+    if (!acceptsStorageRefresh() || !note.isLoaded() || note.storage() != note_.storage() || note.id() != note_.id()
+        || note_.id().isEmpty())
+        return false;
+    const auto                 oldText     = text_;
+    const auto                 oldFormat   = format_;
+    const auto                 oldFolder   = folderId();
+    const bool                 oldFavorite = isFavorite();
+    QScopedValueRollback<bool> refreshing(applyingStorageRefresh_, true);
+    note_ = note;
+    loadFromNote();
+    setMedia(note.media());
+    if (oldText != text_ || oldFormat != format_)
+        loadDocument(text_, format_);
+    if (oldText != text_)
+        emit textChanged();
+    if (oldFormat != format_)
+        emit formatChanged();
+    if (oldFolder != folderId())
+        emit folderIdChanged();
+    if (oldFavorite != isFavorite())
+        emit favoriteChanged();
+    return true;
 }
 
 bool NoteEditor::reloadNewerDraft()

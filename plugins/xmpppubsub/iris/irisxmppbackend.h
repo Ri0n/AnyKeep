@@ -34,6 +34,7 @@ class IrisKeySyncTask;
 struct IrisJingleCapability;
 class IrisJinglePublicationProvider;
 class IrisMediaSync;
+struct IrisChunkedMediaSource;
 class IrisOmemoStorage;
 class IrisTrustStorage;
 
@@ -46,6 +47,7 @@ public:
     ~IrisXmppBackend() override;
 
     bool supportsMedia() const override { return true; }
+    void checkMediaPublicationsAsync(XmppRemoteNote note) override;
 
     void start() override;
     void setConfig(const XmppConfig &config) override;
@@ -85,19 +87,22 @@ private:
     struct ConnectionAttempt;
     struct ReadyAttempt;
 
-    void observeMedia(const MediaReference &reference);
-    void readMediaRangeAsync(MediaReference reference, qint64 offset, qint64 length,
-                             MediaRangeService::Completion callback, bool prioritize = true);
+    void           observeMedia(const MediaReference &reference);
+    IrisMediaSync *mediaSyncJob(const MediaReference &reference, const IrisChunkedMediaSource &descriptor);
+    void           readMediaRangeAsync(MediaReference reference, qint64 offset, qint64 length,
+                                       MediaRangeService::Completion callback, bool prioritize = true);
     void fetchPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize, quint64 offset,
                                   quint64 length, MediaRangeService::Completion callback);
     QQueue<std::function<void()>> mediaRangeTransfers_;
     int                           activeMediaRangeTransfers_ = 0;
-    static constexpr int          MaxConcurrentJingleRanges = 3;
+    static constexpr int          MaxConcurrentJingleRanges  = 3;
     void                          startNextMediaRangeTransfer();
     void startPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize, quint64 offset,
                                   quint64 length, MediaRangeService::Completion callback);
     QHash<QString, QList<MediaRangeService::Completion>> pendingMediaChunks_;
     QHash<QString, QPointer<IrisMediaSync>>              mediaSyncJobs_;
+    QSet<QString>                                        mediaReplicaWatches_;
+    QHash<QString, XmppRemoteNote>                       pendingMediaPublicationNotes_;
     QHash<QString, MediaReference>                       cachedLegacyMedia_;
     QString                                              cachedMediaChunk_;
     QByteArray                                           cachedMediaPlain_;

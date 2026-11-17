@@ -80,6 +80,10 @@ public:
         if (!session)
             return false;
         QObject::connect(session, &MediaPlaybackSession::stateChanged, owner, &MediaPlaybackController::stateChanged);
+        QObject::connect(session, &MediaPlaybackSession::currentSourceUriChanged, owner,
+                         &MediaPlaybackController::currentSourceUriChanged);
+        if (!session->currentSourceUri().isEmpty())
+            emit owner->currentSourceUriChanged();
         for (const auto &output : std::as_const(outputs)) {
             if (output)
                 session->attachVideoOutput(output);
@@ -91,7 +95,8 @@ public:
     {
         if (!session)
             return;
-        auto *previous = session.data();
+        const bool hadSource = !session->currentSourceUri().isEmpty();
+        auto      *previous  = session.data();
         session.clear();
         QObject::disconnect(previous, nullptr, owner, nullptr);
         for (const auto &output : std::as_const(outputs)) {
@@ -99,6 +104,8 @@ public:
                 previous->detachVideoOutput(output);
         }
         previous->release(owner);
+        if (hadSource)
+            emit owner->currentSourceUriChanged();
         emit owner->stateChanged();
     }
 

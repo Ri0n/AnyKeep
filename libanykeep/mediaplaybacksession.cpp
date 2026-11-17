@@ -120,6 +120,14 @@ public:
             MediaRangeService::releaseUrl(remoteUrl);
     }
 
+    void setSourceUri(const QString &uri)
+    {
+        if (sourceUri == uri)
+            return;
+        sourceUri = uri;
+        emit owner->currentSourceUriChanged();
+    }
+
     bool load(const QString &uri)
     {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
@@ -145,7 +153,7 @@ public:
         if (!LocalMediaStore::instance()->contains(reference)) {
             const auto url = MediaRangeService::urlFor(reference);
             if (!url.isEmpty()) {
-                sourceUri = uri;
+                setSourceUri(uri);
                 error.clear();
                 positionMs = durationMs = 0;
                 remoteUrl               = url;
@@ -161,7 +169,7 @@ public:
             emit owner->stateChanged();
             return false;
         }
-        sourceUri = uri;
+        setSourceUri(uri);
         error.clear();
         positionMs            = 0;
         durationMs            = 0;
@@ -256,7 +264,7 @@ public:
         if (!remoteUrl.isEmpty())
             MediaRangeService::releaseUrl(remoteUrl);
         remoteUrl = QUrl();
-        sourceUri.clear();
+        setSourceUri({});
         reloadAfterSuspend = false;
         positionMs         = 0;
         durationMs         = 0;

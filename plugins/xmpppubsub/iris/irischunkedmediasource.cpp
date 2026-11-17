@@ -1,6 +1,9 @@
 #include "irischunkedmediasource.h"
 
+#include "mediapartialchunkcache.h"
 #include "secureenvelope.h"
+#include <QCryptographicHash>
+#include <cstring>
 
 #include <iris/xmpp_hash.h>
 
@@ -11,70 +14,138 @@
 
 namespace AnyKeep {
 
+QString irisMediaChunkIdentity(const MediaChunkWireParameters &parameters)
+{
+    const QByteArray identity = parameters.rootKey + parameters.noncePrefix + parameters.plainChecksum
+        + QByteArray::number(parameters.plainSize) + ':' + QByteArray::number(parameters.chunkSize);
+    return QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
+}
+
+IrisCachedMediaStream::IrisCachedMediaStream(MediaChunkWireParameters                parameters,
+                                             std::shared_ptr<MediaPartialChunkCache> cache, QObject *parent) :
+    QIODevice(parent), parameters_(std::move(parameters)), cache_(std::move(cache))
+{
+}
+
+bool IrisCachedMediaStream::open(OpenMode mode)
+{
+    if (mode != QIODevice::ReadOnly || !parameters_.isValid() || !cache_ || !cache_->isValid()
+        || MediaChunkWire::wireSize(parameters_).value_or(0) > quint64(std::numeric_limits<qint64>::max()))
+        return false;
+    record_.clear();
+    recordIndex_ = std::numeric_limits<quint64>::max();
+    return QIODevice::open(mode);
+}
+
+qint64 IrisCachedMediaStream::size() const { return qint64(MediaChunkWire::wireSize(parameters_).value_or(0)); }
+
+qint64 IrisCachedMediaStream::bytesAvailable() const
+{
+    return qMax<qint64>(0, size() - pos()) + QIODevice::bytesAvailable();
+}
+
+bool IrisCachedMediaStream::seek(qint64 position)
+{
+    return isOpen() && position >= 0 && position <= size() && QIODevice::seek(position);
+}
+
+qint64 IrisCachedMediaStream::readData(char *data, qint64 maxSize)
+{
+    qint64        offset    = pos();
+    const qint64  requested = qMin(maxSize, size() - offset);
+    qint64        written   = 0;
+    const quint64 span      = quint64(parameters_.chunkSize) + MediaChunkWire::Overhead;
+    while (written < requested) {
+        const quint64 index = quint64(offset) / span;
+        if (recordIndex_ != index) {
+            const auto expected = MediaChunkWire::wireChunkSize(parameters_, index);
+            if (!expected)
+                return -1;
+            record_ = cache_->read(index, qint64(*expected), [this](quint64 i, const QByteArray &wire) {
+                return bool(MediaChunkWire::decryptChunk(parameters_, i, wire));
+            });
+            if (record_.isEmpty()) {
+                recordIndex_ = std::numeric_limits<quint64>::max();
+                setErrorString(QStringLiteral("Verified media replica record is unavailable"));
+                return -1;
+            }
+            recordIndex_ = index;
+        }
+        const qint64 within = qint64(quint64(offset) % span);
+        const qint64 count  = qMin(requested - written, record_.size() - within);
+        if (count <= 0)
+            return -1;
+        std::memcpy(data + written, record_.constData() + within, size_t(count));
+        written += count;
+        offset += count;
+    }
+    return written;
+}
+
 const QString IrisChunkedMediaSource::Namespace   = QStringLiteral("urn:xmpp:private-notes:media-chunks:0");
 const QString IrisChunkedMediaSource::ElementName = QStringLiteral("encrypted-chunks");
 
 namespace {
 
-QString localName(const QDomElement &element)
-{
-    const auto local = element.localName();
-    return local.isEmpty() ? element.tagName().section(QLatin1Char(':'), -1) : local;
-}
-
-bool isNamespaceDeclaration(const QDomNode &attribute)
-{
-    return attribute.namespaceURI() == QStringLiteral("http://www.w3.org/2000/xmlns/")
-        || attribute.nodeName() == QStringLiteral("xmlns") || attribute.prefix() == QStringLiteral("xmlns");
-}
-
-QList<QDomElement> directChildren(const QDomElement &parent, const QString &nameSpace, const QString &name)
-{
-    QList<QDomElement> result;
-    for (auto node = parent.firstChild(); !node.isNull(); node = node.nextSibling()) {
-        const auto element = node.toElement();
-        if (!element.isNull() && element.namespaceURI() == nameSpace && localName(element) == name)
-            result.append(element);
+    QString localName(const QDomElement &element)
+    {
+        const auto local = element.localName();
+        return local.isEmpty() ? element.tagName().section(QLatin1Char(':'), -1) : local;
     }
-    return result;
-}
 
-bool hasOnlyAttributes(const QDomElement &element, const QSet<QString> &allowed)
-{
-    const auto attributes = element.attributes();
-    for (int index = 0; index < attributes.count(); ++index) {
-        const auto attribute = attributes.item(index);
-        if (isNamespaceDeclaration(attribute))
-            continue;
-        if (!attribute.namespaceURI().isEmpty() || !allowed.contains(attribute.nodeName()))
-            return false;
+    bool isNamespaceDeclaration(const QDomNode &attribute)
+    {
+        return attribute.namespaceURI() == QStringLiteral("http://www.w3.org/2000/xmlns/")
+            || attribute.nodeName() == QStringLiteral("xmlns") || attribute.prefix() == QStringLiteral("xmlns");
     }
-    return true;
-}
 
-std::optional<QByteArray> strictBase64Text(const QDomElement &element)
-{
-    QString text;
-    for (auto node = element.firstChild(); !node.isNull(); node = node.nextSibling()) {
-        if (node.isText() || node.isCDATASection()) {
-            text += node.nodeValue();
-        } else if (!node.isComment()) {
-            return std::nullopt;
+    QList<QDomElement> directChildren(const QDomElement &parent, const QString &nameSpace, const QString &name)
+    {
+        QList<QDomElement> result;
+        for (auto node = parent.firstChild(); !node.isNull(); node = node.nextSibling()) {
+            const auto element = node.toElement();
+            if (!element.isNull() && element.namespaceURI() == nameSpace && localName(element) == name)
+                result.append(element);
         }
+        return result;
     }
-    const auto decoded = QByteArray::fromBase64Encoding(
-        text.trimmed().toLatin1(), QByteArray::Base64Encoding | QByteArray::AbortOnBase64DecodingErrors);
-    if (!decoded)
-        return std::nullopt;
-    return decoded.decoded;
-}
 
-bool isHttpUrl(const QUrl &url)
-{
-    return url.isValid()
-        && (url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0
-            || url.scheme().compare(QStringLiteral("http"), Qt::CaseInsensitive) == 0);
-}
+    bool hasOnlyAttributes(const QDomElement &element, const QSet<QString> &allowed)
+    {
+        const auto attributes = element.attributes();
+        for (int index = 0; index < attributes.count(); ++index) {
+            const auto attribute = attributes.item(index);
+            if (isNamespaceDeclaration(attribute))
+                continue;
+            if (!attribute.namespaceURI().isEmpty() || !allowed.contains(attribute.nodeName()))
+                return false;
+        }
+        return true;
+    }
+
+    std::optional<QByteArray> strictBase64Text(const QDomElement &element)
+    {
+        QString text;
+        for (auto node = element.firstChild(); !node.isNull(); node = node.nextSibling()) {
+            if (node.isText() || node.isCDATASection()) {
+                text += node.nodeValue();
+            } else if (!node.isComment()) {
+                return std::nullopt;
+            }
+        }
+        const auto decoded = QByteArray::fromBase64Encoding(
+            text.trimmed().toLatin1(), QByteArray::Base64Encoding | QByteArray::AbortOnBase64DecodingErrors);
+        if (!decoded)
+            return std::nullopt;
+        return decoded.decoded;
+    }
+
+    bool isHttpUrl(const QUrl &url)
+    {
+        return url.isValid()
+            && (url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0
+                || url.scheme().compare(QStringLiteral("http"), Qt::CaseInsensitive) == 0);
+    }
 
 } // namespace
 
@@ -152,9 +223,8 @@ XMPP::StatelessFileSharing::Source IrisChunkedMediaSource::toSource() const
     return XMPP::StatelessFileSharing::Source::fromElement(document.documentElement());
 }
 
-IrisChunkedMediaSourceResult
-IrisChunkedMediaSource::fromSource(const XMPP::StatelessFileSharing::Source &source, quint64 plainSize,
-                                   const QByteArray &plainChecksum)
+IrisChunkedMediaSourceResult IrisChunkedMediaSource::fromSource(const XMPP::StatelessFileSharing::Source &source,
+                                                                quint64 plainSize, const QByteArray &plainChecksum)
 {
     if (source.type() != XMPP::StatelessFileSharing::Source::Type::Other)
         return { {}, QStringLiteral("XEP-0447 source is not an AnyKeep chunked media source") };
@@ -166,11 +236,11 @@ IrisChunkedMediaSource::fromSource(const XMPP::StatelessFileSharing::Source &sou
         return { {}, QStringLiteral("Chunked media source contains unsupported attributes") };
     }
 
-    bool okVersion   = false;
-    bool okChunkSize = false;
-    bool okWireSize  = false;
-    const auto version = element.attribute(QStringLiteral("version")).toUInt(&okVersion);
-    const auto chunkSize64 = element.attribute(QStringLiteral("chunk-size")).toULongLong(&okChunkSize);
+    bool       okVersion        = false;
+    bool       okChunkSize      = false;
+    bool       okWireSize       = false;
+    const auto version          = element.attribute(QStringLiteral("version")).toUInt(&okVersion);
+    const auto chunkSize64      = element.attribute(QStringLiteral("chunk-size")).toULongLong(&okChunkSize);
     const auto declaredWireSize = element.attribute(QStringLiteral("wire-size")).toULongLong(&okWireSize);
     if (!okVersion || version != Version || !okChunkSize || chunkSize64 == 0
         || chunkSize64 > MediaChunkWireParameters::MaxChunkSize || !okWireSize) {
@@ -180,8 +250,7 @@ IrisChunkedMediaSource::fromSource(const XMPP::StatelessFileSharing::Source &sou
     const auto keys          = directChildren(element, Namespace, QStringLiteral("key"));
     const auto noncePrefixes = directChildren(element, Namespace, QStringLiteral("nonce-prefix"));
     const auto hashes        = directChildren(element, XMPP::HASH_NS, QStringLiteral("hash"));
-    const auto sourceLists
-        = directChildren(element, XMPP::StatelessFileSharing::NS, QStringLiteral("sources"));
+    const auto sourceLists   = directChildren(element, XMPP::StatelessFileSharing::NS, QStringLiteral("sources"));
     if (keys.size() != 1 || noncePrefixes.size() != 1 || hashes.size() > 1 || sourceLists.size() != 1)
         return { {}, QStringLiteral("Chunked media source has invalid child cardinality") };
 
@@ -196,9 +265,9 @@ IrisChunkedMediaSource::fromSource(const XMPP::StatelessFileSharing::Source &sou
         const auto child = node.toElement();
         if (child.isNull())
             return { {}, QStringLiteral("Chunked media source contains an unsupported XML node") };
-        const bool known = (child.namespaceURI() == Namespace
-                            && (localName(child) == QStringLiteral("key")
-                                || localName(child) == QStringLiteral("nonce-prefix")))
+        const bool known
+            = (child.namespaceURI() == Namespace
+               && (localName(child) == QStringLiteral("key") || localName(child) == QStringLiteral("nonce-prefix")))
             || (child.namespaceURI() == XMPP::HASH_NS && localName(child) == QStringLiteral("hash"))
             || (child.namespaceURI() == XMPP::StatelessFileSharing::NS
                 && localName(child) == QStringLiteral("sources"));

@@ -13,7 +13,7 @@ namespace AnyKeep {
 class ANYKEEP_EXPORT MediaPlaybackSession final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool available READ available CONSTANT)
-    Q_PROPERTY(QString currentSourceUri READ currentSourceUri NOTIFY stateChanged)
+    Q_PROPERTY(QString currentSourceUri READ currentSourceUri NOTIFY currentSourceUriChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY stateChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY stateChanged)
     Q_PROPERTY(bool seeking READ seeking NOTIFY stateChanged)
@@ -50,6 +50,7 @@ public:
     Q_INVOKABLE void detachVideoOutput(QObject *output);
 
 signals:
+    void currentSourceUriChanged();
     void stateChanged();
 
 private:

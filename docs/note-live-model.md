@@ -18,6 +18,27 @@ Lookup priority:
 An explicit draft UUID is stronger than a remote alias: distinct recovery or
 conflict drafts must not be merged merely because they name the same source.
 
+## Cached opening and background refresh
+
+A cached XMPP note opens without waiting for a connection or remote body read.
+Index-only updates retain the last complete snapshot, its media manifest and
+its original concurrency tokens until a consistent fresh body is available.
+An index token from a newer body must never be combined with cached old text.
+The pending index revision is persisted as local cache bookkeeping.
+
+Opening a live editor registers a lifetime-bound storage observation. When the
+account is ready, XMPP may fetch a fresh snapshot and check fully local media
+offers asynchronously. Generic storage `noteRefreshed` notifications carry
+complete snapshots; index notifications alone cannot replace editor contents.
+The canonical editor accepts a refresh only before its first local content or
+metadata edit and only when no durable editing draft exists. That protection
+survives checkpointing and undo. A refresh retains the same editor and draft
+identity and uses incremental model reconciliation for unchanged blocks.
+
+Connection failures do not hide cached text. Background replies are discarded
+after configuration changes, shutdown, or a newer cache snapshot. Published
+notes and conflict checks retain the real base revision of any offline edit.
+
 ## Shared state versus view state
 
 Shared in `NoteEditor`:

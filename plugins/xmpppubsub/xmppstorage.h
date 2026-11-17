@@ -65,6 +65,7 @@ public:
     NoteLoadJob        *loadNoteAsync(const QString &id, QObject *owner = nullptr) override;
     Note                createNote() override;
     bool                loadNote(Note &note) override;
+    void                observeNote(const Note &note, QObject *subscriber) override;
     bool                saveNote(const Note &note) override;
     NoteSaveJob        *saveNoteAsync(const Note &note, QObject *owner = nullptr) override;
     NoteReorderJob     *reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId,
@@ -111,6 +112,10 @@ private:
     bool                 connectionConfigIsValid(const XmppConfig &config, QString *error) const;
     bool                 configIsValid(const XmppConfig &config, QString *error) const;
     Note                 fromRemote(const XmppRemoteNote &remote);
+    Note                 mergeRemoteIndex(const XmppRemoteNote &remote, const Note &cached);
+    void                 refreshObservedNotes();
+    void                 refreshBodyInBackground(const QString &id);
+    void                 checkMediaPublications(const Note &note);
     void                 applyRemote(Note &note, const XmppRemoteNote &remote);
     bool                 toRemote(const Note &note, XmppRemoteNote *remote, QString *error) const;
     bool                 folderPathForFolder(const QUuid &folderId, QStringList *path, QString *error) const;
@@ -149,6 +154,9 @@ private:
     FolderCatalogManager *folderCatalogManager_ { nullptr };
     /// Most recently loaded remote note index, keyed by note ID.
     QHash<QString, Note>              cache_;
+    QHash<QObject *, Note>            observedNotes_;
+    QHash<QString, quint64>           backgroundBodyRequests_;
+    quint64                           nextBackgroundBodyRequest_ { 0 };
     std::unique_ptr<RemoteCacheStore> persistentCache_;
     QString                           persistentCacheInstanceId_;
     bool                              cacheAvailable_ { false };

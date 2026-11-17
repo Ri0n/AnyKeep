@@ -4,6 +4,9 @@
 #include "mediaplaybacksession.h"
 #include "mediarangeservice.h"
 #include "noteeditor.h"
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlEngine>
 #include <QQuickWindow>
 
 #include <QDataStream>
@@ -69,6 +72,65 @@ private slots:
         QVERIFY(!playback.hasVideoFrame());
         playback.detachVideoOutput(&sink);
         QVERIFY(!playback.hasVideoFrame());
+#else
+        QSKIP("Qt Multimedia is unavailable");
+#endif
+    }
+
+    void videoOutputAttachmentDoesNotInvalidateCurrentSource()
+    {
+#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+        NoteEditor              editor;
+        MediaPlaybackController playback(&editor);
+        MediaReference          reference;
+        reference.id           = QUuid::createUuid();
+        reference.portableName = QStringLiteral("binding-loop.wav");
+        reference.mediaType    = QStringLiteral("audio/wav");
+        const auto wav         = silentWav();
+        reference.size         = wav.size();
+        editor.setMedia({ reference });
+        MediaRangeService::registerResolver(
+            &editor, [reference](const MediaReference &r) { return r.id == reference.id; },
+            [wav](MediaReference, qint64 offset, qint64 count, MediaRangeService::Completion done) {
+                done(wav.mid(offset, count), {});
+            });
+        QVideoSink sink;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("playback"), &playback);
+        engine.rootContext()->setContextProperty(QStringLiteral("testSink"), &sink);
+        engine.rootContext()->setContextProperty(QStringLiteral("testUri"), reference.uri());
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            Item {
+                id: root
+                property bool current: playback.currentSourceUri === testUri
+                Loader {
+                    active: root.current
+                    sourceComponent: Item {
+                        Component.onCompleted: playback.attachVideoOutput(testSink)
+                        Component.onDestruction: playback.detachVideoOutput(testSink)
+                    }
+                }
+            }
+        )",
+                          QUrl());
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QTest::failOnWarning(QRegularExpression(QStringLiteral(".*Binding loop.*")));
+        std::unique_ptr<QObject> view(component.create());
+        QVERIFY(view);
+        QSignalSpy sourceChanges(&playback, &MediaPlaybackController::currentSourceUriChanged);
+        QVERIFY(playback.play(reference.uri()));
+        QTRY_COMPARE_WITH_TIMEOUT(playback.duration(), qint64(8000), 10000);
+        playback.pause();
+        QVERIFY(view->property("current").toBool());
+        QCOMPARE(sourceChanges.count(), 1);
+        sink.setVideoFrame(QVideoFrame(QVideoFrameFormat(QSize(2, 2), QVideoFrameFormat::Format_RGBA8888)));
+        playback.suspend();
+        QCOMPARE(sourceChanges.count(), 1);
+        playback.stop();
+        QCOMPARE(sourceChanges.count(), 2);
+        QVERIFY(!view->property("current").toBool());
 #else
         QSKIP("Qt Multimedia is unavailable");
 #endif

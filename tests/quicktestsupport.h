@@ -1,9 +1,30 @@
 #pragma once
 
+#include <QQmlComponent>
 #include <QQuickItem>
+#include <QVariantMap>
 #include <QtTest>
 
 namespace AnyKeep::TestSupport {
+
+template <typename View>
+bool loadQuickFixture(View *view, const QUrl &source, const QVariantMap &properties, QString *error)
+{
+    auto *component = new QQmlComponent(view->engine(), source, view);
+    if (!component->isReady()) {
+        *error = component->errorString();
+        delete component;
+        return false;
+    }
+    QObject *object = component->createWithInitialProperties(properties);
+    if (!object) {
+        *error = component->errorString();
+        delete component;
+        return false;
+    }
+    view->setContent(source, component, object);
+    return true;
+}
 
 inline QQuickItem *quickItemByName(QQuickItem *root, const QString &name)
 {

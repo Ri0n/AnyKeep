@@ -1,7 +1,7 @@
 #include "irismediasync.h"
 #include "irisjinglepublicationprovider.h"
-#include "mediapartialchunkcache.h"
 #include "mediachunkscheduler.h"
+#include "mediapartialchunkcache.h"
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -84,8 +84,8 @@ public:
         QPointer<J::Session>         session;
         QPointer<FT::Application>    app;
         QPointer<IrisMediaChunkSink> sink;
-        bool accepted = false, verified = false, draining = false, drained = false, closing = false;
-        bool shared = false, receiving = false;
+        bool          accepted = false, verified = false, draining = false, drained = false, closing = false;
+        bool          shared = false, receiving = false;
         QElapsedTimer transferClock;
         quint64       receivedWireBytes = 0;
         qint64        cacheWriteMs = 0, lastProgressLogMs = 0;
@@ -93,11 +93,14 @@ public:
     IrisMediaSync                                       *q;
     QPointer<XMPP::Client>                               client;
     J::JinglePub                                         publication;
+    QList<J::JinglePub>                                  publications;
+    QSet<QString>                                        availablePublishers, failedPublications;
+    bool                                                 completionReported = false;
     MediaChunkWireParameters                             parameters;
     std::shared_ptr<MediaPartialChunkCache>              partialCache;
     MediaReference                                       reference;
-    quint64                                              verifiedPlain = 0;
-    bool                                                 connected     = false;
+    quint64                                              verifiedPlain      = 0;
+    bool                                                 connected          = false;
     bool                                                 publisherAvailable = true;
     IrisMediaGapMap                                      map;
     quint64                                              priority = 0;
@@ -117,11 +120,11 @@ public:
 
     Impl(IrisMediaSync *owner, XMPP::Client *c, J::JinglePub pub, MediaChunkWireParameters p,
          std::shared_ptr<MediaPartialChunkCache> cache, int timeoutMs, MediaReference ref) :
-        q(owner), client(c), publication(std::move(pub)), parameters(std::move(p)),
-        partialCache(std::move(cache)), reference(std::move(ref)), connected(c != nullptr),
-        map(parameters.chunkCount()), timer(new QTimer(owner)), retryTimer(new QTimer(owner)),
-        timeout(qBound(1000, timeoutMs, 25000))
+        q(owner), client(c), publication(std::move(pub)), parameters(std::move(p)), partialCache(std::move(cache)),
+        reference(std::move(ref)), connected(c != nullptr), map(parameters.chunkCount()), timer(new QTimer(owner)),
+        retryTimer(new QTimer(owner)), timeout(qBound(1000, timeoutMs, 25000))
     {
+        publications.append(publication);
         timer->setSingleShot(true);
         QObject::connect(timer, &QTimer::timeout, q, [this] { handoverTimedOut(); });
         retryTimer->setSingleShot(true);
@@ -130,11 +133,69 @@ public:
         QTimer::singleShot(0, q, [this] { restoreNext(); });
     }
 
+    static QString publicationKey(const J::JinglePub &pub) { return pub.from().full() + QLatin1Char('\n') + pub.id(); }
+
+    bool available(const J::JinglePub &pub) const
+    {
+        return connected && client && pub.from().isValid()
+            && (pub.from().resource().isEmpty() || availablePublishers.contains(pub.from().full()));
+    }
+
+    // Keep a working session stable when catalog events add unrelated offers.
+    // Switching a source retains all authenticated records and range readers.
+    void updatePublisher(bool delay = false)
+    {
+        if (stopped)
+            return;
+        auto selected = publications.cend();
+        for (auto it = publications.cbegin(); it != publications.cend(); ++it) {
+            if (!available(*it) || failedPublications.contains(publicationKey(*it)))
+                continue;
+            if (selected == publications.cend() || publicationKey(*it) == publicationKey(publication))
+                selected = it;
+        }
+        const auto selectedPublication = selected == publications.cend() ? J::JinglePub() : *selected;
+        const bool wasAvailable        = publisherAvailable;
+        const bool changed
+            = selected != publications.cend() && publicationKey(*selected) != publicationKey(publication);
+        publisherAvailable = selected != publications.cend();
+        if (changed || (wasAvailable && !publisherAvailable))
+            waitForPublisher();
+        if (changed) {
+            publication   = selectedPublication;
+            stalledStarts = 0;
+            qCDebug(lcIrisJingleMedia) << "Selected available media publication:"
+                                       << "publication=" << publication.id()
+                                       << "publisher=" << publication.from().full();
+        }
+        if (publisherAvailable) {
+            if (changed || !wasAvailable)
+                error.clear();
+            if (delay && (changed || !wasAvailable))
+                retryTimer->start(1000);
+            else
+                schedule();
+        }
+        report();
+    }
+
+    bool tryAlternative()
+    {
+        failedPublications.insert(publicationKey(publication));
+        for (const auto &candidate : std::as_const(publications)) {
+            if (available(candidate) && !failedPublications.contains(publicationKey(candidate))) {
+                updatePublisher();
+                return true;
+            }
+        }
+        return false;
+    }
+
     void report()
     {
         // Publish the restored cache as one snapshot. Incremental scanning
         // would briefly replace a previous verified total with its first chunk.
-        if (!reference.isValid() || scanning)
+        if (scanning)
             return;
         MediaSyncSnapshot snapshot;
         const bool        transferring = std::any_of(parts.cbegin(), parts.cend(), [](const auto &part) {
@@ -142,14 +203,19 @@ public:
         });
         snapshot.verifiedBytes         = qint64(qMin(verifiedPlain, parameters.plainSize));
         snapshot.totalBytes            = qint64(parameters.plainSize);
-        snapshot.state                 = map.complete() ? MediaSyncSnapshot::Complete
+        snapshot.state                 = map.complete()    ? MediaSyncSnapshot::Complete
             : stopped || !connected || !publisherAvailable ? MediaSyncSnapshot::Waiting
-            : !error.isEmpty()                          ? MediaSyncSnapshot::Failed
-            : transferring                              ? MediaSyncSnapshot::Transferring
-                                                        : MediaSyncSnapshot::Waiting;
+            : !error.isEmpty()                             ? MediaSyncSnapshot::Failed
+            : transferring                                 ? MediaSyncSnapshot::Transferring
+                                                           : MediaSyncSnapshot::Waiting;
         if (snapshot.state == MediaSyncSnapshot::Failed)
             snapshot.error = error;
-        MediaSyncService::instance()->publish(reference, snapshot);
+        if (reference.isValid())
+            MediaSyncService::instance()->publish(reference, snapshot);
+        if (map.complete() && !completionReported && !stopped) {
+            completionReported = true;
+            emit q->cacheComplete();
+        }
     }
 
     void markAvailable(quint64 index)
@@ -179,11 +245,9 @@ public:
             invalidate(index);
             return {};
         }
-        auto bytes = partialCache->read(
-            index, qint64(*expected),
-            [this](quint64 i, const QByteArray &wire) {
-                return bool(MediaChunkWire::decryptChunk(parameters, i, wire));
-            });
+        auto bytes = partialCache->read(index, qint64(*expected), [this](quint64 i, const QByteArray &wire) {
+            return bool(MediaChunkWire::decryptChunk(parameters, i, wire));
+        });
         if (!bytes.isEmpty())
             markAvailable(index);
         else
@@ -207,6 +271,7 @@ public:
         else {
             scanning = false;
             report();
+            emit q->cacheRestored(map.complete());
             schedule();
         }
     }
@@ -236,8 +301,11 @@ public:
             return;
         }
         // A subsequent demand may retry a transient failure; committed chunks survive.
-        if (!error.isEmpty())
+        if (!error.isEmpty()) {
             error.clear();
+            failedPublications.clear();
+            updatePublisher();
+        }
         waiters[index].append(std::move(callback));
         if (prioritize) {
             priority      = index;
@@ -382,18 +450,17 @@ public:
             parameters, part->gap,
             [this, weak = std::weak_ptr<Part>(part)](quint64 index, const QByteArray &wire, const QByteArray &) {
                 const auto part = weak.lock();
-                if (!part || stopped || !error.isEmpty())
+                if (!part || part->closing || stopped || !error.isEmpty())
                     return IrisMediaChunkSink::Action::Error;
                 const auto expected = MediaChunkWire::wireChunkSize(parameters, index);
                 if (!expected)
                     return IrisMediaChunkSink::Action::Error;
                 QElapsedTimer cacheTimer;
                 cacheTimer.start();
-                const bool stored = partialCache->write(
-                    index, wire, qint64(*expected),
-                    [this](quint64 i, const QByteArray &bytes) {
-                        return bool(MediaChunkWire::decryptChunk(parameters, i, bytes));
-                    });
+                const bool stored
+                    = partialCache->write(index, wire, qint64(*expected), [this](quint64 i, const QByteArray &bytes) {
+                          return bool(MediaChunkWire::decryptChunk(parameters, i, bytes));
+                      });
                 part->cacheWriteMs += cacheTimer.elapsed();
                 if (!stored)
                     return IrisMediaChunkSink::Action::Error;
@@ -431,6 +498,8 @@ public:
         const auto [offset, length] = range(part->gap);
         QObject::connect(app, &FT::Application::deviceRequested, q,
                          [this, part, offset, length](quint64 actualOffset, std::optional<quint64> actualLength) {
+                             if (part->closing || stopped)
+                                 return;
                              if (actualOffset != offset || !actualLength || *actualLength != length
                                  || !part->sink->isOpen()) {
                                  fail(QStringLiteral("Peer changed the requested media gap"));
@@ -441,28 +510,29 @@ public:
                              report();
                              part->app->setDevice(part->sink, false);
                          });
-        QObject::connect(app, &FT::Application::progress, q, [this](quint64) {
-            if (!stopped && error.isEmpty())
+        QObject::connect(app, &FT::Application::progress, q, [this, part](quint64) {
+            if (!part->closing && !stopped && error.isEmpty())
                 timer->start(timeout);
         });
         QObject::connect(app, &FT::Application::payloadVerified, q, [this, part] {
+            if (part->closing || stopped)
+                return;
             if (!part->sink || !part->sink->complete()) {
                 if (!part->draining)
                     fail(QStringLiteral("Incomplete authenticated media gap"));
                 return;
             }
             part->verified = true;
-            qCDebug(lcIrisJingleMedia)
-                << "Jingle media gap verified:"
-                << "sid=" << (part->session ? part->session->sid() : QString())
-                << "wire-bytes=" << part->receivedWireBytes
-                << "elapsed-ms=" << (part->transferClock.isValid() ? part->transferClock.elapsed() : -1)
-                << "cache-write-ms=" << part->cacheWriteMs;
+            qCDebug(lcIrisJingleMedia) << "Jingle media gap verified:"
+                                       << "sid=" << (part->session ? part->session->sid() : QString())
+                                       << "wire-bytes=" << part->receivedWireBytes << "elapsed-ms="
+                                       << (part->transferClock.isValid() ? part->transferClock.elapsed() : -1)
+                                       << "cache-write-ms=" << part->cacheWriteMs;
             report();
             schedule();
         });
         QObject::connect(app, &J::Application::stateChanged, q, [this, part](J::State state) {
-            if (state == J::State::Active) {
+            if (state == J::State::Active && !part->closing && !stopped) {
                 // One physical session may carry multiple BUNDLE contents. A
                 // seek handover can temporarily open two physical sessions;
                 // observe both without blocking the existing SCTP sequence.
@@ -473,7 +543,7 @@ public:
                 // The queued check observes committed content-accept grouping, not
                 // the earlier Accepted state during description parsing.
                 QTimer::singleShot(0, q, [this, part] {
-                    if (!part->app || stopped || !error.isEmpty())
+                    if (!part->app || part->closing || stopped || !error.isEmpty())
                         return;
                     if (part->shared && !grouped(part)) {
                         fail(QStringLiteral("Peer did not extend the media BUNDLE"));
@@ -526,6 +596,7 @@ public:
                 return;
             QObject::disconnect(incoming);
             if (session->contentList().size() != 1) {
+                session->terminate(J::Reason::SecurityError);
                 fail(QStringLiteral("Unexpected media publication contents"));
                 return;
             }
@@ -547,16 +618,16 @@ public:
             accepted.setRange(FT::Range(offset, length));
             app->setAcceptFile(accepted);
             configure(part, app);
-            QObject::connect(session, &J::Session::terminated, q, [this, weak = std::weak_ptr<Part>(part),
-                                                                      observed = QPointer<J::Session>(session)] {
-                if (observed) {
-                    if (auto *scheduler = MediaChunkScheduler::instance())
-                        scheduler->releaseExternalTransfer(observed);
-                }
-                const auto part = weak.lock();
-                if (part && !part->closing && !stopped && error.isEmpty())
-                    fail(QStringLiteral("Media session terminated"));
-            });
+            QObject::connect(session, &J::Session::terminated, q,
+                             [this, weak = std::weak_ptr<Part>(part), observed = QPointer<J::Session>(session)] {
+                                 if (observed) {
+                                     if (auto *scheduler = MediaChunkScheduler::instance())
+                                         scheduler->releaseExternalTransfer(observed);
+                                 }
+                                 const auto part = weak.lock();
+                                 if (part && !part->closing && !stopped && error.isEmpty())
+                                     fail(QStringLiteral("Media session terminated"));
+                             });
             session->accept();
         });
         request  = manager->publicationManager()->requestPublishedSession(publication.from(), publication.id(), q);
@@ -590,8 +661,12 @@ public:
             fail(QStringLiteral("Media gap handover timed out"));
             return;
         }
+        if (tryAlternative())
+            return;
+        // No other online replica: retain the original source's retry policy.
+        failedPublications.clear();
         const bool acknowledged = !requestedSid.isEmpty();
-        const int retryMs = qMin(60000, 5000 * (1 << qMin(stalledStarts, 4)));
+        const int  retryMs      = qMin(60000, 5000 * (1 << qMin(stalledStarts, 4)));
         ++stalledStarts;
         qCWarning(lcIrisJingleMedia)
             << "JinglePub start produced no incoming Jingle session; retrying missing media gap"
@@ -613,7 +688,7 @@ public:
         requestedSid.clear();
         if (request) {
             auto *old = request.data();
-            request = nullptr;
+            request   = nullptr;
             old->deleteLater();
         }
         QSet<J::Session *> sessions;
@@ -624,8 +699,7 @@ public:
         }
         for (auto *session : sessions) {
             if (session->state() < J::State::Finishing)
-                session->terminate(J::Reason::FailedApplication,
-                                   QStringLiteral("Media source unavailable"));
+                session->terminate(J::Reason::FailedApplication, QStringLiteral("Media source unavailable"));
             if (auto *scheduler = MediaChunkScheduler::instance())
                 scheduler->releaseExternalTransfer(session);
         }
@@ -637,9 +711,11 @@ public:
         report(); // Waiting, never Failed, even with outstanding range readers
     }
 
-    void fail(QString reason)
+    void fail(QString reason, bool allowFailover = true)
     {
         if (stopped || !error.isEmpty())
+            return;
+        if (allowFailover && tryAlternative())
             return;
         error = std::move(reason);
         report();
@@ -696,73 +772,73 @@ void IrisMediaSync::prioritize(quint64 index)
 {
     if (index >= d->parameters.chunkCount() || d->stopped)
         return;
-    d->error.clear();
+    if (!d->error.isEmpty()) {
+        d->error.clear();
+        d->failedPublications.clear();
+        d->updatePublisher();
+    }
     d->priority      = index;
     d->demandPending = true;
     d->schedule();
 }
+void IrisMediaSync::setPublications(QList<J::JinglePub> publications)
+{
+    const auto          owner = d->publication.from();
+    QList<J::JinglePub> accepted;
+    QSet<QString>       seen;
+    for (const auto &publication : publications) {
+        const auto key = Impl::publicationKey(publication);
+        if (!publication.isValid() || !publication.from().compare(owner, false) || seen.contains(key))
+            continue;
+        seen.insert(key);
+        accepted.append(publication);
+    }
+    d->publications = std::move(accepted);
+    d->updatePublisher();
+}
+
+bool IrisMediaSync::complete() const { return !d->scanning && d->map.complete(); }
+
 void IrisMediaSync::setConnected(bool connected, XMPP::Client *client)
 {
     const bool sameClient = d->client == client;
-    d->connected = connected;
-    d->client = client;
-
-    // JinglePub identifies the publishing resource. The same account being
-    // online does not imply that another device can serve its media.
-    bool publisherAvailable = connected && client && d->publication.from().resource().isEmpty();
-    if (connected && client && !d->publication.from().resource().isEmpty()) {
-        for (const auto &resource : client->resourceList()) {
-            if (resource.name() == d->publication.from().resource()) {
-                publisherAvailable = true;
-                break;
-            }
-        }
+    d->connected          = connected;
+    d->client             = client;
+    d->availablePublishers.clear();
+    if (connected && client) {
+        for (const auto &resource : client->resourceList())
+            d->availablePublishers.insert(d->publication.from().withResource(resource.name()).full());
     }
-    const bool wasPublisherAvailable = d->publisherAvailable;
-    d->publisherAvailable = publisherAvailable;
-    if (!publisherAvailable && (wasPublisherAvailable || !d->parts.isEmpty() || d->request
-                                || d->retryTimer->isActive())) {
+    if (!connected || !sameClient) {
         d->stalledStarts = 0;
+        d->failedPublications.clear();
         d->waitForPublisher();
     }
-
-    // An own reconnect can restore presence before remote capabilities have
-    // been discovered. Allow that short disco round trip to settle first.
-    if (connected && publisherAvailable && !d->stopped) {
-        if (!d->error.isEmpty() || !sameClient)
-            d->error.clear();
-        if (!wasPublisherAvailable || !sameClient)
-            d->retryTimer->start(1000);
-        else
-            d->schedule();
-    }
-    d->report();
+    d->updatePublisher(true);
 }
 
 void IrisMediaSync::setPublisherAvailable(const XMPP::Jid &jid, bool available)
 {
-    if (d->publication.from().resource().isEmpty()
-        || !d->publication.from().compare(jid, true) || d->stopped
-        || d->publisherAvailable == available)
+    if (!d->publication.from().compare(jid, false) || d->stopped)
         return;
-    d->publisherAvailable = available;
+    const bool wasAvailable = d->availablePublishers.contains(jid.full());
+    if (available)
+        d->availablePublishers.insert(jid.full());
+    else
+        d->availablePublishers.remove(jid.full());
+    if (wasAvailable == available)
+        return;
+    for (const auto &publication : std::as_const(d->publications))
+        if (publication.from().compare(jid, true))
+            d->failedPublications.remove(Impl::publicationKey(publication));
     d->stalledStarts = 0;
-    d->retryTimer->stop();
-    if (!available)
-        d->waitForPublisher();
-    if (available && d->connected) {
-        d->error.clear();
-        // Peer presence precedes its disco#info exchange. Starting JinglePub
-        // immediately here can race the publisher's transport selection.
-        d->retryTimer->start(1000);
-    }
-    d->report();
+    d->updatePublisher(true);
 }
 void IrisMediaSync::cancel()
 {
     if (d->stopped)
         return;
-    d->fail(QStringLiteral("Media synchronization cancelled"));
+    d->fail(QStringLiteral("Media synchronization cancelled"), false);
     d->stopped = true;
     d->report();
 }

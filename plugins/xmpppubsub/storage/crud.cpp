@@ -5,6 +5,7 @@
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
 #include "notedata.h"
+#include "noteeditor.h"
 #include "xmppbackend.h"
 
 #include <QElapsedTimer>
@@ -242,6 +243,7 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                             if (old != cache_.cend()
                                 && old.value().backendValue(QStringLiteral("revision")).toString() == remote.revision) {
                                 auto cached = old.value();
+                                cached.removeBackendValue(PendingRevisionBackendKey);
                                 if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
                                     cached.setFolderId(
                                         folderCatalogManager_->catalog().folderForNote(systemName(), remote.id));
@@ -250,12 +252,14 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                                 if (!old.value().isLoaded())
                                     missingBodies.append(remote.id);
                             } else {
-                                refreshed.insert(remote.id, fromRemote(remote));
+                                refreshed.insert(remote.id,
+                                                 mergeRemoteIndex(remote, old == cache_.cend() ? Note() : old.value()));
                                 missingBodies.append(remote.id);
                             }
                         }
                         cache_      = std::move(refreshed);
                         cacheValid_ = accessible_ = true;
+                        refreshObservedNotes();
                         resetRetryBackoff();
                         recordSyncStep(tr("Saving %1 notes in the encrypted local cache…").arg(cache_.size()), true);
                         const qint64 modelMs = stageTimer.restart();
@@ -393,6 +397,113 @@ NoteLoadJob *XmppStorage::loadNoteAsync(const QString &id, QObject *owner)
     return job;
 }
 
+void XmppStorage::checkMediaPublications(const Note &note)
+{
+    if (shuttingDown_ || !transportOnline_ || !note.isLoaded() || !backend_->supportsMedia())
+        return;
+    XmppRemoteNote remote;
+    if (!toRemote(note, &remote, nullptr))
+        return;
+    const auto config = config_;
+    const auto epoch  = configEpoch_;
+    QMetaObject::invokeMethod(
+        backend_,
+        [this, config, epoch, remote = std::move(remote)]() mutable {
+            if (shuttingDown_ || epoch != configEpoch_ || !transportOnline_)
+                return;
+            backend_->setConfig(config);
+            backend_->checkMediaPublicationsAsync(std::move(remote));
+        },
+        Qt::QueuedConnection);
+}
+
+void XmppStorage::observeNote(const Note &note, QObject *subscriber)
+{
+    if (shuttingDown_ || !subscriber || note.storage() != this || note.id().isEmpty())
+        return;
+    if (!observedNotes_.contains(subscriber)) {
+        connect(subscriber, &QObject::destroyed, this, [this, subscriber] { observedNotes_.remove(subscriber); });
+        if (auto *editor = qobject_cast<NoteEditor *>(subscriber))
+            connect(editor, &NoteEditor::allViewsClosed, this,
+                    [this, subscriber] { observedNotes_.remove(subscriber); });
+    }
+    observedNotes_.insert(subscriber, note);
+    checkMediaPublications(note);
+    if (auto *editor = qobject_cast<NoteEditor *>(subscriber); !editor || editor->acceptsStorageRefresh())
+        refreshBodyInBackground(note.id());
+}
+
+void XmppStorage::refreshObservedNotes()
+{
+    if (!transportOnline_ || !accessible_ || shuttingDown_ || errorState_)
+        return;
+    const auto    notes = observedNotes_;
+    QSet<QString> seen;
+    for (auto it = notes.cbegin(); it != notes.cend(); ++it) {
+        const auto id = it->id();
+        if (seen.contains(id))
+            continue;
+        seen.insert(id);
+        const auto note = cache_.value(id, it.value());
+        checkMediaPublications(note);
+        if (auto *editor = qobject_cast<NoteEditor *>(it.key()); editor && !editor->acceptsStorageRefresh())
+            continue;
+        refreshBodyInBackground(id);
+    }
+}
+
+void XmppStorage::refreshBodyInBackground(const QString &id)
+{
+    if (shuttingDown_ || errorState_ || !transportOnline_ || !accessible_ || backgroundBodyRequests_.contains(id))
+        return;
+    const auto cached = cache_.value(id);
+    if (!cached.isLoaded())
+        return;
+    const auto request = ++nextBackgroundBodyRequest_;
+    backgroundBodyRequests_.insert(id, request);
+    const auto epoch        = configEpoch_;
+    const auto config       = config_;
+    const auto baseRevision = cached.backendValue(QStringLiteral("revision")).toString();
+    QMetaObject::invokeMethod(
+        backend_,
+        [this, epoch, config, id, request, baseRevision] {
+            if (shuttingDown_ || epoch != configEpoch_)
+                return;
+            backend_->setConfig(config);
+            backend_->getNoteAsync(id, [this, epoch, id, request, baseRevision](XmppNoteResult result) mutable {
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, epoch, id, request, baseRevision, result = std::move(result)] {
+                        if (shuttingDown_ || epoch != configEpoch_ || backgroundBodyRequests_.value(id) != request)
+                            return;
+                        backgroundBodyRequests_.remove(id);
+                        const auto current = cache_.value(id);
+                        if (current.isNull()
+                            || current.backendValue(QStringLiteral("revision")).toString() != baseRevision)
+                            return;
+                        if (!result.ok) {
+                            if (isStorageKeyMismatch(result.error))
+                                enterErrorState(result.error, true);
+                            return; // Offline/timeouts never prevent using the cached body.
+                        }
+                        const auto expected = current.backendValue(PendingRevisionBackendKey).toString();
+                        if (!result.note.contentPresent || result.note.id != id
+                            || (!expected.isEmpty() && result.note.revision != expected))
+                            return;
+                        reconcileRemoteFolders({ result.note });
+                        const auto loaded = fromRemote(result.note);
+                        cache_.insert(id, loaded);
+                        persistCache();
+                        emit noteModified(loaded);
+                        emit noteRefreshed(loaded);
+                        checkMediaPublications(loaded);
+                    },
+                    Qt::QueuedConnection);
+            });
+        },
+        Qt::QueuedConnection);
+}
+
 Note XmppStorage::createNote()
 {
     Note note(new NoteData(this));
@@ -482,6 +593,7 @@ NoteSaveJob *XmppStorage::saveNoteAsync(const Note &note, QObject *owner)
                             cache_.remove(oldId);
                         cache_.insert(saved.id(), saved);
                         cacheValid_ = accessible_ = true;
+                        refreshObservedNotes();
                         persistCache();
                         guard->complete(saved);
                         if (!oldId.isEmpty() && oldId != saved.id())
@@ -615,6 +727,7 @@ NoteFolderChangeJob *XmppStorage::changeNoteFolderAsync(const Note &note, QObjec
                             changed.setFolderId(folderId);
                         cache_.insert(noteId, changed);
                         cacheValid_ = accessible_ = true;
+                        refreshObservedNotes();
                         persistCache();
                         emit noteModified(changed);
                         guard->complete(changed);
