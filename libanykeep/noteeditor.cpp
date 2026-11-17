@@ -9,6 +9,7 @@
 #include "mediasynccontroller.h"
 #include "noteblockmodel.h"
 #include "notedata.h"
+#include "notetagline.h"
 #include "notedocumenthistory.h"
 #include "notemanager.h"
 #include "notestorage.h"
@@ -670,6 +671,34 @@ void NoteEditor::setFavorite(bool favorite)
     note_.setFavorite(favorite);
     updateMetadataDirty();
     emit favoriteChanged();
+}
+
+bool NoteEditor::addTag(const QString &name)
+{
+    const QString tag = name.trimmed().startsWith(QLatin1Char('#')) ? name.trimmed().mid(1) : name.trimmed();
+    if (!NoteTagLine::isValidTagName(tag))
+        return setError(tr("Invalid tag name"));
+
+    QStringList allTags = note().tags();
+    if (allTags.contains(tag))
+        return true;
+    allTags.append(tag);
+
+    if (model_->markdown())
+        return model_->addTagsToDocument(allTags);
+
+    // Plain-text notes have no structural TagLine block. The first body
+    // line is their canonical tag metadata, so preserve all following text.
+    const auto [title, rawBody] = titleAndBody();
+    const QString body = NoteTagLine::normalizeLineBreaks(rawBody);
+    const int lineEnd = body.indexOf(QLatin1Char('\n'));
+    const QString firstLine = lineEnd < 0 ? body : body.left(lineEnd);
+    const QStringList existing = NoteTagLine::parseLine(firstLine);
+    const QString remainder = existing.isEmpty() ? body : (lineEnd < 0 ? QString() : body.mid(lineEnd + 1));
+    const QString prefix = NoteTagLine::serialize(allTags);
+    setText(title + QLatin1Char('\n') + prefix
+            + (remainder.isEmpty() ? QString() : QLatin1Char('\n') + remainder));
+    return true;
 }
 
 void NoteEditor::markFolderPersisted(const QUuid &folderId)
