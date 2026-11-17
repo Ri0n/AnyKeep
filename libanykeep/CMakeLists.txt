@@ -150,6 +150,7 @@ set(anykeep_CORE_SRCS
     notessearchmodel.cpp
     workspace/core.cpp
     workspace/folders.cpp
+    workspace/metadata.cpp
     workspace/notes.cpp
     workspace/transfer.cpp
     pluginhost.cpp
