@@ -1207,6 +1207,299 @@ private slots:
         QVERIFY(quickItemByName(root, QStringLiteral("mediaPlaybackGlyph-2")));
     }
 
+    void audioPlayerAndTranscriptHaveIndependentNonOverlappingBounds()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Recording"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager  drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor    editor(note, drafts);
+        const int     row          = editor.model()->rowCount();
+        const QString longFilename = QStringLiteral(
+            "long_filename_which_does_not_fit_the_screen_and_must_remain_editable_without_ellipsis.ogg");
+        editor.model()->insertMedia(row, QStringLiteral("anykeep-media:/missing/") + longFilename, QString(),
+                                    QStringLiteral("audio/ogg"), 21000);
+        const QString transcript = QStringLiteral("This transcription must wrap onto multiple lines without escaping "
+                                                  "the upper border of the read-only transcript card. "
+                                                  "It must still fit the document after the software keyboard "
+                                                  "changes the viewport and after an additional very long word "
+                                                  "is inserted into the transcript.");
+        QVERIFY(editor.model()->setMediaTranscript(row, transcript));
+
+        DesktopNoteEditorHost host(&editor);
+        host.resize(360, 680);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+
+        // The production desktop editor uses the same two-row audio card as
+        // touch mode, with its natural height keeping the transcript below it.
+        QQuickItem *media     = nullptr;
+        QQuickItem *transport = nullptr;
+        QQuickItem *title     = nullptr;
+        QQuickItem *play      = nullptr;
+        QQuickItem *actions   = nullptr;
+        QQuickItem *panel     = nullptr;
+        QQuickItem *text      = nullptr;
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-%1").arg(row))));
+        QTRY_VERIFY((transport = quickItemByName(root, QStringLiteral("mediaCard-%1").arg(row))));
+        QTRY_VERIFY((title = quickItemByName(root, QStringLiteral("mediaInlineTitle-%1").arg(row))));
+        QTRY_VERIFY((play = quickItemByName(root, QStringLiteral("mediaPlaybackButton-%1").arg(row))));
+        QTRY_VERIFY((actions = quickItemByName(root, QStringLiteral("mediaActionsButton-%1").arg(row))));
+        QQuickItem *controls = nullptr;
+        QTRY_VERIFY((controls = quickItemByName(root, QStringLiteral("mediaTransportRow-%1").arg(row))));
+        QVERIFY(quickItemByName(root, QStringLiteral("mediaAudioHeader-%1").arg(row)));
+        QVERIFY(!transport->property("touchMode").toBool());
+        QTRY_VERIFY(qAbs(transport->height() - transport->implicitHeight()) < 0.5);
+        QTRY_VERIFY(title->mapToItem(transport, QPointF(0, title->height())).y()
+                    < controls->mapToItem(transport, QPointF()).y());
+        QCOMPARE(title->property("text").toString(), longFilename);
+        QVERIFY(title->property("contentWidth").toReal() > title->width());
+        QVERIFY(title->property("autoScroll").toBool());
+        QVERIFY(title->property("clip").toBool());
+        QVERIFY(title->property("readOnly").toBool());
+        QVERIFY(title->height() >= title->property("implicitHeight").toReal() - 0.5);
+        QVERIFY(play->mapToItem(transport, QPointF()).x() < title->mapToItem(transport, QPointF()).x());
+        QVERIFY(title->mapToItem(transport, QPointF(title->width(), 0)).x()
+                < actions->mapToItem(transport, QPointF()).x());
+
+        QVERIFY(media->setProperty("transcriptExpanded", true));
+        QTRY_VERIFY((panel = quickItemByName(root, QStringLiteral("mediaTranscriptPanel-%1").arg(row))));
+        QTRY_VERIFY((text = quickItemByName(root, QStringLiteral("mediaTranscriptText-%1").arg(row))));
+        QTRY_VERIFY(panel->isVisible() && panel->height() > 50);
+        const QPointF panelTop = panel->mapToItem(media, QPointF());
+        QVERIFY(panelTop.y() >= transport->y() + transport->height() + 4);
+        const QPointF textTop = text->mapToItem(panel, QPointF());
+        QVERIFY(textTop.x() >= 8);
+        QVERIFY(textTop.y() >= 8);
+        QVERIFY(text->property("contentHeight").toReal() > 30);
+        QVERIFY(textTop.y() + text->height() <= panel->height() - 8 + 1.0);
+        QVERIFY(panelTop.y() + panel->height() <= media->implicitHeight() + 1.0);
+
+        // The inherited title field stays editable and restores its filename
+        // fallback only when an empty editing transaction has finished.
+        auto *quick = host.quickWidget();
+        QTest::mouseClick(quick, Qt::LeftButton, Qt::NoModifier,
+                          title->mapToScene(QPointF(title->width() / 2, title->height() / 2)).toPoint());
+        QTRY_VERIFY(title->hasActiveFocus());
+        QVERIFY(!title->property("readOnly").toBool());
+        QVERIFY(QMetaObject::invokeMethod(title, "selectAll"));
+        QTest::keyClick(quick, Qt::Key_Backspace);
+        QTRY_COMPARE(title->property("text").toString(), QString());
+        QCOMPARE(editor.model()->data(editor.model()->index(row), NoteBlockModel::AltRole).toString(), QString());
+        QTest::keyClick(quick, Qt::Key_Return);
+        QTRY_COMPARE(title->property("text").toString(), longFilename);
+    }
+
+    void audioRowsKeepConsistentInsetsAndActionSpacing_data()
+    {
+        QTest::addColumn<int>("viewportWidth");
+        QTest::addColumn<bool>("canTranscribe");
+        QTest::addColumn<bool>("syncAvailable");
+        QTest::addColumn<bool>("touchMode");
+        for (const bool touch : { false, true }) {
+            for (const int width : { 320, 390, 520 }) {
+                for (const bool transcription : { false, true }) {
+                    for (const bool sync : { false, true }) {
+                        const QByteArray name = QStringLiteral("%1-%2-stt%3-sync%4")
+                                                    .arg(touch ? "touch" : "desktop")
+                                                    .arg(width)
+                                                    .arg(transcription)
+                                                    .arg(sync)
+                                                    .toLatin1();
+                        QTest::newRow(name.constData()) << width << transcription << sync << touch;
+                    }
+                }
+            }
+        }
+    }
+
+    void audioRowsKeepConsistentInsetsAndActionSpacing()
+    {
+        QFETCH(int, viewportWidth);
+        QFETCH(bool, canTranscribe);
+        QFETCH(bool, syncAvailable);
+        QFETCH(bool, touchMode);
+        QQuickWidget quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(viewportWidth, 200);
+        installThemedIconImageProvider(quick.engine());
+
+        const QString fixture = QFINDTESTDATA("qml/MediaTransportHarness.qml");
+        QVERIFY2(!fixture.isEmpty(), "Shared media QML fixture is missing");
+        const QUrl url = QUrl::fromLocalFile(fixture);
+        QString    error;
+        QVERIFY2(loadQuickFixture(&quick, url, { { QStringLiteral("touchMode"), touchMode } }, &error),
+                 qPrintable(error));
+        quick.show();
+        auto *root = qobject_cast<QQuickItem *>(quick.rootObject());
+        QVERIFY(root);
+
+        QQuickItem *transport  = nullptr;
+        QQuickItem *header     = nullptr;
+        QQuickItem *slider     = nullptr;
+        QQuickItem *sync       = nullptr;
+        QQuickItem *transcribe = nullptr;
+        QQuickItem *title      = nullptr;
+        QQuickItem *time       = nullptr;
+        QQuickItem *row        = nullptr;
+        QQuickItem *actions    = nullptr;
+        QQuickItem *play       = nullptr;
+        QTRY_VERIFY((transport = quickItemByName(root, QStringLiteral("mediaLayoutUnderTest"))));
+        QTRY_VERIFY((header = quickItemByName(root, QStringLiteral("mediaAudioHeader-23"))));
+        QTRY_VERIFY((slider = quickItemByName(root, QStringLiteral("mediaSeekSlider-23"))));
+        QTRY_VERIFY((sync = quickItemByName(root, QStringLiteral("mediaAudioSync-23"))));
+        QTRY_VERIFY((transcribe = quickItemByName(root, QStringLiteral("mediaTranscriptionButton-23"))));
+        QVERIFY(root->setProperty("canTranscribe", canTranscribe));
+        QVERIFY(root->setProperty("syncStatus",
+                                  QVariantMap { { QStringLiteral("valid"), syncAvailable },
+                                                { QStringLiteral("progress"), 1 },
+                                                { QStringLiteral("state"), 3 } }));
+        QTRY_VERIFY((title = quickItemByName(root, QStringLiteral("mediaInlineTitle-23"))));
+        QTRY_VERIFY((time = quickItemByName(root, QStringLiteral("mediaAudioTime-23"))));
+        QTRY_VERIFY((row = quickItemByName(root, QStringLiteral("mediaTransportRow-23"))));
+        QTRY_VERIFY((actions = quickItemByName(root, QStringLiteral("mediaActionsButton-23"))));
+        QTRY_VERIFY((play = quickItemByName(root, QStringLiteral("mediaPlaybackButton-23"))));
+        QTRY_VERIFY(transport->height()
+                    >= header->height() + row->height() + 2 * transport->property("contentInset").toReal());
+        QCOMPARE(title->property("text").toString(),
+                 QStringLiteral("long_audio_filename_that_overflows_the_title_field.ogg"));
+        QVERIFY(title->property("autoScroll").toBool());
+        QVERIFY(title->height() >= title->implicitHeight() - 0.5);
+        QCOMPARE(time->property("text").toString(), QStringLiteral("0:00 / 0:21"));
+        const qreal minimumTarget = touchMode ? 48 : 32;
+        QVERIFY(play->height() >= minimumTarget);
+        QVERIFY(play->width() >= minimumTarget);
+        QVERIFY(actions->height() >= minimumTarget);
+        QVERIFY(actions->width() >= minimumTarget);
+        QVERIFY(slider->height() >= minimumTarget);
+
+        // Header text uses the content edges of the outer buttons, rather
+        // than sitting against the card while the button glyphs are padded.
+        QTRY_VERIFY(qAbs(title->mapToItem(transport, QPointF()).x()
+                         - (play->mapToItem(transport, QPointF()).x() + play->property("leftPadding").toReal()))
+                    <= 1.0);
+        QTRY_VERIFY(qAbs(time->mapToItem(transport, QPointF(time->width(), 0)).x()
+                         - (actions->mapToItem(transport, QPointF(actions->width(), 0)).x()
+                            - actions->property("rightPadding").toReal()))
+                    <= 1.0);
+        QCOMPARE(transcribe->isVisible(), canTranscribe);
+        QCOMPARE(sync->isVisible(), syncAvailable);
+        QList<QQuickItem *> visibleControls { play, slider };
+        if (syncAvailable)
+            visibleControls.append(sync);
+        if (canTranscribe)
+            visibleControls.append(transcribe);
+        visibleControls.append(actions);
+        for (int index = 1; index < visibleControls.size(); ++index) {
+            const auto *previous = visibleControls.at(index - 1);
+            const auto *next     = visibleControls.at(index);
+            QTRY_VERIFY(qAbs(next->mapToItem(row, QPointF()).x()
+                             - previous->mapToItem(row, QPointF(previous->width(), 0)).x()
+                             - row->property("spacing").toReal())
+                        <= 1.0);
+        }
+        QVERIFY(slider->width() > 0);
+        QVERIFY(title->width() > 0);
+        QVERIFY(time->mapToItem(header, QPointF()).x() >= title->width());
+
+        // A longer duration must only shorten the title in the header. It
+        // must not reserve a wider grid column beside STT and shrink seeking.
+        const qreal titleWidth = title->width();
+        const qreal seekWidth  = slider->width();
+        const qreal menuLeft   = actions->mapToItem(transport, QPointF()).x();
+        QVERIFY(root->setProperty("knownDuration", 360000000));
+        QTRY_COMPARE(time->property("text").toString(), QStringLiteral("0:00 / 6000:00"));
+        QTRY_VERIFY(title->width() < titleWidth);
+        QVERIFY(qAbs(slider->width() - seekWidth) <= 1.0);
+        QTRY_VERIFY(qAbs(actions->mapToItem(transport, QPointF()).x() - menuLeft) <= 1.0);
+        const qreal titleBottom = title->mapToItem(transport, QPointF(0, title->height())).y();
+        const qreal controlTop  = row->mapToItem(transport, QPointF()).y();
+        QVERIFY(titleBottom + (touchMode ? 8 : 2) <= controlTop);
+
+        // Large fonts grow the shared title row without clipping glyphs or
+        // overlapping the transport on either platform.
+        QFont largeFont = title->property("font").value<QFont>();
+        largeFont.setPixelSize(44);
+        QVERIFY(title->setProperty("font", QVariant::fromValue(largeFont)));
+        QTRY_VERIFY(title->height() >= title->implicitHeight() - 0.5);
+        QTRY_VERIFY(title->mapToItem(transport, QPointF(0, title->height())).y() + (touchMode ? 8 : 2)
+                    <= row->mapToItem(transport, QPointF()).y());
+        QVERIFY(transport->height() >= title->height() + row->height() + 8);
+    }
+
+    void videoTransportUsesTheSharedSingleRow_data()
+    {
+        QTest::addColumn<bool>("touchMode");
+        QTest::addColumn<bool>("detachedAvailable");
+        QTest::addColumn<int>("viewportWidth");
+        for (const bool touch : { false, true }) {
+            for (const bool detached : { false, true }) {
+                for (const int width : { 320, 520 }) {
+                    const QByteArray name = QStringLiteral("%1-window%2-%3")
+                                                .arg(touch ? "touch" : "desktop")
+                                                .arg(detached)
+                                                .arg(width)
+                                                .toLatin1();
+                    QTest::newRow(name.constData()) << touch << detached << width;
+                }
+            }
+        }
+    }
+
+    void videoTransportUsesTheSharedSingleRow()
+    {
+        QFETCH(bool, touchMode);
+        QFETCH(bool, detachedAvailable);
+        QFETCH(int, viewportWidth);
+        QQuickWidget quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(viewportWidth, 200);
+        installThemedIconImageProvider(quick.engine());
+        const QString fixture = QFINDTESTDATA("qml/MediaTransportHarness.qml");
+        QVERIFY(!fixture.isEmpty());
+        QString error;
+        QVERIFY2(loadQuickFixture(&quick, QUrl::fromLocalFile(fixture),
+                                  { { QStringLiteral("touchMode"), touchMode },
+                                    { QStringLiteral("audioMode"), false },
+                                    { QStringLiteral("detachedAvailable"), detachedAvailable } },
+                                  &error),
+                 qPrintable(error));
+        quick.show();
+        auto *root = qobject_cast<QQuickItem *>(quick.rootObject());
+        QVERIFY(root);
+        auto *transport  = quickItemByName(root, QStringLiteral("mediaLayoutUnderTest"));
+        auto *header     = quickItemByName(root, QStringLiteral("mediaAudioHeader-23"));
+        auto *row        = quickItemByName(root, QStringLiteral("mediaTransportRow-23"));
+        auto *time       = quickItemByName(root, QStringLiteral("mediaVideoTime-23"));
+        auto *stt        = quickItemByName(root, QStringLiteral("mediaTranscriptionButton-23"));
+        auto *sync       = quickItemByName(root, QStringLiteral("mediaAudioSync-23"));
+        auto *fullscreen = quickItemByName(root, QStringLiteral("mediaFullscreenButton-23"));
+        auto *detach     = quickItemByName(root, QStringLiteral("mediaSeparateWindowButton-23"));
+        auto *slider     = quickItemByName(root, QStringLiteral("mediaSeekSlider-23"));
+        QVERIFY(transport && header && row && time && stt && sync && fullscreen && detach && slider);
+        QVERIFY(!header->isVisible());
+        QVERIFY(!stt->isVisible());
+        QVERIFY(!sync->isVisible());
+        QVERIFY(!quickItemByName(root, QStringLiteral("mediaInlineTitle-23")));
+        QVERIFY(fullscreen->isVisible());
+        QCOMPARE(detach->isVisible(), detachedAvailable);
+        QCOMPARE(time->property("text").toString(), QStringLiteral("0:00 / 0:21"));
+        QTRY_VERIFY(qAbs(transport->height() - row->height() - 2 * transport->property("contentInset").toReal()) <= 1);
+        QVERIFY(slider->width() > 0);
+        for (const QString &name :
+             { QStringLiteral("mediaPlaybackButton-23"), QStringLiteral("mediaSeekSlider-23"),
+               QStringLiteral("mediaFullscreenButton-23"), QStringLiteral("mediaActionsButton-23") }) {
+            auto *control = quickItemByName(root, name);
+            QVERIFY(control);
+            const QPointF top = control->mapToItem(transport, QPointF());
+            QVERIFY(top.x() >= 0 && top.y() >= 0);
+            QVERIFY(top.x() + control->width() <= transport->width() + 1);
+            QVERIFY(top.y() + control->height() <= transport->height() + 1);
+            QVERIFY(control->height() >= (touchMode ? 48 : 32));
+        }
+    }
+
     void mediaControlIconsAreBundledAndRenderWithoutUnicodeGlyphs()
     {
         // Android fonts may lack the play/pause, fullscreen, overflow and

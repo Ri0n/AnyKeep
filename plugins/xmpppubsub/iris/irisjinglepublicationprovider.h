@@ -10,12 +10,14 @@
 
 #include <QHash>
 #include <QLoggingCategory>
+#include <QSet>
 
 Q_DECLARE_LOGGING_CATEGORY(lcIrisJingleMedia)
 
 namespace AnyKeep {
 
 class IrisXmppBackend;
+struct IrisChunkedMediaSource;
 
 enum class IrisJingleMediaRepresentation : quint8 {
     LegacyXep0448  = 1,
@@ -50,6 +52,7 @@ struct IrisJingleCapability {
 };
 
 class IrisJinglePublicationProvider final : public XMPP::Jingle::PublishedSessionProvider {
+    Q_OBJECT
 public:
     struct PrepareResult {
         XMPP::Jingle::JinglePub publication;
@@ -61,10 +64,16 @@ public:
 
     QString                        errorString() const { return error_; }
     PrepareResult                  prepare(IrisJingleCapability capability);
+    void                           ensurePublishedAsync(IrisJingleCapability capability);
     QList<XMPP::Jingle::JinglePub> matchingPublications(const QByteArray &cipherHash, quint64 wireSize) const;
+    QList<XMPP::Jingle::JinglePub> matchingPublications(const IrisChunkedMediaSource &source,
+                                                        const QUuid                  &attachmentId) const;
     QStringList                    publicationIdsForNote(const QString &noteId) const;
     bool                           removePublication(const QString &publicationId);
     void                           traceIncomingStart(const QString &xml) const;
+
+signals:
+    void publicationsChanged();
 
 protected:
     QList<XMPP::Jingle::PublishedSessionEndpoint> publishedSessionEndpoints() const override;
@@ -91,6 +100,9 @@ private:
     QByteArray                              encryptionKey_;
     QString                                 error_;
     bool                                    writable_ { true };
+    quint64                                 checkGeneration_ { 0 };
+    QSet<QString>                           publicationChecks_;
+    QHash<QString, quint64>                 publicationEpochs_;
     QHash<QString, IrisJingleCapability>    capabilities_;
     QHash<QString, XMPP::Jingle::JinglePub> observed_;
 };

@@ -37,17 +37,20 @@ public:
     using AuditCallback   = std::function<void(XmppKeyAuditResult)>;
     // Available full-JID resources advertising key sync (not OMEMO device IDs).
     using ResourcesCallback = std::function<void(QStringList, QString)>;
-    using RekeyCallback   = std::function<void(XmppRekeyResult)>;
-    using CleanupCallback = std::function<void(XmppCleanupResult)>;
+    using RekeyCallback     = std::function<void(XmppRekeyResult)>;
+    using CleanupCallback   = std::function<void(XmppCleanupResult)>;
 
     using QObject::QObject;
     ~XmppBackend() override = default;
 
     virtual bool supportsMedia() const { return false; }
+    // Best-effort reconciliation of existing local media offers. Never
+    // changes the note, connects an offline account or downloads attachments.
+    virtual void checkMediaPublicationsAsync(XmppRemoteNote note) { Q_UNUSED(note) }
 
-    virtual void start()                                                   = 0;
-    virtual void setConfig(const XmppConfig &config)                       = 0;
-    virtual void shutdown()                                                = 0;
+    virtual void start()                             = 0;
+    virtual void setConfig(const XmppConfig &config) = 0;
+    virtual void shutdown()                          = 0;
     // App became active after suspension. Backends can probe apparently live
     // transports; the storage adapter owns the reconnect/retry policy.
     virtual void checkConnectionAfterResume() {}
@@ -63,25 +66,25 @@ public:
      * content.  A request with preserveModified set keeps its supplied
      * timestamp; otherwise the update receives the current time.
      */
-    virtual void           updateNoteIndexAsync(XmppRemoteNote note, NoteCallback callback)                  = 0;
-    virtual void           deleteNoteAsync(QString id, StatusCallback callback)                              = 0;
-    virtual XmppDeviceInfo ownOmemoDevice() const                                                            = 0;
-    virtual void           ownOmemoDevicesAsync(DevicesCallback callback)                                    = 0;
-    virtual void           ownOmemoBundleValidAsync(StatusCallback callback)                                 = 0;
-    virtual void           repairOwnOmemoDeviceAsync(StatusCallback callback)                                = 0;
-    virtual void           removeOwnOmemoDeviceAsync(quint32 deviceId, StatusCallback callback)              = 0;
-    virtual void           trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback callback)               = 0;
-    virtual void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback)      = 0;
-    virtual void           onlineResourcesAsync(ResourcesCallback callback)                                 = 0;
+    virtual void           updateNoteIndexAsync(XmppRemoteNote note, NoteCallback callback)               = 0;
+    virtual void           deleteNoteAsync(QString id, StatusCallback callback)                           = 0;
+    virtual XmppDeviceInfo ownOmemoDevice() const                                                         = 0;
+    virtual void           ownOmemoDevicesAsync(DevicesCallback callback)                                 = 0;
+    virtual void           ownOmemoBundleValidAsync(StatusCallback callback)                              = 0;
+    virtual void           repairOwnOmemoDeviceAsync(StatusCallback callback)                             = 0;
+    virtual void           removeOwnOmemoDeviceAsync(quint32 deviceId, StatusCallback callback)           = 0;
+    virtual void           trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback callback)            = 0;
+    virtual void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback)   = 0;
+    virtual void           onlineResourcesAsync(ResourcesCallback callback)                               = 0;
     virtual void           auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress = {},
                                                  std::optional<QStringList> onlyResources = std::nullopt) = 0;
     virtual void           rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback,
-                                             XmppProgressCallback progress = {})                             = 0;
-    virtual void           scanObsoleteItemsAsync(CleanupCallback callback)                                  = 0;
+                                             XmppProgressCallback progress = {})                          = 0;
+    virtual void           scanObsoleteItemsAsync(CleanupCallback callback)                               = 0;
     virtual void           deleteObsoleteItemsAsync(QStringList indexItemIds, QStringList contentItemIds,
-                                                    CleanupCallback callback)                                = 0;
-    virtual void           approveKeySyncRequest(QString requestId)                                          = 0;
-    virtual void           rejectKeySyncRequest(QString requestId)                                           = 0;
+                                                    CleanupCallback callback)                             = 0;
+    virtual void           approveKeySyncRequest(QString requestId)                                       = 0;
+    virtual void           rejectKeySyncRequest(QString requestId)                                        = 0;
 
 signals:
     /// A complete remote note was published or changed.

@@ -99,12 +99,16 @@ ctest --test-dir build/Desktop-Debug -L editor --output-on-failure
   `Rectangle` owns the background, corner radius and border. Within it a
   dedicated preview frame owns poster/placeholder/live video, and the transport
   controls occupy a separate bottom row **inside** the same card.
-- `blocks/MediaTransportControls.qml` owns the common media controls for video
-  and audio. Both receive the editor's media adapter explicitly. Use lazy
-  loaders so an inactive media type cannot create duplicate playback buttons,
-  duplicate object names, or extra media output instances.
+- `blocks/MediaTransportControls.qml` owns the controls for audio, inline video
+  and detached video on desktop and Android. Audio adds a header and STT; video
+  adds fullscreen/window controls. Keep playback, seeking and menu actions in
+  this single component. Use `touchMode` for target sizes and spacing. Parent
+  cards size the transport from its implicit height, including native style and
+  font metrics; controls must not derive their sizes from the parent's height.
+  Use lazy loaders so inactive media types cannot instantiate duplicate editors,
+  playback buttons or media output instances.
 - `blocks/MediaTitleField.qml` edits timed-media titles inline through the model
-  and one editor history transaction. Audio titles live in the transport row;
+  and one editor history transaction. Audio titles live in the header row;
   video titles overlay the paused preview. The gesture area excludes that title.
 - `blocks/MediaCornerMask.qml` restores the owning card's rounded corners above
   its rectangular poster/video/control children, using palette colors and small

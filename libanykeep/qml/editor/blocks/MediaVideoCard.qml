@@ -12,7 +12,7 @@ Rectangle {
     readonly property real posterImplicitWidth: poster.implicitWidth
     readonly property real posterImplicitHeight: poster.implicitHeight
     readonly property real titleAreaHeight: titleOverlay.visible ? titleOverlay.y + titleOverlay.height + 4 : 0
-    readonly property int transportHeight: mediaBlock.transportHeight
+    readonly property real transportHeight: transport.implicitHeight
     readonly property bool hasPoster:
         String(mediaBlock.block.previewUrl).startsWith("image://anykeep-media/")
         || String(mediaBlock.block.previewUrl).startsWith("data:image/jpeg;base64,")

@@ -1,3 +1,7 @@
+#include "draftmanager.h"
+#include "editortestsupport.h"
+#include "noteblockmodel.h"
+#include "noteeditor.h"
 #include "xmppbackend.h"
 #include "xmppnotecodec.h"
 #include "xmppsettingscontroller.h"
@@ -27,6 +31,8 @@ public:
         emit remoteNotePublished(note);
     }
 
+    bool supportsMedia() const override { return mediaSupported; }
+    void checkMediaPublicationsAsync(XmppRemoteNote note) override { checkedMediaNotes.append(std::move(note)); }
     void start() override {}
     void setConfig(const XmppConfig &config) override { config_ = config; }
     void shutdown() override { ++shutdownCalls; }
@@ -61,6 +67,10 @@ public:
     void getNoteAsync(QString id, NoteCallback callback) override
     {
         ++getNoteCalls;
+        if (deferGets) {
+            pendingGets.append({ id, std::move(callback) });
+            return;
+        }
         if (loadFailure) {
             callback(*loadFailure);
             return;
@@ -140,23 +150,27 @@ public:
     void approveKeySyncRequest(QString) override {}
     void rejectKeySyncRequest(QString) override {}
 
-    int                            connectCalls { 0 };
-    int                            probeCalls { 0 };
-    bool                           deferConnect { false };
-    QList<StatusCallback>          pendingConnects;
-    int                            fullSaveCount { 0 };
-    int                            shutdownCalls { 0 };
-    int                            wakeupProbes { 0 };
-    int                            indexUpdateCount { 0 };
-    QList<XmppRemoteNote>          indexRequests;
-    QHash<QString, XmppRemoteNote> remote_;
-    XmppConfig                     config_;
-    bool                           deferLists { false };
-    int                            listCalls { 0 };
-    QList<ListCallback>            pendingLists;
-    std::optional<XmppNoteResult>  loadFailure;
-    std::optional<XmppNoteResult>  saveFailure;
-    int                            getNoteCalls { 0 };
+    int                                     connectCalls { 0 };
+    int                                     probeCalls { 0 };
+    bool                                    deferConnect { false };
+    QList<StatusCallback>                   pendingConnects;
+    int                                     fullSaveCount { 0 };
+    int                                     shutdownCalls { 0 };
+    int                                     wakeupProbes { 0 };
+    int                                     indexUpdateCount { 0 };
+    QList<XmppRemoteNote>                   indexRequests;
+    QHash<QString, XmppRemoteNote>          remote_;
+    XmppConfig                              config_;
+    bool                                    deferLists { false };
+    int                                     listCalls { 0 };
+    QList<ListCallback>                     pendingLists;
+    std::optional<XmppNoteResult>           loadFailure;
+    std::optional<XmppNoteResult>           saveFailure;
+    int                                     getNoteCalls { 0 };
+    bool                                    deferGets { false };
+    bool                                    mediaSupported { false };
+    QList<std::pair<QString, NoteCallback>> pendingGets;
+    QList<XmppRemoteNote>                   checkedMediaNotes;
 };
 
 XmppRemoteNote remoteNote(const QString &id, const QDateTime &modified)
@@ -181,6 +195,11 @@ class XmppStorageTest : public QObject {
 private slots:
     void init();
     void foregroundResumeProbesOnlineStreamWithoutRestart();
+    void offlineOpenRetainsLastCompleteBody_data();
+    void offlineOpenRetainsLastCompleteBody();
+    void backgroundRefreshRespectsLocalEdits_data();
+    void backgroundRefreshRespectsLocalEdits();
+    void lateBackgroundReplyDoesNotReplaceNewerSnapshot();
     void authenticationStartsWithoutEncryptionKeys();
     void reorderPublishesOnlyTheIndex();
     void syncActivityReportsIndexStages();
@@ -210,14 +229,14 @@ void XmppStorageTest::authenticationStartsWithoutEncryptionKeys()
 {
     // This account is deliberately missing both the remote-note key and the
     // local OMEMO key. The backend must still be asked to do TLS/SASL login.
-    QSettings settings;
-    const QString jidSetting = QStringLiteral("storage.xmpppubsub.jid");
+    QSettings     settings;
+    const QString jidSetting      = QStringLiteral("storage.xmpppubsub.jid");
     const QString passwordSetting = QStringLiteral("storage.xmpppubsub.password");
-    const bool hadJid = settings.contains(jidSetting);
-    const bool hadPassword = settings.contains(passwordSetting);
-    const auto oldJid = settings.value(jidSetting);
-    const auto oldPassword = settings.value(passwordSetting);
-    const auto restore = qScopeGuard([&] {
+    const bool    hadJid          = settings.contains(jidSetting);
+    const bool    hadPassword     = settings.contains(passwordSetting);
+    const auto    oldJid          = settings.value(jidSetting);
+    const auto    oldPassword     = settings.value(passwordSetting);
+    const auto    restore         = qScopeGuard([&] {
         if (hadJid)
             settings.setValue(jidSetting, oldJid);
         else
@@ -227,14 +246,15 @@ void XmppStorageTest::authenticationStartsWithoutEncryptionKeys()
         else
             settings.remove(passwordSetting);
     });
-    settings.setValue(jidSetting, QStringLiteral("xmpp-auth-test-%1@example.test")
-                                      .arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+    settings.setValue(
+        jidSetting,
+        QStringLiteral("xmpp-auth-test-%1@example.test").arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
     settings.setValue(passwordSetting, QStringLiteral("stub-password"));
 
-    auto *backend = new FakeXmppBackend;
+    auto *backend         = new FakeXmppBackend;
     backend->deferConnect = true;
     XmppStorage storage(nullptr, backend);
-    auto *job = storage.initAsync(&storage);
+    auto       *job = storage.initAsync(&storage);
     QTRY_COMPARE(backend->connectCalls, 1);
     QCOMPARE(backend->probeCalls, 0);
     QVERIFY(!job->isFinished());
@@ -249,9 +269,154 @@ void XmppStorageTest::authenticationStartsWithoutEncryptionKeys()
     QVERIFY(!storage.canAcceptWrites());
 }
 
+void XmppStorageTest::offlineOpenRetainsLastCompleteBody_data()
+{
+    QTest::addColumn<bool>("event");
+    QTest::newRow("index-event") << true;
+    QTest::newRow("index-refresh") << false;
+}
+
+void XmppStorageTest::offlineOpenRetainsLastCompleteBody()
+{
+    QFETCH(bool, event);
+    auto      *backend  = new FakeXmppBackend;
+    const auto original = remoteNote(QStringLiteral("cached-note"), QDateTime::currentDateTimeUtc());
+    backend->remote_.insert(original.id, original);
+    XmppStorage storage(nullptr, backend);
+    backend->simulateConnection(true);
+    auto *ready = storage.refreshNotesAsync();
+    QTRY_VERIFY(ready->isFinished());
+    QCOMPARE(ready->state(), StorageJob::Succeeded);
+    QVERIFY(storage.note(original.id).isLoaded());
+    auto latest            = original;
+    latest.revision        = QStringLiteral("new-index");
+    latest.contentRevision = QStringLiteral("new-body");
+    latest.contentPresent  = false;
+    latest.content.clear();
+    if (event) {
+        emit backend->remoteNotePublished(latest);
+    } else {
+        backend->remote_.insert(latest.id, latest);
+        emit  backend->remoteNodeInvalidated();
+        auto *refresh = storage.refreshNotesAsync();
+        QTRY_VERIFY(refresh->isFinished());
+        QCOMPARE(refresh->state(), StorageJob::Succeeded);
+    }
+    backend->deferGets      = true;
+    backend->mediaSupported = true;
+    backend->simulateConnection(false);
+    QObject subscriber;
+    storage.observeNote(storage.note(original.id), &subscriber);
+    QVERIFY(backend->checkedMediaNotes.isEmpty());
+    const int reads = backend->getNoteCalls;
+    auto     *load  = storage.loadNoteAsync(original.id);
+    QTRY_VERIFY_WITH_TIMEOUT(load->isFinished(), 500);
+    QCOMPARE(load->state(), StorageJob::Succeeded);
+    QCOMPARE(load->result().text(), original.content);
+    // The old body keeps its real base token, never the newer index token.
+    QCOMPARE(load->result().backendValue(QStringLiteral("revision")).toString(), original.revision);
+    QCOMPARE(backend->getNoteCalls, reads);
+    QVERIFY(storage.isAccessible());
+}
+
+void XmppStorageTest::backgroundRefreshRespectsLocalEdits_data()
+{
+    QTest::addColumn<QString>("edit");
+    for (const auto *kind : { "untouched", "typing", "checkpoint", "undo", "metadata" })
+        QTest::newRow(kind) << QString::fromLatin1(kind);
+}
+
+void XmppStorageTest::backgroundRefreshRespectsLocalEdits()
+{
+    QFETCH(QString, edit);
+    auto *backend           = new FakeXmppBackend;
+    backend->mediaSupported = true;
+    auto original           = remoteNote(QStringLiteral("background-note"), QDateTime::currentDateTimeUtc());
+    original.content        = QStringLiteral("Keep this paragraph.\n\n- Stable list\n\nOld tail.");
+    backend->remote_.insert(original.id, original);
+    XmppStorage storage(nullptr, backend);
+    backend->simulateConnection(true);
+    auto *ready = storage.refreshNotesAsync();
+    QTRY_VERIFY(ready->isFinished());
+    auto latest            = original;
+    latest.revision        = QStringLiteral("fresh-index");
+    latest.contentRevision = QStringLiteral("fresh-body");
+    latest.content         = QStringLiteral("Keep this paragraph.\n\n- Stable list\n\nNew tail.");
+    backend->remote_.insert(latest.id, latest);
+    backend->deferGets = true;
+    DraftManager          drafts(std::make_unique<TestSupport::MemoryDraftStore>());
+    NoteEditor            editor(storage.note(original.id), drafts);
+    QSignalSpy            resets(editor.model(), &QAbstractItemModel::modelReset);
+    QPersistentModelIndex stable(editor.model()->index(1));
+    QTRY_COMPARE(backend->pendingGets.size(), 1);
+    QTRY_COMPARE(backend->checkedMediaNotes.size(), 1);
+    QCOMPARE(backend->checkedMediaNotes.first().id, original.id);
+    QCOMPARE(backend->checkedMediaNotes.first().contentRevision, original.contentRevision);
+    auto *open = storage.loadNoteAsync(original.id);
+    QTRY_VERIFY_WITH_TIMEOUT(open->isFinished(), 500);
+    QCOMPARE(open->state(), StorageJob::Succeeded);
+    QCOMPARE(open->result().text(), original.content);
+    if (edit == QLatin1String("typing") || edit == QLatin1String("checkpoint") || edit == QLatin1String("undo")) {
+        editor.setText(editor.text() + QStringLiteral(" Local change."));
+        if (edit == QLatin1String("checkpoint")) {
+            QVERIFY(editor.save());
+            QVERIFY(!editor.isDirty());
+        } else if (edit == QLatin1String("undo")) {
+            editor.setText(original.title + QStringLiteral("\n\n") + original.content);
+        }
+    } else if (edit == QLatin1String("metadata")) {
+        editor.setFavorite(true);
+    }
+    const auto     localText = editor.text();
+    XmppNoteResult result;
+    result.ok   = true;
+    result.note = latest;
+    backend->pendingGets.takeFirst().second(std::move(result));
+    QTRY_COMPARE(storage.note(original.id).backendValue(QStringLiteral("revision")).toString(), latest.revision);
+    if (edit == QLatin1String("untouched")) {
+        QTRY_COMPARE(editor.text(), latest.title + QStringLiteral("\n\n") + latest.content);
+        QCOMPARE(editor.note().backendValue(QStringLiteral("revision")).toString(), latest.revision);
+        QVERIFY(!editor.isDirty());
+        QVERIFY(!editor.canUndo());
+        QVERIFY(stable.isValid());
+        QCOMPARE(stable.data(NoteBlockModel::TextRole).toString(), QStringLiteral("Keep this paragraph."));
+        QCOMPARE(resets.count(), 0);
+    } else {
+        QCOMPARE(editor.text(), localText);
+        QCOMPARE(editor.note().backendValue(QStringLiteral("revision")).toString(), original.revision);
+    }
+}
+
+void XmppStorageTest::lateBackgroundReplyDoesNotReplaceNewerSnapshot()
+{
+    auto      *backend  = new FakeXmppBackend;
+    const auto original = remoteNote(QStringLiteral("racing-note"), QDateTime::currentDateTimeUtc());
+    backend->remote_.insert(original.id, original);
+    XmppStorage storage(nullptr, backend);
+    backend->simulateConnection(true);
+    auto *ready = storage.refreshNotesAsync();
+    QTRY_VERIFY(ready->isFinished());
+    backend->deferGets = true;
+    QObject subscriber;
+    storage.observeNote(storage.note(original.id), &subscriber);
+    QTRY_COMPARE(backend->pendingGets.size(), 1);
+    auto newer            = original;
+    newer.revision        = QStringLiteral("newest-revision");
+    newer.contentRevision = newer.revision;
+    newer.content         = QStringLiteral("Newer event body");
+    backend->seed(newer);
+    XmppNoteResult delayed;
+    delayed.ok   = true;
+    delayed.note = original;
+    backend->pendingGets.takeFirst().second(std::move(delayed));
+    QTest::qWait(20);
+    QCOMPARE(storage.note(original.id).text(), newer.content);
+    QCOMPARE(storage.note(original.id).backendValue(QStringLiteral("revision")).toString(), newer.revision);
+}
+
 void XmppStorageTest::foregroundResumeProbesOnlineStreamWithoutRestart()
 {
-    auto *backend = new FakeXmppBackend;
+    auto       *backend = new FakeXmppBackend;
     XmppStorage storage(nullptr, backend);
     backend->simulateConnection(true);
 

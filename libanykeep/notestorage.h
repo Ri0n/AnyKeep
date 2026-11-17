@@ -108,6 +108,13 @@ public:
 
     virtual Note createNote() = 0;
     virtual bool loadNote(Note &note);
+    // Optional background work for a live editor. Never delays loading a
+    // cached snapshot; the subscriber owns the observation's lifetime.
+    virtual void observeNote(const Note &note, QObject *subscriber)
+    {
+        Q_UNUSED(note)
+        Q_UNUSED(subscriber)
+    }
     virtual bool saveNote(const Note &note)        = 0;
     virtual void removeNote(const QString &noteId) = 0;
 
@@ -152,6 +159,9 @@ protected:
 signals:
     void noteAdded(const Note &);
     void noteModified(const Note &);
+    // A freshly fetched complete snapshot. Editors may adopt it only before
+    // any local edit; ordinary index notifications are not body refreshes.
+    void noteRefreshed(const Note &);
     void noteRemoved(const Note &);
     void noteIdChanged(const Note &note, const QString &oldNoteId);
     void invalidated();

@@ -566,7 +566,14 @@ identity, key, IV, cipher size, and cipher hash. After restart that capability
 is unverified. Iris checks its exact PubSub item before allowing the factory to
 serve; an early XEP-0358 `<start/>` waits for this synchronization. A remote
 retract or confirmed absence disables the capability without resurrecting the
-item from disk.
+item from disk. Opening a note is a separate application request: while online,
+AnyKeep asynchronously checks the offers for its fully available local media.
+A successful matching lookup confirms the existing offer; confirmed absence
+allows publishing an offer for the same encrypted representation. A timeout or
+mismatched descriptor never authorizes replacement. The note itself and its
+media encryption parameters are not rewritten. A complete chunk cache is
+revalidated in bounded batches and can serve its original wire records without
+a second plaintext file. Offline opening skips publication checks.
 
 The XEP-0448 key, IV, ciphertext hash, optional URL, and embedded Jingle
 reference are stored inside the already authenticated and encrypted Private
@@ -923,6 +930,24 @@ transfer priority and never increments already-accounted bytes; range
 completion or decoder EOF do not signify full offline availability. Connection
 loss reports waiting, not an active transfer. Verified bytes survive temporary
 network failures and restart.
+
+A chunked synchronization job resolves both the note's embedded Jingle offers
+and the live private publication catalog. It keeps a working source stable,
+selects an online alternative when the current publisher disappears, and tries
+another available source when a handover stalls or a transfer fails. Catalog
+offers arriving after presence wake the same job; verified records and pending
+readers survive the switch. An offline original is not a reason to wait while
+another advertised copy is reachable.
+
+When the complete ciphertext SHA-256 is known, catalog candidates must match
+that hash and wire size. For `hash-used` chunked offers, the same account,
+attachment URI, wire size and SHA-256 support identify candidates. These are
+only discovery hints: every incoming record still has to authenticate with the
+original encrypted descriptor before it can be cached or returned to a reader.
+
+Playback source identity has its own Qt notification. Changes to video sinks,
+frames, position or loading state do not invalidate the source binding that
+creates the QML video surface.
 
 For an open note the controller forms unique immutable media identities
 from content fingerprints, sums their `verifiedBytes` and `totalBytes`

@@ -14,7 +14,7 @@ class NoteEditor;
 class ANYKEEP_EXPORT MediaPlaybackController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool available READ available CONSTANT)
-    Q_PROPERTY(QString currentSourceUri READ currentSourceUri NOTIFY stateChanged)
+    Q_PROPERTY(QString currentSourceUri READ currentSourceUri NOTIFY currentSourceUriChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY stateChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY stateChanged)
     Q_PROPERTY(bool seeking READ seeking NOTIFY stateChanged)
@@ -50,6 +50,7 @@ public:
                                 const QUrl &componentUrl);
 
 signals:
+    void currentSourceUriChanged();
     void stateChanged();
 
 private:

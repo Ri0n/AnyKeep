@@ -53,7 +53,7 @@ FocusScope {
                             : (block.mediaDisplayWidth > 0 ? block.mediaDisplayWidth : naturalWidth)
     readonly property real displayWidth: Math.max(1, Math.min(width, requestedWidth))
     readonly property var visualItem: video ? videoCard : sourceImage
-    readonly property real transportHeight: mediaRoot.editorView.touchMode ? 48 : 40
+    readonly property real transportHeight: videoCard.item ? videoCard.item.transportHeight : 0
     // Descriptor dimensions are authoritative. An optional poster may supply
     // the ratio only if the source video has no valid dimensions.
     readonly property real visualAspect:
@@ -68,7 +68,8 @@ FocusScope {
     // The video frame preserves its intrinsic aspect ratio; controls take up
     // their own height inside the single card instead of hiding its last 40 px.
     readonly property real displayHeight: video ? Math.max(40, displayWidth * visualAspect) + transportHeight + 2
-        : visual ? Math.max(40, displayWidth * visualAspect) : 58
+        : visual ? Math.max(40, displayWidth * visualAspect)
+                 : audio ? (audioControls.item ? audioControls.item.implicitHeight : 0) : 58
     readonly property real imageY: individuallySelected && !timed ? altEditor.implicitHeight + 6 : 0
     readonly property real actionGap: mediaRoot.editorView.touchMode ? 12 : 8
     readonly property real alignedX:
@@ -561,25 +562,35 @@ FocusScope {
 
     Rectangle {
         id: transcriptPanel
+        objectName: "mediaTranscriptPanel-" + mediaRoot.block.index
+        readonly property real textInset: mediaRoot.editorView.touchMode ? 12 : 10
         x: 0
         y: mediaRoot.baseContentHeight + 6
         width: mediaRoot.width
         visible: mediaRoot.transcriptExpanded && mediaRoot.block.mediaTranscript.length > 0
-        implicitHeight: visible ? transcriptText.implicitHeight + 16 : 0
+        // Only the text width determines wrapping; the resulting content
+        // height determines the card height. Do not bind a read-only TextArea's
+        // own height to the card: Android may scroll/offset its internal text
+        // while the software keyboard changes the viewport.
+        implicitHeight: visible ? Math.ceil(transcriptText.contentHeight) + 2 * textInset : 0
         radius: 5
         color: mediaRoot.editorView.documentCardColor
         border.width: 1
         border.color: mediaRoot.editorView.documentCardBorderColor
+        clip: true
 
-        TextArea {
+        TextEdit {
             id: transcriptText
-            anchors.fill: parent
-            anchors.margins: 4
+            objectName: "mediaTranscriptText-" + mediaRoot.block.index
+            x: transcriptPanel.textInset
+            y: transcriptPanel.textInset
+            width: Math.max(0, transcriptPanel.width - 2 * transcriptPanel.textInset)
+            height: contentHeight
             readOnly: true
             text: mediaRoot.block.mediaTranscript
-            wrapMode: TextEdit.Wrap
+            textFormat: TextEdit.PlainText
+            wrapMode: TextEdit.WrapAtWordBoundaryOrAnywhere
             selectByMouse: !mediaRoot.editorView.touchMode
-            background: null
             color: mediaRoot.editorView.documentTextColor
             Accessible.name: qsTr("Media transcript")
         }

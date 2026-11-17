@@ -92,11 +92,13 @@ public:
     QObject              *mediaSync() const;
     NoteBlockModel       *model() const { return model_; }
     QList<MediaReference> media() const { return media_; }
-    bool                  canUndo() const;
-    bool                  canRedo() const;
-    QString               undoText() const;
-    QString               redoText() const;
-    bool                  historyInTransaction() const;
+    /** Original filename of a media reference, independent of editable media title. */
+    Q_INVOKABLE QString mediaFileName(const QString &sourceUri) const;
+    bool                canUndo() const;
+    bool                canRedo() const;
+    QString             undoText() const;
+    QString             redoText() const;
+    bool                historyInTransaction() const;
 
     void             setMedia(const QList<MediaReference> &media);
     bool             insertMedia(const MediaReference &reference, qint64 durationMs = 0, int width = 0, int height = 0,
@@ -113,6 +115,8 @@ public:
     void resetContent(const QString &text, Note::Format format);
     void resetHistory();
     bool reloadNewerDraft();
+    bool acceptsStorageRefresh() const { return !localEditsStarted_ && !draftPersisted_ && !dirty_; }
+    bool applyStorageRefresh(const Note &note);
     /** Changes persistence target while keeping the same live document/draft identity. */
     bool retargetStorage(const QString &destinationStorageId);
 
@@ -249,6 +253,8 @@ private:
     bool                           contentDirty_ { false };
     bool                           metadataDirty_ { false };
     bool                           dirty_ { false };
+    bool                           localEditsStarted_ { false };
+    bool                           applyingStorageRefresh_ { false };
     bool                           draftPersisted_ { false };
     bool                           folderUserOverride_ { false };
     int                            viewLeases_ { 1 };

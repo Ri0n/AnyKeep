@@ -102,6 +102,33 @@ class NoteEditorTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void audioFilenameUsesManifestNotEditableTitle()
+    {
+        DraftManager   drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor     editor(plainNote(), drafts);
+        MediaReference media;
+        media.id           = QUuid::createUuid();
+        media.blobId       = QByteArray(32, 'm');
+        media.checksum     = QByteArray(32, 'c');
+        media.portableName = QStringLiteral("portable-recording.m4a");
+        media.originalName = QStringLiteral("C:\\\\Recordings\\\\Voice message.m4a");
+        media.mediaType    = QStringLiteral("audio/mp4");
+        editor.setMedia({ media });
+
+        QCOMPARE(editor.mediaFileName(media.uri()), QStringLiteral("Voice message.m4a"));
+        // An editable title must not replace the actual filename in the card.
+        editor.model()->insertMedia(1, media.uri(), QStringLiteral("Audio title"), media.mediaType);
+        QCOMPARE(editor.mediaFileName(media.uri()), QStringLiteral("Voice message.m4a"));
+
+        media.originalName.clear();
+        editor.setMedia({ media });
+        QCOMPARE(editor.mediaFileName(media.uri()), QStringLiteral("portable-recording.m4a"));
+
+        const auto legacyUri = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000000/")
+            + QString::fromUtf8(QUrl::toPercentEncoding(QStringLiteral("Звук с пробелами.ogg")));
+        QCOMPARE(editor.mediaFileName(legacyUri), QStringLiteral("Звук с пробелами.ogg"));
+    }
+
     void derivedMediaPreviewsSurviveUndoWithoutAddingAnUndoStep()
     {
         DraftManager   drafts(std::make_unique<MemoryDraftStore>());

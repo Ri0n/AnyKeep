@@ -50,7 +50,7 @@ void XmppStorage::onRemoteNotePublished(const XmppRemoteNote &remote)
         && previousParentRevision == remote.parentRevision && previousRevision != remote.revision;
 
     reconcileRemoteFolders({ remote });
-    auto       incoming               = fromRemote(remote);
+    auto       incoming               = mergeRemoteIndex(remote, previous);
     const auto previousOrigin         = previous.backendValue(QStringLiteral("originId")).toString();
     const bool ownedDisplacedRevision = previousOrigin == config_.originId;
     qInfo().noquote() << "Conflict trace: XMPP event note=" << remote.id << "previous=" << previousRevision
@@ -66,8 +66,10 @@ void XmppStorage::onRemoteNotePublished(const XmppRemoteNote &remote)
     if (siblingConflict && previous.isLoaded() && ownedDisplacedRevision) {
         qInfo().noquote() << "Conflict trace: XMPP sibling resolver triggered note=" << remote.id
                           << "displaced=" << previousRevision << "winner=" << remote.revision;
+        // The cached display snapshot may deliberately retain the old body.
+        // Conflict resolution must still receive the actual winning revision.
         DraftManager::instance()->resolveConcurrentEdit(
-            previous, incoming, tr("Parallel XMPP note revisions were detected after publication."));
+            previous, fromRemote(remote), tr("Parallel XMPP note revisions were detected after publication."));
     } else if (siblingConflict) {
         qInfo().noquote() << "Conflict trace: XMPP sibling resolver skipped note=" << remote.id << "reason="
                           << (!previous.isLoaded() ? QStringLiteral("previous-not-loaded")
@@ -76,6 +78,7 @@ void XmppStorage::onRemoteNotePublished(const XmppRemoteNote &remote)
     cache_.insert(remote.id, incoming);
     cacheValid_ = true;
     persistCache();
+    refreshObservedNotes();
     if (!incoming.isLoaded())
         startBodyPrefetch({ remote.id });
 
@@ -84,6 +87,9 @@ void XmppStorage::onRemoteNotePublished(const XmppRemoteNote &remote)
     } else {
         emit noteModified(incoming);
     }
+
+    if (incoming.isLoaded() && incoming.backendValue(PendingRevisionBackendKey).toString().isEmpty())
+        emit noteRefreshed(incoming);
 
     if (siblingConflict) {
         reportError(tr("Parallel XMPP note revisions were detected. "
@@ -97,6 +103,7 @@ void XmppStorage::onRemoteNoteRetracted(const QString &id)
     if (errorState_) {
         return;
     }
+    backgroundBodyRequests_.remove(id);
     const auto removed = cache_.take(id);
     persistCache();
     if (!removed.isNull()) {
@@ -232,8 +239,8 @@ void XmppStorage::handleTransientFailure(const QString &error, bool invalidate)
 
 void XmppStorage::scheduleRetry()
 {
-    if (shuttingDown_ || (errorState_ && !isStorageKeyMismatch(errorStateMessage_))
-        || retryInProgress_ || !retryTimer_ || retryTimer_->isActive())
+    if (shuttingDown_ || (errorState_ && !isStorageKeyMismatch(errorStateMessage_)) || retryInProgress_ || !retryTimer_
+        || retryTimer_->isActive())
         return;
 
     QString validationError;
@@ -321,11 +328,13 @@ void XmppStorage::applyConfig(const XmppConfig &config)
     clearErrorState();
     resetRetryBackoff();
     cache_.clear();
-    cacheValid_ = false;
-    accessible_ = false;
-    transportOnline_ = false;
+    backgroundBodyRequests_.clear();
+    observedNotes_.clear();
+    cacheValid_        = false;
+    accessible_        = false;
+    transportOnline_   = false;
     backgroundSinceMs_ = 0;
-    config_     = readConfig();
+    config_            = readConfig();
     backend_->start();
     init();
     emit invalidated();
