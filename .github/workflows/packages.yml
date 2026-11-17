@@ -13,8 +13,8 @@ on:
           - stable
   schedule:
     - cron: "0 3 * * *"
-  push:
-    tags: [ 'v*', '[0-9]*.[0-9]*.[0-9]*' ]
+  # Stable release tags are created only by release-gate.yml, which
+  # dispatches this workflow on the verified tag explicitly.
 
 permissions:
   contents: read

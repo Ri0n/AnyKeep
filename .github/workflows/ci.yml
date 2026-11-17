@@ -6,6 +6,7 @@ on:
       - master
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -419,24 +420,12 @@ jobs:
           iris-tag: ${{ env.IRIS_TAG }}
           github-token: ${{ github.token }}
 
+  # The everyday CI validates the Android release configuration once.
+  # Additional ABI and source-QCA builds run in release-gate.yml.
   android:
-    name: Android / ${{ matrix.abi }} / ${{ matrix.qca }} QCA APK
+    name: Android / arm64-v8a / SDK QCA APK
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - abi: arm64-v8a
-            qt-arch: android_arm64_v8a
-            qca: sdk
-          - abi: x86_64
-            qt-arch: android_x86_64
-            qca: sdk
-          - abi: arm64-v8a
-            qt-arch: android_arm64_v8a
-            qca: bundled
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -450,14 +439,13 @@ jobs:
         uses: ./.github/actions/build-android-apk
         with:
           allow-debug-signing: 'true'
-          abi: ${{ matrix.abi }}
-          qt-arch: ${{ matrix.qt-arch }}
+          abi: arm64-v8a
+          qt-arch: android_arm64_v8a
           qt-version: ${{ env.QT_VERSION }}
           ndk-version: ${{ env.ANDROID_NDK_VERSION }}
           android-api: ${{ env.ANDROID_API }}
           android-openssl-revision: ${{ env.ANDROID_OPENSSL_REVISION }}
           qca-tag: ${{ env.QCA_TAG }}
-          source-qca: ${{ matrix.qca == 'bundled' }}
           iris-tag: ${{ env.IRIS_TAG }}
           aqt-source: ${{ env.AQT_QT6_SOURCE }}
           github-token: ${{ github.token }}
