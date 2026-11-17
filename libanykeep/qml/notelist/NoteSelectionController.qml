@@ -21,6 +21,7 @@ QtObject {
             title: String(item.title || ""),
             groupId: String(item.groupId || ""),
             folderId: String(item.folderId || ""),
+            favorite: Boolean(item.favorite),
             order: Number(item.rowIndex === undefined ? -1 : item.rowIndex)
         }
     }
@@ -39,6 +40,23 @@ QtObject {
         else
             delete copy[itemKey]
         selectedNotes = copy
+    }
+
+    // Remove successful batch items while preserving failures and any notes
+    // selected later during an asynchronous metadata operation.
+    function completeBatch(startedNotes, failedNotes) {
+        const next = Object.assign({}, selectedNotes)
+        const failed = ({})
+        for (const note of failedNotes || [])
+            failed[key(note.storageId, note.noteId)] = true
+        for (const note of startedNotes || []) {
+            const noteKey = key(note.storageId, note.noteId)
+            if (!failed[noteKey])
+                delete next[noteKey]
+        }
+        selectedNotes = next
+        if (!next[anchorKey])
+            anchorKey = ""
     }
 
     function clear() {
