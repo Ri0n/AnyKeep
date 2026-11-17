@@ -205,6 +205,27 @@ private slots:
         QVERIFY(drafts.updatePendingMetadata(draftId, QStringLiteral("invalid tag!")));
     }
 
+    void bulkTagsDoNotPublishRecoveredEditingDraft()
+    {
+        auto store = std::make_unique<MemoryDraftStore>();
+        const auto id = QUuid::createUuid();
+        DraftRecord record;
+        record.id = id;
+        record.state = DraftRecord::Editing;
+        record.title = QStringLiteral("Recovered");
+        record.body = QStringLiteral("Not yet finished");
+        record.format = Note::Markdown;
+        QVERIFY(!store->write(record));
+        DraftManager drafts(std::move(store));
+
+        QVERIFY(!drafts.updatePendingMetadata(id, QStringLiteral("pending")));
+        const auto updated = drafts.editingDraft(id);
+        QVERIFY(updated);
+        QCOMPARE(updated.value.state, DraftRecord::Editing);
+        QCOMPARE(updated.value.tags, QStringList({ QStringLiteral("pending") }));
+        QVERIFY(updated.value.body.contains(QStringLiteral("Not yet finished")));
+    }
+
     void derivedMediaPreviewsSurviveUndoWithoutAddingAnUndoStep()
     {
         DraftManager   drafts(std::make_unique<MemoryDraftStore>());
