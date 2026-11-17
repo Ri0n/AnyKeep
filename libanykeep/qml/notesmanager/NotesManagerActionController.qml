@@ -294,12 +294,15 @@ QtObject {
         if (workspace.currentEditor && !checkpointEditor())
             return false
         let changed = false
+        const failed = []
         for (const note of notes) {
             if (workspace.assignNoteFolder(note.storageId, note.noteId, folderId))
                 changed = true
+            else
+                failed.push(note)
         }
         if (changed)
-            noteSelection.clear()
+            noteSelection.completeBatch(notes, failed)
         return changed
     }
 
