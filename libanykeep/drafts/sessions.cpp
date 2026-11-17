@@ -130,8 +130,12 @@ DraftStoreError DraftManager::updatePendingMetadata(const QUuid &draftId, const 
 
     // The durable record is the only writer, even if an older publication is
     // still in flight. Its captured backendData retains the base revision.
+    const bool wasEditing = record.state == DraftRecord::Editing;
     cancelPublication(draftId);
-    record.state = record.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready;
+    // A recovered Editing draft with no active views is still an unfinished
+    // edit. Updating its tags must not publish it behind the user's back.
+    record.state = wasEditing ? DraftRecord::Editing
+                             : (record.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready);
     record.lastError.clear();
     record.retryAt = {};
     record.updatedAt = QDateTime::currentDateTimeUtc();
@@ -139,7 +143,8 @@ DraftStoreError DraftManager::updatePendingMetadata(const QUuid &draftId, const 
     if (const auto error = store_->write(record))
         return error;
     emit draftsChanged();
-    QTimer::singleShot(0, this, &DraftManager::publishPending);
+    if (!wasEditing)
+        QTimer::singleShot(0, this, &DraftManager::publishPending);
     return {};
 }
 
