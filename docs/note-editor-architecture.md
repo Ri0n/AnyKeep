@@ -119,6 +119,12 @@ reveal the target editor's caret or selection. The enclosing block is located
 only when that editor still needs to be instantiated; showing a complete list
 that fits in the viewport must not displace a user editing its lower items.
 
+Focus resolution accepts only editors belonging to the current
+`ListView.itemAtIndex(blockIndex)` delegate. In Qt 6.4, an evicted editor can
+remain registered with its previous index and `visible = true` until its
+destruction handler runs. Such detached editors must not satisfy a focus
+request; reveal the requested model row and wait for its live editor.
+
 ```mermaid
 flowchart LR
     H[reorder/ReorderDragHandle.qml] -->|absolute dx/dy| RC[EditorReorderController.qml]

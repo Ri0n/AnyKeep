@@ -64,6 +64,10 @@
   the whole block fits in the viewport. Focus regained through window activation or a
   closing popup must not scroll to the caret. The view has no current row:
   keep `currentIndex: -1` and ListView key navigation disabled.
+- Resolve focus only to editors belonging to the current
+  `ListView.itemAtIndex(blockIndex)` delegate. Qt 6.4 can keep detached editors
+  registered with their old index and `visible = true` until destruction;
+  those stale registry entries must not complete a pending focus request.
 - Root-level facade files remain intentionally tiny and preserve compatibility
   for desktop resource URLs and the mobile QML module.
 

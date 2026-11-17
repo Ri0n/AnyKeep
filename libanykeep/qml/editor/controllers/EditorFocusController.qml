@@ -231,20 +231,34 @@ QtObject {
                 || !address.field || String(address.field) === String(editor.editorField || "text")
     }
 
+    function editorHasLiveDelegate(editor) {
+        if (!editor || editor.blockIndex < 0)
+            return false
+        const delegate = editorView.itemAtIndex(editor.blockIndex)
+        if (!delegate)
+            return false
+        // Qt 6.4 can detach an evicted delegate before destroying its editors.
+        // Those editors still report their old index and visible=true, but
+        // cannot receive focus. Resolve against the row ListView actually owns.
+        for (let item = editor; item; item = item.parent)
+            if (item === delegate)
+                return true
+        return false
+    }
+
     function editorForAddress(address, candidate) {
+        if (candidate && !(address && address.blockBoundary)
+                && addressMatchesEditor(address, candidate, true)
+                && editorHasLiveDelegate(candidate))
+            return candidate
+        const ordered = orderedEditors().filter(editor => editorHasLiveDelegate(editor))
         if (address && address.blockBoundary) {
             // A normal block transition waits for that exact row to be
             // instantiated. History may fall back from a removed field, but
             // navigation must never jump to a different resident text block.
-            const fields = orderedEditors().filter(editor => addressMatchesEditor(address, editor, true))
+            const fields = ordered.filter(editor => addressMatchesEditor(address, editor, true))
             return fields.length > 0 ? fields[address.atEnd ? fields.length - 1 : 0] : null
         }
-        if (candidate && addressMatchesEditor(address, candidate, true))
-            return candidate
-        // A delegate that ListView is removing reports row -1 until it is
-        // destroyed. It must never take a restored cursor: focus would vanish
-        // together with it.
-        const ordered = orderedEditors().filter(editor => editor.blockIndex >= 0)
         for (const editor of ordered)
             if (addressMatchesEditor(address, editor, true))
                 return editor

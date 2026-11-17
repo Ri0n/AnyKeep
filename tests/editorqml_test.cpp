@@ -1033,15 +1033,23 @@ private slots:
         QTRY_VERIFY(attachment->hasActiveFocus());
     }
 
+    void mediaNavigationWaitsForTheAdjacentBlockOutsideTheDelegateCache_data()
+    {
+        QTest::addColumn<QString>("afterBlock");
+        QTest::newRow("paragraph") << QStringLiteral("After tall video");
+        QTest::newRow("list") << QStringLiteral("- first item\n- last item");
+        QTest::newRow("table") << QStringLiteral("| A | B |\n| --- | --- |\n| first | last |");
+    }
+
     void mediaNavigationWaitsForTheAdjacentBlockOutsideTheDelegateCache()
     {
+        QFETCH(QString, afterBlock);
         auto note = plainNote();
-        note.setText(QStringLiteral("Before tall video"), Note::Markdown);
+        note.setText(QStringLiteral("Before tall video\n\n") + afterBlock, Note::Markdown);
         DraftManager drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor   editor(note, drafts);
         editor.model()->insertMedia(2, QStringLiteral("anykeep-media:/missing/tall-video"), QStringLiteral("Video"),
                                     QStringLiteral("video/mp4"), 0, 640, 2560);
-        editor.model()->appendText(QStringLiteral("After tall video"));
         bool                  unrelatedTextFocused = false;
         DesktopNoteEditorHost host(&editor);
         host.resize(520, 360);
@@ -1054,7 +1062,24 @@ private slots:
         view->setProperty("cacheBuffer", 0);
         QVERIFY(QMetaObject::invokeMethod(media, "selectAndFocus"));
         QTRY_VERIFY(media->hasActiveFocus());
-        QTRY_VERIFY(!textEditorForBlock(root, 3));
+        const auto firstTargetEditor = [root]() -> QQuickItem * {
+            for (auto *field : textEditors(root))
+                if (field->property("blockIndex").toInt() == 3 && field->property("listItemIndex").toInt() <= 0
+                    && field->property("tableCellIndex").toInt() <= 0)
+                    return field;
+            return nullptr;
+        };
+        QTRY_VERIFY(!firstTargetEditor());
+        // Qt 6.4 detaches the cached editors before running their destruction
+        // handlers. Their stale registry entries must not satisfy navigation.
+        const QVariant address
+            = QVariantMap { { QStringLiteral("blockIndex"), 3 }, { QStringLiteral("blockBoundary"), true } };
+        QVariant resolved;
+        QVERIFY(QMetaObject::invokeMethod(view, "editorForAddress", Q_RETURN_ARG(QVariant, resolved),
+                                          Q_ARG(QVariant, address), Q_ARG(QVariant, QVariant())));
+        const auto *resolvedObject
+            = resolved.canConvert<QJSValue>() ? resolved.value<QJSValue>().toQObject() : resolved.value<QObject *>();
+        QVERIFY(!resolvedObject);
         for (auto *field : textEditors(root)) {
             connect(field, &QQuickItem::activeFocusChanged, &host, [field, &unrelatedTextFocused] {
                 if (field->hasActiveFocus() && field->property("blockIndex").toInt() != 3)
@@ -1063,7 +1088,7 @@ private slots:
         }
         QTest::keyClick(host.quickWidget(), Qt::Key_Down);
         QQuickItem *after = nullptr;
-        QTRY_VERIFY((after = textEditorForBlock(root, 3)) && after->hasActiveFocus());
+        QTRY_VERIFY((after = firstTargetEditor()) && after->hasActiveFocus());
         QVERIFY(!unrelatedTextFocused);
         QCOMPARE(after->property("cursorPosition").toInt(), 0);
     }
