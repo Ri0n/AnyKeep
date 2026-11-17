@@ -78,6 +78,8 @@ public:
     DraftStoreError copyDraft(const QUuid &draftId, const QString &destinationStorageId, QUuid *copyDraftId = nullptr);
     /** Update local folder metadata without touching a storage until publication. */
     DraftStoreError setDraftFolder(const QUuid &draftId, const QUuid &folderId, bool userOverride = true);
+    /** Amend a publish draft without creating a second writer or losing its concurrency token. */
+    DraftStoreError updatePendingMetadata(const QUuid &draftId, const QString &tag, int favoriteChange = -1);
     /** Make a failed/paused publish draft immediately eligible for another publication attempt. */
     DraftStoreError retryDraftNow(const QUuid &draftId);
     DraftStoreError queueRemoval(const QString &storageId, const QString &noteId);
