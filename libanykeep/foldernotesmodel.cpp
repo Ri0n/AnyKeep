@@ -659,6 +659,7 @@ void FolderNotesModel::appendFolderPickerItems(const QUuid &folderId, int depth,
         { QStringLiteral("depth"), depth },
         { QStringLiteral("favorite"), folder->favorite },
         { QStringLiteral("archived"), folder->archived },
+        { QStringLiteral("inArchivedBranch"), catalog.isInArchivedBranch(folder->id) },
     };
     items->append(item);
     for (const auto &child : catalog.children(folder->id))
