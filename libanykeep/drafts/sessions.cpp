@@ -4,6 +4,7 @@
 
 #include "conflictresolver.h"
 #include "notedata.h"
+#include "notetagline.h"
 #include "noteeditor.h"
 #include "notemanager.h"
 #include "notestorage.h"
@@ -75,6 +76,71 @@ DraftStoreError DraftManager::saveEditing(const QUuid &draftId, const Note &note
     if (!result)
         emit draftsChanged();
     return result;
+}
+
+DraftStoreError DraftManager::updatePendingMetadata(const QUuid &draftId, const QString &tag, int favoriteChange)
+{
+    if (!store_)
+        return { DraftStoreError::Locked, lastError_.isEmpty() ? tr("Draft store is locked") : lastError_ };
+    if (draftId.isNull() || favoriteChange < -1 || favoriteChange > 1 || (tag.isEmpty() && favoriteChange < 0))
+        return { DraftStoreError::InvalidArgument, tr("Invalid metadata update") };
+    if (!tag.isEmpty() && !NoteTagLine::isValidTagName(tag))
+        return { DraftStoreError::InvalidArgument, tr("Invalid tag name") };
+
+    auto pending = store_->load(draftId);
+    if (!pending)
+        return pending.error;
+    if (pending.value.operation != DraftRecord::Publish)
+        return { DraftStoreError::InvalidArgument, tr("Cannot modify a deletion draft") };
+    if (editingSessionCount(draftId) > 0)
+        return { DraftStoreError::Locked, tr("The note is still being edited") };
+
+    auto &record = pending.value;
+    bool changedMetadata = false;
+    if (favoriteChange >= 0) {
+        const auto key = QString::fromLatin1(FavoriteBackendKey);
+        if (!record.backendData.contains(key) || record.backendData.value(key).toBool() != bool(favoriteChange)) {
+            record.backendData.insert(key, bool(favoriteChange));
+            changedMetadata = true;
+        }
+    }
+    if (!tag.isEmpty()) {
+        QStringList allTags = record.tags;
+        for (const auto &name : NoteData::tagsFromText(record.body)) {
+            if (!allTags.contains(name))
+                allTags.append(name);
+        }
+        if (!allTags.contains(tag)) {
+            allTags.append(tag);
+            const QString body = NoteTagLine::normalizeLineBreaks(record.body);
+            const int end = body.indexOf(QLatin1Char('\n'));
+            const QString firstLine = end < 0 ? body : body.left(end);
+            const bool hasTags = !NoteTagLine::parseLine(firstLine).isEmpty();
+            const QString tail = hasTags ? (end < 0 ? QString() : body.mid(end + 1)) : body;
+            const QString serialized = NoteTagLine::serialize(allTags);
+            const QString separator = record.format == Note::PlainText ? QStringLiteral("\n")
+                                                                     : QStringLiteral("\n\n");
+            record.body = serialized + (tail.isEmpty() ? QString() : separator + tail);
+            record.tags = allTags;
+            changedMetadata = true;
+        }
+    }
+    if (!changedMetadata)
+        return {};
+
+    // The durable record is the only writer, even if an older publication is
+    // still in flight. Its captured backendData retains the base revision.
+    cancelPublication(draftId);
+    record.state = record.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready;
+    record.lastError.clear();
+    record.retryAt = {};
+    record.updatedAt = QDateTime::currentDateTimeUtc();
+    ++record.revision;
+    if (const auto error = store_->write(record))
+        return error;
+    emit draftsChanged();
+    QTimer::singleShot(0, this, &DraftManager::publishPending);
+    return {};
 }
 
 QUuid DraftManager::acquireEditingSession(const Note &note, const QUuid &knownDraftId)
