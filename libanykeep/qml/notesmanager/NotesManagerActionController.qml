@@ -11,6 +11,7 @@ QtObject {
     required property var noteContextMenu
     required property var storageContextMenu
     required property var deleteDialog
+    property var pendingMetadataSelection: []
 
     function flushEditorChanges() {
         Qt.inputMethod.commit()
@@ -293,12 +294,15 @@ QtObject {
         if (workspace.currentEditor && !checkpointEditor())
             return false
         let changed = false
+        const failed = []
         for (const note of notes) {
             if (workspace.assignNoteFolder(note.storageId, note.noteId, folderId))
                 changed = true
+            else
+                failed.push(note)
         }
         if (changed)
-            noteSelection.clear()
+            noteSelection.completeBatch(notes, failed)
         return changed
     }
 
@@ -342,6 +346,55 @@ QtObject {
             }
         }
         return changed
+    }
+
+    function contextNotesAllFavorite() {
+        const notes = page.contextMenuNotes || []
+        return notes.length > 0 && notes.every(function(note) { return Boolean(note.favorite) })
+    }
+
+    function beginMetadataBatch() {
+        const notes = (page.contextMenuNotes || []).slice()
+        if (notes.length === 0 || workspace.metadataBatchBusy)
+            return []
+        if (workspace.currentEditor && !checkpointEditor())
+            return []
+        return notes
+    }
+
+    function setContextNotesFavorite(favorite) {
+        const notes = beginMetadataBatch()
+        if (notes.length === 0)
+            return false
+        pendingMetadataSelection = notes
+        const started = workspace.setNotesFavorite(notes, favorite)
+        if (!started)
+            pendingMetadataSelection = []
+        return started
+    }
+
+    function addTagToContextNotes(tag) {
+        const notes = beginMetadataBatch()
+        if (notes.length === 0)
+            return false
+        pendingMetadataSelection = notes
+        const started = workspace.addTagToNotes(notes, tag)
+        if (!started)
+            pendingMetadataSelection = []
+        return started
+    }
+
+    function finishMetadataBatch(failedNotes) {
+        noteSelection.completeBatch(pendingMetadataSelection, failedNotes)
+        pendingMetadataSelection = []
+    }
+
+    function archiveContextNotes(folderId) {
+        if (!folderId)
+            return false
+        // Archive is a property of the selected folder (or an ancestor), not
+        // a second per-note flag; the existing folder assignment path owns it.
+        return assignContextNotesFolder(folderId)
     }
 
     function showNoteMenu(storageId, noteId, title, position) {

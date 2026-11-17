@@ -130,6 +130,8 @@ public:
                                                    int cursorPosition, bool force);
     Q_INVOKABLE QVariantMap setTagLineTag(int row, int tagIndex, const QString &value, int cursorPosition = -1);
     Q_INVOKABLE QVariantMap appendTagLineTag(int row, const QString &value, int cursorPosition = -1);
+    /** Merge tags into the canonical Markdown TagLine, creating it if necessary. */
+    bool addTagsToDocument(const QStringList &tags);
     Q_INVOKABLE QVariantMap removeTagLineTag(int row, int tagIndex);
     Q_INVOKABLE bool        moveTagLineTag(int row, int from, int to);
     Q_INVOKABLE QVariantMap convertTagLineToText(int row, const QString &text = QString(), int cursorPosition = -1);

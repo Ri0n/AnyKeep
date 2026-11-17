@@ -129,6 +129,103 @@ private slots:
         QCOMPARE(editor.mediaFileName(legacyUri), QStringLiteral("Звук с пробелами.ogg"));
     }
 
+    void bulkTagInsertionUsesCanonicalTagLine()
+    {
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("Body paragraph"), Note::Markdown);
+        NoteEditor editor(note, drafts);
+
+        QVERIFY(editor.addTag(QStringLiteral("#first")));
+        QVERIFY(editor.addTag(QStringLiteral("second")));
+        QVERIFY(editor.addTag(QStringLiteral("first")));
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::TagLine));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TagsRole).toStringList(),
+                 QStringList({ QStringLiteral("first"), QStringLiteral("second") }));
+        QCOMPARE(editor.note().tags(), QStringList({ QStringLiteral("first"), QStringLiteral("second") }));
+        QCOMPARE(editor.model()->rowCount(), 3);
+        QVERIFY(editor.model()->contents().contains(QStringLiteral("#first #second")));
+        QVERIFY(editor.model()->contents().contains(QStringLiteral("Body paragraph")));
+        QVERIFY(editor.save());
+        const auto durable = drafts.editingDraft(editor.draftId());
+        QVERIFY(durable);
+        QCOMPARE(durable.value.tags, QStringList({ QStringLiteral("first"), QStringLiteral("second") }));
+        QVERIFY(durable.value.body.contains(QStringLiteral("#first #second")));
+    }
+
+    void bulkTagInsertionPreservesPlainTextBody()
+    {
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(plainNote(QStringLiteral("Title"), QStringLiteral("Body\nsecond line")), drafts);
+        QVERIFY(editor.addTag(QStringLiteral("alpha")));
+        QVERIFY(editor.addTag(QStringLiteral("beta")));
+        QCOMPARE(editor.note().tags(), QStringList({ QStringLiteral("alpha"), QStringLiteral("beta") }));
+        QCOMPARE(editor.note().text(), QStringLiteral("#alpha #beta\nBody\nsecond line"));
+        QVERIFY(!editor.addTag(QStringLiteral("invalid tag!")));
+        QVERIFY(editor.save());
+        const auto durable = drafts.editingDraft(editor.draftId());
+        QVERIFY(durable);
+        QCOMPARE(durable.value.tags, QStringList({ QStringLiteral("alpha"), QStringLiteral("beta") }));
+    }
+
+    void bulkMetadataUpdatesOnePendingDraft()
+    {
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        FavoriteStorage storage;
+        auto note = storage.createNote();
+        note.setId(QStringLiteral("remote-note"));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        QUuid draftId;
+        {
+            NoteEditor editor(note, drafts);
+            draftId = editor.draftId();
+            QVERIFY(editor.addTag(QStringLiteral("original")));
+            QVERIFY(editor.save());
+            QVERIFY(editor.close());
+        }
+
+        const auto before = drafts.pendingDraftForNote(storage.systemName(), note.id());
+        QVERIFY(before);
+        QCOMPARE(before.value.id, draftId);
+        const auto originalRevision = before.value.revision;
+        QVERIFY(!drafts.updatePendingMetadata(draftId, QStringLiteral("added"), 1));
+        const auto after = drafts.pendingDraftForNote(storage.systemName(), note.id());
+        QVERIFY(after);
+        QCOMPARE(after.value.id, draftId);
+        QVERIFY(after.value.revision > originalRevision);
+        QVERIFY(after.value.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool());
+        QCOMPARE(after.value.tags, QStringList({ QStringLiteral("original"), QStringLiteral("added") }));
+        QVERIFY(after.value.body.contains(QStringLiteral("#original #added")));
+        QVERIFY(after.value.body.contains(QStringLiteral("Body")));
+        const auto unchanged = after.value.revision;
+        QVERIFY(!drafts.updatePendingMetadata(draftId, QStringLiteral("added"), 1));
+        QCOMPARE(drafts.pendingDraftForNote(storage.systemName(), note.id()).value.revision, unchanged);
+        QVERIFY(drafts.updatePendingMetadata(draftId, QStringLiteral("invalid tag!")));
+    }
+
+    void bulkTagsDoNotPublishRecoveredEditingDraft()
+    {
+        auto store = std::make_unique<MemoryDraftStore>();
+        const auto id = QUuid::createUuid();
+        DraftRecord record;
+        record.id = id;
+        record.state = DraftRecord::Editing;
+        record.title = QStringLiteral("Recovered");
+        record.body = QStringLiteral("Not yet finished");
+        record.format = Note::Markdown;
+        QVERIFY(!store->write(record));
+        DraftManager drafts(std::move(store));
+
+        QVERIFY(!drafts.updatePendingMetadata(id, QStringLiteral("pending")));
+        const auto updated = drafts.editingDraft(id);
+        QVERIFY(updated);
+        QCOMPARE(updated.value.state, DraftRecord::Editing);
+        QCOMPARE(updated.value.tags, QStringList({ QStringLiteral("pending") }));
+        QVERIFY(updated.value.body.contains(QStringLiteral("Not yet finished")));
+    }
+
     void derivedMediaPreviewsSurviveUndoWithoutAddingAnUndoStep()
     {
         DraftManager   drafts(std::make_unique<MemoryDraftStore>());
