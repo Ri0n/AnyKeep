@@ -129,6 +129,46 @@ private slots:
         QCOMPARE(editor.mediaFileName(legacyUri), QStringLiteral("Звук с пробелами.ogg"));
     }
 
+    void bulkTagInsertionUsesCanonicalTagLine()
+    {
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("Body paragraph"), Note::Markdown);
+        NoteEditor editor(note, drafts);
+
+        QVERIFY(editor.addTag(QStringLiteral("#first")));
+        QVERIFY(editor.addTag(QStringLiteral("second")));
+        QVERIFY(editor.addTag(QStringLiteral("first")));
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::TagLine));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TagsRole).toStringList(),
+                 QStringList({ QStringLiteral("first"), QStringLiteral("second") }));
+        QCOMPARE(editor.note().tags(), QStringList({ QStringLiteral("first"), QStringLiteral("second") }));
+        QCOMPARE(editor.model()->rowCount(), 3);
+        QVERIFY(editor.model()->contents().contains(QStringLiteral("#first #second")));
+        QVERIFY(editor.model()->contents().contains(QStringLiteral("Body paragraph")));
+        QVERIFY(editor.save());
+        const auto durable = drafts.editingDraft(editor.draftId());
+        QVERIFY(durable);
+        QCOMPARE(durable.value.tags, QStringList({ QStringLiteral("first"), QStringLiteral("second") }));
+        QVERIFY(durable.value.body.contains(QStringLiteral("#first #second")));
+    }
+
+    void bulkTagInsertionPreservesPlainTextBody()
+    {
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(plainNote(QStringLiteral("Title"), QStringLiteral("Body\nsecond line")), drafts);
+        QVERIFY(editor.addTag(QStringLiteral("alpha")));
+        QVERIFY(editor.addTag(QStringLiteral("beta")));
+        QCOMPARE(editor.note().tags(), QStringList({ QStringLiteral("alpha"), QStringLiteral("beta") }));
+        QCOMPARE(editor.note().text(), QStringLiteral("#alpha #beta\nBody\nsecond line"));
+        QVERIFY(!editor.addTag(QStringLiteral("invalid tag!")));
+        QVERIFY(editor.save());
+        const auto durable = drafts.editingDraft(editor.draftId());
+        QVERIFY(durable);
+        QCOMPARE(durable.value.tags, QStringList({ QStringLiteral("alpha"), QStringLiteral("beta") }));
+    }
+
     void derivedMediaPreviewsSurviveUndoWithoutAddingAnUndoStep()
     {
         DraftManager   drafts(std::make_unique<MemoryDraftStore>());
