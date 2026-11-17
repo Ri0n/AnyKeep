@@ -71,6 +71,7 @@ Item {
 
     NoteList.NoteSelectionController {
         id: noteSelection
+        objectName: "notesManagerSelectionController"
     }
 
     component CompactContextMenuItem: MenuItem {
