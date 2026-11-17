@@ -11,6 +11,9 @@
         <file alias="txt.svg">images/txt.svg</file>
         <file alias="edit-find-symbolic.svg">images/edit-find-symbolic.svg</file>
         <file alias="emblem-favorite-symbolic.svg">images/emblem-favorite-symbolic.svg</file>
+        <file alias="tag-symbolic.svg">images/tag-symbolic.svg</file>
+        <file alias="archive-symbolic.svg">images/archive-symbolic.svg</file>
+        <file alias="window-close-symbolic.svg">images/window-close-symbolic.svg</file>
         <file alias="edit-redo-symbolic.svg">images/edit-redo-symbolic.svg</file>
         <file alias="edit-undo-symbolic.svg">images/edit-undo-symbolic.svg</file>
         <file alias="table-symbolic.svg">images/table-symbolic.svg</file>
