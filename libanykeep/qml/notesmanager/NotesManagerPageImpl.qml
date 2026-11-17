@@ -620,7 +620,7 @@ Item {
                             Layout.fillWidth: true
                             Layout.minimumWidth: 24
                             Layout.leftMargin: 4
-                            text: root.width < 430
+                            text: selectionActionBar.width < 430
                                   ? String(root.selectedNoteDescriptors().length)
                                   : qsTr("%1 selected").arg(root.selectedNoteDescriptors().length)
                             elide: Text.ElideRight
@@ -632,6 +632,7 @@ Item {
                             Layout.preferredHeight: 44
                             display: AbstractButton.IconOnly
                             focusPolicy: Qt.NoFocus
+                            enabled: !root.workspace.metadataBatchBusy
                             contentItem: Shared.ThemedIcon {
                                 themeName: "__bundled__"
                                 fallbackName: "user-trash-full-symbolic.svg"
@@ -652,6 +653,7 @@ Item {
                             Layout.preferredHeight: 44
                             display: AbstractButton.IconOnly
                             focusPolicy: Qt.NoFocus
+                            enabled: !root.workspace.metadataBatchBusy
                             contentItem: Shared.ThemedIcon {
                                 themeName: "__bundled__"
                                 fallbackName: "drive-harddisk-symbolic.svg"
@@ -672,7 +674,7 @@ Item {
                             Layout.preferredHeight: 44
                             display: AbstractButton.IconOnly
                             focusPolicy: Qt.NoFocus
-                            enabled: root.workspace.folderCatalogAvailable
+                            enabled: root.workspace.folderCatalogAvailable && !root.workspace.metadataBatchBusy
                             contentItem: Shared.ThemedIcon {
                                 themeName: "__bundled__"
                                 fallbackName: "folder-symbolic.svg"
@@ -700,7 +702,7 @@ Item {
                             Layout.preferredHeight: 44
                             display: AbstractButton.IconOnly
                             focusPolicy: Qt.NoFocus
-                            enabled: root.workspace.folderCatalogAvailable
+                            enabled: root.workspace.folderCatalogAvailable && !root.workspace.metadataBatchBusy
                             contentItem: Shared.ThemedIcon {
                                 themeName: "__bundled__"
                                 fallbackName: "archive-symbolic.svg"
@@ -734,6 +736,7 @@ Item {
                             Layout.preferredHeight: 44
                             display: AbstractButton.IconOnly
                             focusPolicy: Qt.NoFocus
+                            enabled: !root.workspace.metadataBatchBusy
                             contentItem: Shared.ThemedIcon {
                                 themeName: "__bundled__"
                                 fallbackName: "tag-symbolic.svg"
@@ -757,6 +760,7 @@ Item {
                             Layout.preferredHeight: 44
                             display: AbstractButton.IconOnly
                             focusPolicy: Qt.NoFocus
+                            enabled: !root.workspace.metadataBatchBusy
                             contentItem: Shared.ThemedIcon {
                                 themeName: "__bundled__"
                                 fallbackName: "emblem-favorite-symbolic.svg"
@@ -1008,6 +1012,12 @@ Item {
 
     Dialog {
         id: mobileTagDialog
+        function applyTag() {
+            if (root.addTagToContextNotes(mobileTagName.text.trim()))
+                mobileTagDialog.close()
+            else
+                mobileTagError.text = root.workspace.errorString || qsTr("Could not add tag")
+        }
         objectName: "mobileBulkTagDialog"
         parent: root
         x: (root.width - width) / 2
@@ -1027,7 +1037,7 @@ Item {
                 Layout.fillWidth: true
                 placeholderText: qsTr("Tag name (without #)")
                 selectByMouse: true
-                onAccepted: mobileTagApply.click()
+                onAccepted: mobileTagDialog.applyTag()
             }
             Label {
                 id: mobileTagError
@@ -1042,18 +1052,24 @@ Item {
                 Layout.alignment: Qt.AlignRight
                 text: qsTr("Add tag")
                 enabled: mobileTagName.text.trim().length > 0
-                onClicked: {
-                    if (root.addTagToContextNotes(mobileTagName.text.trim()))
-                        mobileTagDialog.close()
-                    else
-                        mobileTagError.text = root.workspace.errorString || qsTr("Could not add tag")
-                }
+                onClicked: mobileTagDialog.applyTag()
             }
         }
     }
 
     Dialog {
         id: mobileArchiveCreateDialog
+        function createArchive() {
+            const folderId = root.workspace.createFolderWithFlags(archiveFolderName.text.trim(),
+                                                                   "", false, true)
+            if (folderId.length === 0) {
+                archiveCreateError.text = root.workspace.errorString
+                        || qsTr("Could not create folder")
+                return
+            }
+            mobileArchiveCreateDialog.close()
+            root.archiveContextNotes(folderId)
+        }
         objectName: "mobileBulkArchiveCreateDialog"
         parent: root
         x: (root.width - width) / 2
@@ -1073,7 +1089,7 @@ Item {
                 Layout.fillWidth: true
                 placeholderText: qsTr("Folder name")
                 selectByMouse: true
-                onAccepted: archiveCreateButton.click()
+                onAccepted: mobileArchiveCreateDialog.createArchive()
             }
             Label {
                 id: archiveCreateError
@@ -1088,17 +1104,7 @@ Item {
                 Layout.alignment: Qt.AlignRight
                 text: qsTr("Create and archive")
                 enabled: archiveFolderName.text.trim().length > 0
-                onClicked: {
-                    const folderId = root.workspace.createFolderWithFlags(archiveFolderName.text.trim(),
-                                                                           "", false, true)
-                    if (folderId.length === 0) {
-                        archiveCreateError.text = root.workspace.errorString
-                                || qsTr("Could not create folder")
-                        return
-                    }
-                    mobileArchiveCreateDialog.close()
-                    root.archiveContextNotes(folderId)
-                }
+                onClicked: mobileArchiveCreateDialog.createArchive()
             }
         }
     }
@@ -1174,6 +1180,10 @@ Item {
 
     Connections {
         target: root.workspace
+        ignoreUnknownSignals: true
+        function onMetadataBatchFinished(failedNotes, errorSummary) {
+            actionController.finishMetadataBatch(failedNotes)
+        }
         function onCurrentEditorChanged() {
             if (root.workspace.currentEditor) {
                 root.selectedStorageId = root.workspace.currentStorageId
