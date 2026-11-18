@@ -357,6 +357,39 @@ private slots:
         QCOMPARE(record.backendData.value(QStringLiteral("etag")).toString(), QStringLiteral("base-etag"));
     }
 
+    void firstMarkdownHeadingWithLeadingEmptyLinesBecomesTitle()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        Note         note(new NoteData(nullptr));
+        note.setTitle(QString());
+        note.setText(QString(), Note::Markdown);
+        NoteEditor editor(note, drafts);
+
+        const QString heading = QStringLiteral("# Открытые задачи и эпики по `component = Platform_HWS`");
+        const QString expected = QStringLiteral("Открытые задачи и эпики по component = Platform_HWS");
+        editor.setText(QStringLiteral("\n\n") + heading + QStringLiteral("\n\nNext paragraph"));
+        QCOMPARE(editor.model()->blockTypeAt(0), int(NoteBlockModel::Heading));
+        QCOMPARE(editor.displayTitle(), expected);
+        QCOMPARE(editor.note().title(), heading);
+        QCOMPARE(editor.note().text(), QStringLiteral("Next paragraph"));
+        QVERIFY(editor.save());
+        const auto persisted = data->drafts.value(editor.draftId());
+        QCOMPARE(persisted.title, heading);
+        QCOMPARE(persisted.body, QStringLiteral("Next paragraph"));
+        QCOMPARE(persisted.format, Note::Markdown);
+    }
+
+    void markdownTitleRemovesStylingInExternalPresentation()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("# **Bold** and _emphasis_ with `inline code`"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        QCOMPARE(note.displayTitle(), QStringLiteral("Bold and emphasis with inline code"));
+        QCOMPARE(note.title(), QStringLiteral("# **Bold** and _emphasis_ with `inline code`"));
+    }
+
     void markdownEditorDoesNotCheckpointExtraTitleBlankLines()
     {
         auto         store = std::make_unique<MemoryDraftStore>();
