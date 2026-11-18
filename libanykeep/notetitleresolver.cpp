@@ -11,6 +11,8 @@
 #include <QTextImageFormat>
 #include <QUrl>
 
+#include <algorithm>
+
 namespace AnyKeep::NoteTitleResolver {
 
 namespace {
@@ -71,8 +73,17 @@ namespace {
         const QString htmlImageTitle = htmlImageDisplayTitle(source);
         if (!htmlImageTitle.isNull())
             return htmlImageTitle;
-        // Parse every Markdown title, not only links/images. ATX headings,
-        // inline code, emphasis and escapes must never reach shell labels.
+        // Most titles are plain text. Avoid constructing a QTextDocument for
+        // every title query in note lists, while still parsing any potential
+        // heading, inline code, emphasis, link, HTML or escaped Markdown.
+        const auto containsMarkup = std::any_of(source.cbegin(), source.cend(), [](QChar ch) {
+            return ch == QLatin1Char('#') || ch == QLatin1Char('`') || ch == QLatin1Char('*')
+                || ch == QLatin1Char('_') || ch == QLatin1Char('~') || ch == QLatin1Char('[')
+                || ch == QLatin1Char('<') || ch == QLatin1Char('\\') || ch == QLatin1Char('&');
+        });
+        if (!containsMarkup)
+            return source;
+
         QTextDocument document;
         document.setMarkdown(source);
         QString result;
