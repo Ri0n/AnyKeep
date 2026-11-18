@@ -326,6 +326,26 @@ std::pair<QString, QString> NoteEditor::titleAndBody() const
         ? contents.left(contents.indexOf(QLatin1Char('\n')) < 0 ? contents.size()
                                                                  : contents.indexOf(QLatin1Char('\n')))
         : model_->data(model_->index(0), NoteBlockModel::TextRole).toString();
+    if (firstType == NoteBlockModel::Text && format_ == Note::PlainText && title.trimmed().isEmpty()) {
+        // In plain-text mode the model has an explicit first Text row even
+        // when its content is blank. The first following non-empty line is
+        // the canonical title, not an empty placeholder.
+        qsizetype lineStart = 0;
+        while (lineStart < contents.size()) {
+            const auto end = contents.indexOf(QLatin1Char('\n'), lineStart);
+            const auto lineEnd = end < 0 ? contents.size() : end;
+            const QString line = contents.mid(lineStart, lineEnd - lineStart);
+            if (!line.trimmed().isEmpty()) {
+                QString body = contents.mid(lineEnd);
+                while (body.startsWith(QLatin1Char('\n')) || body.startsWith(QLatin1Char('\r')))
+                    body.remove(0, 1);
+                return { line, body };
+            }
+            if (end < 0)
+                break;
+            lineStart = end + 1;
+        }
+    }
     if (contents == title)
         return { title, {} };
     const QString separator = format_ == Note::PlainText ? QStringLiteral("\n") : QStringLiteral("\n\n");
