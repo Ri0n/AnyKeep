@@ -71,9 +71,8 @@ namespace {
         const QString htmlImageTitle = htmlImageDisplayTitle(source);
         if (!htmlImageTitle.isNull())
             return htmlImageTitle;
-        if (!source.contains(QLatin1Char('[')))
-            return source;
-
+        // Parse every Markdown title, not only links/images. ATX headings,
+        // inline code, emphasis and escapes must never reach shell labels.
         QTextDocument document;
         document.setMarkdown(source);
         QString result;
@@ -98,7 +97,7 @@ namespace {
                 result += label;
             }
         }
-        return foundImage ? result.trimmed() : source;
+        return result.trimmed();
     }
 
     QString codeLanguageName(QString language)
@@ -148,6 +147,16 @@ QString displayTitle(const QString &title, const QString &body, Note::Format for
             }
             return QCoreApplication::translate("NoteTitleResolver", "Code snippet");
         }
+    }
+
+    // Some backends and legacy drafts carry the whole document in the body
+    // with an empty explicit title. Resolve their first non-blank line too.
+    const QString normalized = QString(body).replace(QStringLiteral("\r\n"), QStringLiteral("\n"))
+                                   .replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    for (const QString &line : normalized.split(QLatin1Char('\n'))) {
+        if (line.trimmed().isEmpty())
+            continue;
+        return format == Note::Markdown ? markdownDisplayTitle(line).trimmed() : line.trimmed();
     }
     return {};
 }
