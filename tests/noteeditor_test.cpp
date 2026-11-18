@@ -381,6 +381,23 @@ private slots:
         QCOMPARE(persisted.format, Note::Markdown);
     }
 
+    void leadingPlainTextEmptyLinesDoNotBecomeTheTitle()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(plainNote(QString(), QString()), drafts);
+
+        editor.setText(QStringLiteral("\n\nPlain title\nBody"));
+        QCOMPARE(editor.displayTitle(), QStringLiteral("Plain title"));
+        QCOMPARE(editor.note().title(), QStringLiteral("Plain title"));
+        QCOMPARE(editor.note().text(), QStringLiteral("Body"));
+        QVERIFY(editor.save());
+        const auto draft = data->drafts.value(editor.draftId());
+        QCOMPARE(draft.title, QStringLiteral("Plain title"));
+        QCOMPARE(draft.body, QStringLiteral("Body"));
+    }
+
     void markdownTitleRemovesStylingInExternalPresentation()
     {
         Note note(new NoteData(nullptr));
