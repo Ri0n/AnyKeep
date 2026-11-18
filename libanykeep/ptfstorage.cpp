@@ -665,6 +665,10 @@ bool PTFStorage::saveNote(const Note &note)
         }
     }
     Note saved = note;
+    // Notify clients with the canonical fields actually written to disk,
+    // not the caller's pre-normalization empty title/leading blank lines.
+    saved.setTitle(title);
+    saved.setText(body, note.format());
     saved.setId(newNoteId);
     saved.setLastChangeUTC(QFileInfo(fileName).lastModified());
     saved.removeBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey));
