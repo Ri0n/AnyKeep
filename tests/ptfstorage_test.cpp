@@ -72,6 +72,42 @@ private slots:
         QCOMPARE(loaded.displayTitle(), QStringLiteral("QML code"));
     }
 
+    void structuralMarkdownStartsStayInTheBody_data()
+    {
+        QTest::addColumn<QString>("firstBlock");
+        QTest::newRow("image") << QStringLiteral("![Diagram](https://example.org/diagram.png)");
+        QTest::newRow("styled image")
+            << QStringLiteral("<p align=\"right\"><img src=\"https://example.org/diagram.png\" alt=\"Diagram\" width=\"320\" /></p>");
+        QTest::newRow("audio")
+            << QStringLiteral("<audio controls src=\"https://example.org/recording.m4a\" title=\"Voice memo\"></audio>");
+        QTest::newRow("video")
+            << QStringLiteral("<video src=\"https://example.org/movie.mp4\" title=\"Clip\"></video>");
+        QTest::newRow("attachment")
+            << QStringLiteral("<a href=\"https://example.org/file.pdf\" data-anykeep-attachment=\"1\" "
+                              "data-anykeep-media-type=\"application/pdf\" data-anykeep-size=\"50\">file.pdf</a>");
+    }
+
+    void structuralMarkdownStartsStayInTheBody()
+    {
+        QFETCH(QString, firstBlock);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        PTFStorage storage;
+        QVERIFY(storage.setStoragePath(directory.path()));
+
+        Note note = storage.createNote();
+        note.setTitle(QString());
+        note.setText(QStringLiteral("\n\n") + firstBlock, Note::Markdown);
+        QVERIFY(storage.saveNote(note));
+        const auto notes = storage.noteList();
+        QCOMPARE(notes.size(), 1);
+        QCOMPARE(notes.constFirst().title(), QString());
+        Note loaded = notes.constFirst();
+        QVERIFY(loaded.load());
+        QCOMPARE(loaded.title(), QString());
+        QCOMPARE(loaded.text(), firstBlock);
+    }
+
     void leadingBlankMarkdownHeadingIsCanonicalPtfTitle()
     {
         QTemporaryDir directory;
