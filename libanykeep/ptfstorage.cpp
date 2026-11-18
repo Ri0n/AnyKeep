@@ -39,6 +39,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #endif // Q_OS_WIN
 
 #include "localmediastore.h"
+#include "noteblockmodel.h"
 #include "notedata.h"
 #include "notetitleresolver.h"
 #include "ptffolderindex.h"
@@ -55,16 +56,40 @@ namespace {
     const QString LegacyMediaManifestName = QStringLiteral(".qtnote-media.json");
     const QString LegacyFolderIndexName   = QStringLiteral(".qtnote-folders.json");
 
-    std::pair<QString, QString> splitPtfContents(QString contents)
+    std::pair<QString, QString> splitPtfContents(QString contents, Note::Format format)
     {
         if (contents.startsWith(QChar::ByteOrderMark))
             contents.remove(0, 1);
         contents.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
         contents.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+
+        // Old files can begin with empty title lines. The first actual
+        // Markdown heading (or text line) owns the title, not those lines.
+        while (!contents.isEmpty()) {
+            const qsizetype end = contents.indexOf(QLatin1Char('\n'));
+            const QString  line = end < 0 ? contents : contents.left(end);
+            if (!line.trimmed().isEmpty())
+                break;
+            if (end < 0)
+                return {};
+            contents.remove(0, end + 1);
+        }
         const qsizetype separator = contents.indexOf(QLatin1Char('\n'));
+        const QString firstLine = separator < 0 ? contents : contents.left(separator);
+        if (format == Note::Markdown) {
+            // Reuse the editor's canonical Markdown block parser. Code,
+            // media, lists and other structural first blocks do not occupy
+            // the note's editable text-title slot. Do not replicate the
+            // Markdown/HTML media syntax checks in PTF storage.
+            NoteBlockModel firstBlock;
+            firstBlock.load(firstLine, true);
+            const int type = firstBlock.blockTypeAt(0);
+            if (type != NoteBlockModel::Text && type != NoteBlockModel::Heading)
+                return { {}, contents };
+        }
         if (separator < 0)
             return { contents, {} };
-        return { contents.left(separator), contents.mid(separator + 1) };
+        return { firstLine, contents.mid(separator + 1) };
     }
 
     bool copyDirectoryContents(const QDir &source, const QDir &destination)
@@ -416,7 +441,7 @@ QList<Note> PTFStorage::noteListFromInfoList(const QFileInfoList &files)
         note.setFavorite(favoriteNoteIds_.contains(note.id()));
         note.setFormat(fi.suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0 ? Note::Markdown
                                                                                           : Note::PlainText);
-        const auto [title, body] = splitPtfContents(QString::fromUtf8(file.readAll()));
+        const auto [title, body] = splitPtfContents(QString::fromUtf8(file.readAll()), note.format());
         note.setTitle(title);
         note.setTags(NoteData::tagsFromText(body));
         note.setBackendValue(QString::fromLatin1(NoteTitleResolver::CachedDisplayTitleBackendKey),
@@ -500,11 +525,12 @@ bool PTFStorage::loadNote(Note &note)
     QList<MediaReference> media;
     if (QFileInfo(fileName).suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0)
         contents = importSidecarMedia(contents, QFileInfo(fileName).completeBaseName(), notesDir, mediaStore_, media);
-    auto [title, body] = splitPtfContents(contents);
+    const Note::Format format = QFileInfo(fileName).suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0
+        ? Note::Markdown
+        : Note::PlainText;
+    auto [title, body] = splitPtfContents(contents, format);
     note.setTitle(title);
-    note.setText(body,
-                 QFileInfo(fileName).suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0 ? Note::Markdown
-                                                                                                     : Note::PlainText);
+    note.setText(body, format);
     note.setLastChangeUTC(QFileInfo(file).lastModified());
     note.setBackendValue(QStringLiteral("fileName"), fileName);
     note.setBackendValue(QString::fromLatin1(NoteTitleResolver::CachedDisplayTitleBackendKey),
@@ -528,11 +554,12 @@ bool PTFStorage::saveNote(const Note &note)
         return true;
     }
 
+    const auto [title, body]   = splitPtfContents(note.title() + QLatin1Char('\n') + note.text(), note.format());
     QString    oldNoteId         = note.id();
     const bool existedBeforeSave = noteFileExists(oldNoteId);
     QString    newNoteId         = oldNoteId;
     auto       ext               = QString(QLatin1String(note.format() == Note::Markdown ? "md" : "txt"));
-    QString    displayTitle      = NoteTitleResolver::displayTitle(note.title(), note.text(), note.format());
+    QString    displayTitle      = NoteTitleResolver::displayTitle(title, body, note.format());
     if (displayTitle.isEmpty())
         displayTitle = tr("Untitled note");
     auto fileName = Utils::fileNameForText(notesDir, displayTitle, ext, newNoteId);
@@ -543,7 +570,7 @@ bool PTFStorage::saveNote(const Note &note)
     }
     qCInfo(logPtfStorage) << "PTF save target: oldIdHash=" << diagnosticName(oldNoteId)
                           << "newIdHash=" << diagnosticName(newNoteId) << "suffix=" << ext;
-    QString       contents = note.title() + QLatin1Char('\n') + note.text();
+    QString       contents = title.isEmpty() ? body : title + QLatin1Char('\n') + body;
     QDir          sidecar(notesDir.filePath(newNoteId));
     QSet<QString> materializedFiles;
     if (!note.media().isEmpty()) {
@@ -636,6 +663,10 @@ bool PTFStorage::saveNote(const Note &note)
         }
     }
     Note saved = note;
+    // Notify clients with the canonical fields actually written to disk,
+    // not the caller's pre-normalization empty title/leading blank lines.
+    saved.setTitle(title);
+    saved.setText(body, note.format());
     saved.setId(newNoteId);
     saved.setLastChangeUTC(QFileInfo(fileName).lastModified());
     saved.removeBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey));

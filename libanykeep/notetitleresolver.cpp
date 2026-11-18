@@ -11,6 +11,8 @@
 #include <QTextImageFormat>
 #include <QUrl>
 
+#include <algorithm>
+
 namespace AnyKeep::NoteTitleResolver {
 
 namespace {
@@ -71,13 +73,20 @@ namespace {
         const QString htmlImageTitle = htmlImageDisplayTitle(source);
         if (!htmlImageTitle.isNull())
             return htmlImageTitle;
-        if (!source.contains(QLatin1Char('[')))
+        // Most titles are plain text. Avoid constructing a QTextDocument for
+        // every title query in note lists, while still parsing any potential
+        // heading, inline code, emphasis, link, HTML or escaped Markdown.
+        const auto containsMarkup = std::any_of(source.cbegin(), source.cend(), [](QChar ch) {
+            return ch == QLatin1Char('#') || ch == QLatin1Char('`') || ch == QLatin1Char('*')
+                || ch == QLatin1Char('_') || ch == QLatin1Char('~') || ch == QLatin1Char('[')
+                || ch == QLatin1Char('<') || ch == QLatin1Char('\\') || ch == QLatin1Char('&');
+        });
+        if (!containsMarkup)
             return source;
 
         QTextDocument document;
         document.setMarkdown(source);
         QString result;
-        bool    foundImage = false;
         for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
             for (auto fragment = block.begin(); !fragment.atEnd(); ++fragment) {
                 const auto textFragment = fragment.fragment();
@@ -88,7 +97,6 @@ namespace {
                     result += textFragment.text();
                     continue;
                 }
-                foundImage       = true;
                 const auto image = format.toImageFormat();
                 QString    label = image.property(QTextFormat::ImageAltText).toString();
                 if (label.isEmpty())
@@ -98,7 +106,7 @@ namespace {
                 result += label;
             }
         }
-        return foundImage ? result.trimmed() : source;
+        return result.trimmed();
     }
 
     QString codeLanguageName(QString language)
@@ -148,6 +156,16 @@ QString displayTitle(const QString &title, const QString &body, Note::Format for
             }
             return QCoreApplication::translate("NoteTitleResolver", "Code snippet");
         }
+    }
+
+    // Some backends and legacy drafts carry the whole document in the body
+    // with an empty explicit title. Resolve their first non-blank line too.
+    const QString normalized = QString(body).replace(QStringLiteral("\r\n"), QStringLiteral("\n"))
+                                   .replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    for (const QString &line : normalized.split(QLatin1Char('\n'))) {
+        if (line.trimmed().isEmpty())
+            continue;
+        return format == Note::Markdown ? markdownDisplayTitle(line).trimmed() : line.trimmed();
     }
     return {};
 }

@@ -63,13 +63,110 @@ private slots:
         QCOMPARE(QFileInfo(fileName).completeBaseName(), QStringLiteral("QML code"));
         QFile file(fileName);
         QVERIFY(file.open(QIODevice::ReadOnly));
-        QCOMPARE(QString::fromUtf8(file.readAll()), QLatin1Char('\n') + body);
+        QCOMPARE(QString::fromUtf8(file.readAll()), body);
 
         Note loaded = summaries.constFirst();
         QVERIFY(loaded.load());
         QCOMPARE(loaded.title(), QString());
         QCOMPARE(loaded.text(), body);
         QCOMPARE(loaded.displayTitle(), QStringLiteral("QML code"));
+    }
+
+    void structuralMarkdownStartsStayInTheBody_data()
+    {
+        QTest::addColumn<QString>("firstBlock");
+        QTest::newRow("image") << QStringLiteral("![Diagram](https://example.org/diagram.png)");
+        QTest::newRow("styled image")
+            << QStringLiteral("<p align=\"right\"><img src=\"https://example.org/diagram.png\" alt=\"Diagram\" width=\"320\" /></p>");
+        QTest::newRow("audio")
+            << QStringLiteral("<audio controls src=\"https://example.org/recording.m4a\" title=\"Voice memo\"></audio>");
+        QTest::newRow("video")
+            << QStringLiteral("<video src=\"https://example.org/movie.mp4\" title=\"Clip\"></video>");
+        QTest::newRow("attachment")
+            << QStringLiteral("<a href=\"https://example.org/file.pdf\" data-anykeep-attachment=\"1\" "
+                              "data-anykeep-media-type=\"application/pdf\" data-anykeep-size=\"50\">file.pdf</a>");
+    }
+
+    void structuralMarkdownStartsStayInTheBody()
+    {
+        QFETCH(QString, firstBlock);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        PTFStorage storage;
+        QVERIFY(storage.setStoragePath(directory.path()));
+
+        Note note = storage.createNote();
+        note.setTitle(QString());
+        note.setText(QStringLiteral("\n\n") + firstBlock, Note::Markdown);
+        QVERIFY(storage.saveNote(note));
+        const auto notes = storage.noteList();
+        QCOMPARE(notes.size(), 1);
+        QCOMPARE(notes.constFirst().title(), QString());
+        Note loaded = notes.constFirst();
+        QVERIFY(loaded.load());
+        QCOMPARE(loaded.title(), QString());
+        QCOMPARE(loaded.text(), firstBlock);
+    }
+
+    void leadingBlankMarkdownHeadingIsCanonicalPtfTitle()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+
+        const QString heading = QStringLiteral("# Открытые задачи и эпики по `component = Platform_HWS`");
+        const QString expected = QStringLiteral("Открытые задачи и эпики по component = Platform_HWS");
+        PTFStorage storage;
+        QVERIFY(storage.setStoragePath(directory.path()));
+
+        Note note = storage.createNote();
+        note.setTitle(QString());
+        note.setText(QStringLiteral("\n\n") + heading + QStringLiteral("\n\nBody"), Note::Markdown);
+        QVERIFY(storage.saveNote(note));
+
+        const auto notes = storage.noteList();
+        QCOMPARE(notes.size(), 1);
+        const Note summary = notes.constFirst();
+        QCOMPARE(summary.title(), heading);
+        QCOMPARE(summary.displayTitle(), expected);
+
+        const auto fileName = summary.backendValue(QStringLiteral("fileName")).toString();
+        QVERIFY(QFileInfo(fileName).completeBaseName().contains(QStringLiteral("Platform_HWS")));
+        QVERIFY(!QFileInfo(fileName).completeBaseName().contains(QLatin1Char('`')));
+        QFile file(fileName);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString stored = QString::fromUtf8(file.readAll());
+        QVERIFY(stored.startsWith(heading + QStringLiteral("\n\nBody")));
+        QVERIFY(!stored.startsWith(QLatin1Char('\n')));
+
+        Note loaded = summary;
+        QVERIFY(loaded.load());
+        QCOMPARE(loaded.title(), heading);
+        QCOMPARE(loaded.displayTitle(), expected);
+        QCOMPARE(loaded.text(), QStringLiteral("\nBody"));
+    }
+
+    void legacyPtfLeadingBlankLinesAreSkippedWhenLoading()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+
+        const QString heading = QStringLiteral("# Legacy `inline code`");
+        QFile raw(directory.filePath(QStringLiteral("legacy.md")));
+        QVERIFY(raw.open(QIODevice::WriteOnly));
+        const QByteArray contents = (QStringLiteral("\n\n") + heading + QStringLiteral("\n\nBody")).toUtf8();
+        QCOMPARE(raw.write(contents), qint64(contents.size()));
+        raw.close();
+
+        PTFStorage storage;
+        QVERIFY(storage.setStoragePath(directory.path()));
+        const auto notes = storage.noteList();
+        QCOMPARE(notes.size(), 1);
+        QCOMPARE(notes.constFirst().title(), heading);
+        QCOMPARE(notes.constFirst().displayTitle(), QStringLiteral("Legacy inline code"));
+        Note loaded = notes.constFirst();
+        QVERIFY(loaded.load());
+        QCOMPARE(loaded.title(), heading);
+        QCOMPARE(loaded.displayTitle(), QStringLiteral("Legacy inline code"));
     }
 
     void styledAndMarkdownImagesSurviveFreshStorageInstance()
