@@ -76,7 +76,6 @@ namespace {
         QTextDocument document;
         document.setMarkdown(source);
         QString result;
-        bool    foundImage = false;
         for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
             for (auto fragment = block.begin(); !fragment.atEnd(); ++fragment) {
                 const auto textFragment = fragment.fragment();
@@ -87,7 +86,6 @@ namespace {
                     result += textFragment.text();
                     continue;
                 }
-                foundImage       = true;
                 const auto image = format.toImageFormat();
                 QString    label = image.property(QTextFormat::ImageAltText).toString();
                 if (label.isEmpty())
