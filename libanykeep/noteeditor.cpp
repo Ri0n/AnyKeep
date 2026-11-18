@@ -316,10 +316,16 @@ std::pair<QString, QString> NoteEditor::titleAndBody() const
         return {};
 
     const QString contents = model_->contents();
-    if (model_->blockTypeAt(0) != NoteBlockModel::Text)
+    const int firstType = model_->blockTypeAt(0);
+    // The Markdown reader represents "# Heading" as a Heading block, not
+    // Text. It is still the first visible title line of the document.
+    if (firstType != NoteBlockModel::Text && !(format_ == Note::Markdown && firstType == NoteBlockModel::Heading))
         return { {}, contents };
 
-    const QString title = model_->data(model_->index(0), NoteBlockModel::TextRole).toString();
+    const QString title = firstType == NoteBlockModel::Heading
+        ? contents.left(contents.indexOf(QLatin1Char('\n')) < 0 ? contents.size()
+                                                                 : contents.indexOf(QLatin1Char('\n')))
+        : model_->data(model_->index(0), NoteBlockModel::TextRole).toString();
     if (contents == title)
         return { title, {} };
     const QString separator = format_ == Note::PlainText ? QStringLiteral("\n") : QStringLiteral("\n\n");
