@@ -39,6 +39,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #endif // Q_OS_WIN
 
 #include "localmediastore.h"
+#include "noteblockmodel.h"
 #include "notedata.h"
 #include "notetitleresolver.h"
 #include "ptffolderindex.h"
@@ -76,20 +77,15 @@ namespace {
         const qsizetype separator = contents.indexOf(QLatin1Char('\n'));
         const QString firstLine = separator < 0 ? contents : contents.left(separator);
         if (format == Note::Markdown) {
-            static const QRegularExpression fence(QStringLiteral(R"(^ {0,3}(?:`{3,}|~{3,}).*$)"));
-            const QString trimmed = firstLine.trimmed();
-            // Code/media-only notes have no text title. Preserve the actual
-            // structural block instead of promoting its markup to a title.
-            if (fence.match(firstLine).hasMatch() || trimmed.startsWith(QLatin1String("!["))
-                || trimmed.startsWith(QLatin1String("<audio"), Qt::CaseInsensitive)
-                || trimmed.startsWith(QLatin1String("<video"), Qt::CaseInsensitive)
-                || trimmed.startsWith(QLatin1String("<img"), Qt::CaseInsensitive)
-                || (trimmed.startsWith(QLatin1String("<p "), Qt::CaseInsensitive)
-                    && trimmed.contains(QLatin1String("<img"), Qt::CaseInsensitive))
-                || (trimmed.startsWith(QLatin1String("<a "), Qt::CaseInsensitive)
-                    && trimmed.contains(QLatin1String("data-anykeep-attachment"), Qt::CaseInsensitive))) {
+            // Reuse the editor's canonical Markdown block parser. Code,
+            // media, lists and other structural first blocks do not occupy
+            // the note's editable text-title slot. Do not replicate the
+            // Markdown/HTML media syntax checks in PTF storage.
+            NoteBlockModel firstBlock;
+            firstBlock.load(firstLine, true);
+            const int type = firstBlock.blockTypeAt(0);
+            if (type != NoteBlockModel::Text && type != NoteBlockModel::Heading)
                 return { {}, contents };
-            }
         }
         if (separator < 0)
             return { contents, {} };
