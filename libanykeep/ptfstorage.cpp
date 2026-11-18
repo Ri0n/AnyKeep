@@ -81,11 +81,13 @@ namespace {
             // Code/media-only notes have no text title. Preserve the actual
             // structural block instead of promoting its markup to a title.
             if (fence.match(firstLine).hasMatch() || trimmed.startsWith(QLatin1String("!["))
-                || trimmed.startsWith(QLatin1String("<audio"))
-                || trimmed.startsWith(QLatin1String("<video"))
-                || trimmed.startsWith(QLatin1String("<img"))
-                || trimmed.startsWith(QLatin1String("<p align="))
-                || trimmed.startsWith(QLatin1String("<a "))) {
+                || trimmed.startsWith(QLatin1String("<audio"), Qt::CaseInsensitive)
+                || trimmed.startsWith(QLatin1String("<video"), Qt::CaseInsensitive)
+                || trimmed.startsWith(QLatin1String("<img"), Qt::CaseInsensitive)
+                || (trimmed.startsWith(QLatin1String("<p "), Qt::CaseInsensitive)
+                    && trimmed.contains(QLatin1String("<img"), Qt::CaseInsensitive))
+                || (trimmed.startsWith(QLatin1String("<a "), Qt::CaseInsensitive)
+                    && trimmed.contains(QLatin1String("data-anykeep-attachment"), Qt::CaseInsensitive))) {
                 return { {}, contents };
             }
         }
