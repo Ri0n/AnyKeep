@@ -37,7 +37,6 @@ class ReleaseVersionsTest(unittest.TestCase):
             result = subprocess.run([cmake, "-P", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-
     def test_git_release_tag_precedes_stale_source_archive_version(self):
         cmake = shutil.which("cmake")
         git = shutil.which("git")
@@ -56,13 +55,13 @@ class ReleaseVersionsTest(unittest.TestCase):
             )
             subprocess.run([git, "-C", str(root), "tag", "v4.0.30"], check=True)
             # A stale archive version must never take precedence over a valid Git tag.
-            (root / "anykeep.version").write_text("4.0.5\\n")
+            (root / "anykeep.version").write_text("4.0.5\n")
             script = root / "version.cmake"
             script.write_text(
-                f'include("{module.as_posix()}")\\n'
-                'if(NOT ANYKEEP_VERSION STREQUAL "4.0.30")\\n'
-                '  message(FATAL_ERROR "Git release version was not used: ${ANYKEEP_VERSION}")\\n'
-                'endif()\\n'
+                f'include("{module.as_posix()}")\n'
+                'if(NOT ANYKEEP_VERSION STREQUAL "4.0.30")\n'
+                '  message(FATAL_ERROR "Git release version was not used: ${ANYKEEP_VERSION}")\n'
+                'endif()\n'
             )
             result = subprocess.run([cmake, "-P", str(script)], cwd=root,
                                     capture_output=True, text=True)
@@ -75,20 +74,19 @@ class ReleaseVersionsTest(unittest.TestCase):
         module = Path(__file__).resolve().parents[2] / "cmake/modules/AnyKeepMacro.cmake"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "anykeep.version").write_text("4.0.30\\n")
+            (root / "anykeep.version").write_text("4.0.30\n")
             (root / "debian").mkdir()
-            (root / "debian/changelog").write_text("anykeep (4.0.5) unstable; urgency=low\\n")
+            (root / "debian/changelog").write_text("anykeep (4.0.5) unstable; urgency=low\n")
             script = root / "version.cmake"
             script.write_text(
-                f'include("{module.as_posix()}")\\n'
-                'if(NOT ANYKEEP_VERSION STREQUAL "4.0.30")\\n'
-                '  message(FATAL_ERROR "Archive version was not used: ${ANYKEEP_VERSION}")\\n'
-                'endif()\\n'
+                f'include("{module.as_posix()}")\n'
+                'if(NOT ANYKEEP_VERSION STREQUAL "4.0.30")\n'
+                '  message(FATAL_ERROR "Archive version was not used: ${ANYKEEP_VERSION}")\n'
+                'endif()\n'
             )
             result = subprocess.run([cmake, "-P", str(script)], cwd=root,
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
 
 if __name__ == "__main__":
     unittest.main()
