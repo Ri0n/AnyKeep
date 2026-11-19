@@ -1,6 +1,7 @@
 """Exercise the production CMake version parser, including native package cores."""
 
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -63,8 +64,11 @@ class ReleaseVersionsTest(unittest.TestCase):
                 '  message(FATAL_ERROR "Git release version was not used: ${ANYKEEP_VERSION}")\n'
                 'endif()\n'
             )
+            # Simulate root reading the runner-owned Git checkout (Debian CI).
+            # Git normally rejects that checkout without our narrow safe.directory.
+            env = dict(os.environ, GIT_TEST_ASSUME_DIFFERENT_OWNER="1")
             result = subprocess.run([cmake, "-P", str(script)], cwd=root,
-                                    capture_output=True, text=True)
+                                    env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_git_free_archive_uses_generated_version(self):
