@@ -61,6 +61,9 @@ jobs:
       - name: Test plugin AUTO/ON/OFF configuration semantics
         run: python3 -m unittest discover -s .github/scripts -p 'test_plugin_configuration.py'
 
+      - name: Test bounded Ubuntu APT mirror fallback
+        run: python3 -m unittest discover -s .github/scripts -p 'test_ubuntu_apt_ci.py'
+
       - name: Resolve compatible nightly dependencies
         id: nightly
         env:
@@ -260,7 +263,7 @@ jobs:
       - name: Install system dependencies
         run: |
           set -euo pipefail
-          sudo apt-get install -y --no-install-recommends \
+          python3 .github/scripts/ubuntu_apt_ci.py install -y --no-install-recommends \
             build-essential \
             gettext \
             gstreamer1.0-plugins-base \
@@ -288,7 +291,8 @@ jobs:
             qt6-svg-dev \
             qt6-tools-dev \
             qt6-tools-dev-tools \
-            qtkeychain-qt6-dev
+            qtkeychain-qt6-dev \
+            ccache
 
           # Qt 6.4 on Ubuntu 24.04 uses GStreamer for WAV playback. With
           # --no-install-recommends, libqt6multimedia6 alone does not bring
@@ -300,11 +304,8 @@ jobs:
           # Starting with Ubuntu 26.04, the SVG icon/image plugins are split out
           # of libqt6svg6. Noble still ships them in libqt6svg6 itself.
           if apt-cache show qt6-svg-plugins >/dev/null 2>&1; then
-            sudo apt-get install -y --no-install-recommends qt6-svg-plugins
+            python3 .github/scripts/ubuntu_apt_ci.py install -y --no-install-recommends qt6-svg-plugins
           fi
-
-      - name: Install ccache
-        run: sudo apt-get install -y --no-install-recommends ccache
 
       - name: Restore ccache for Ubuntu ${{ matrix.ubuntu-version }}
         uses: actions/cache@v4
@@ -363,7 +364,7 @@ jobs:
             echo "::group::Ubuntu 24.04 multimedia failure diagnostics"
             # Preserve the original test failure. The stack trace helps
             # distinguish a Qt/GStreamer crash from an AnyKeep regression.
-            sudo apt-get install -y --no-install-recommends gdb
+            python3 .github/scripts/ubuntu_apt_ci.py install -y --no-install-recommends gdb
             for element in audioconvert audioresample wavparse autoaudiosink; do
               gst-inspect-1.0 "$element" >/dev/null && echo "Available: $element" || echo "Missing: $element"
             done
