@@ -1,6 +1,6 @@
 {
     "qt": {
-        "toolchain_version": "6.12.*",
+        "toolchain_version": "6.12.0",
         "minimum_mobile": "6.11",
         "minimum_desktop": "6.4"
     },

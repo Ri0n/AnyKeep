@@ -30,8 +30,21 @@ class QtLockTest(unittest.TestCase):
                 self.assertNotRegex(content, r'QT_SERIES: "[0-9]')
                 self.assertNotRegex(content, r"qt6\.[0-9]+-(?:android|windows|macos)")
 
+    def test_explicit_patch_toolchain_selector(self):
+        qt = qt_configuration(self.lock)
+        self.assertEqual(qt["version"], "6.12.0")
+        self.assertEqual(qt["series"], "6.12")
+        self.assertEqual(qt["sdk_suffix"], "qt6.12")
+        data = copy.deepcopy(self.lock)
+        data["qt"]["toolchain_version"] = "6.12.*"
+        self.assertEqual(qt_configuration(data)["version"], "6.12.*")
+        data["qt"]["toolchain_version"] = "6.12.1"
+        data["qt"]["minimum_mobile"] = "6.12.2"
+        with self.assertRaisesRegex(ValueError, "exceeds"):
+            qt_configuration(data)
+
     def test_bad_toolchain_selector_is_rejected(self):
-        for value in ("6.12", "6.12.0", "latest", "6.12.*\nINJECT=yes", ""):
+        for value in ("6.12", "6.12.-1", "6.12.0-rc1", "latest", "6.12.*\nINJECT=yes", ""):
             with self.subTest(value=value):
                 data = copy.deepcopy(self.lock)
                 data["qt"]["toolchain_version"] = value
