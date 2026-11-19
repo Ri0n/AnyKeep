@@ -87,10 +87,14 @@ def switch_to_archive(apt_root: Path = Path("/etc/apt")) -> list[str]:
     mirrors = apt_root / "apt-mirrors.txt"
     if mirrors.is_file():
         original = mirrors.read_text(encoding="utf-8")
-        # Azure-backed Ubuntu archive has been fast on hosted runners while
-        # public archive IPs sometimes reject connections. Keep both mirrors.
+        # A prior install can already have changed the mirror list. Each
+        # separate download may hit another slowdown, so rotate the priority
+        # again rather than failing with "no regional mirror available".
+        # Keep both alternatives while avoiding the slow EC2 mirror.
+        first = next((line.strip() for line in original.splitlines()
+                      if line.strip() and not line.lstrip().startswith("#")), "")
         fallback_order = ([PUBLIC_ARCHIVE, AZURE_ARCHIVE]
-                          if AZURE_ARCHIVE in original
+                          if first == AZURE_ARCHIVE
                           else [AZURE_ARCHIVE, PUBLIC_ARCHIVE])
         new_content = "\n".join(fallback_order) + "\n"
         if original != new_content:

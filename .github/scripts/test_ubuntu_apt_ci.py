@@ -103,6 +103,25 @@ class UbuntuAptCITest(TestCase):
             self.assertEqual((root / "apt-mirrors.txt").read_text(),
                              apt.PUBLIC_ARCHIVE + "\n" + apt.AZURE_ARCHIVE + "\n")
 
+    def test_repeated_download_failures_rotate_mirror_priority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mirrorlist = root / "apt-mirrors.txt"
+            mirrorlist.write_text(
+                "http://us-east-2.ec2.archive.ubuntu.com/ubuntu\n"
+                + apt.PUBLIC_ARCHIVE + "\n")
+            with patch.object(apt, "write_system_file",
+                              side_effect=lambda p, s: p.write_text(s)):
+                self.assertEqual(apt.switch_to_archive(root), [str(mirrorlist)])
+                self.assertEqual(mirrorlist.read_text(),
+                                 apt.AZURE_ARCHIVE + "\n" + apt.PUBLIC_ARCHIVE + "\n")
+                self.assertEqual(apt.switch_to_archive(root), [str(mirrorlist)])
+                self.assertEqual(mirrorlist.read_text(),
+                                 apt.PUBLIC_ARCHIVE + "\n" + apt.AZURE_ARCHIVE + "\n")
+                self.assertEqual(apt.switch_to_archive(root), [str(mirrorlist)])
+                self.assertEqual(mirrorlist.read_text(),
+                                 apt.AZURE_ARCHIVE + "\n" + apt.PUBLIC_ARCHIVE + "\n")
+
     def test_failed_fallback_does_not_run_offline_install(self):
         with patch.object(apt, "bounded_apt", side_effect=[124, 100]):
             with patch.object(apt, "switch_to_archive", return_value=["/etc/apt/sources.list.d/ubuntu.sources"]):
