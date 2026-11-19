@@ -18,7 +18,10 @@ gittag2version() {
   echo "${git_version%.*}.$build_v"
 }
 
-version=$(gittag2version ${1:-$(git describe --tags 2>/dev/null)})
+# Source archives have no Git metadata; generate their version file from
+# the application tag, ignoring dependency/nightly tags.
+version=$(gittag2version ${1:-$(git describe --tags --match 'v[0-9]*' --match '[0-9]*' 2>/dev/null)})
+version="${version#v}"
 base_name=anykeep-$version
 release_dir=../${base_name}
 tar_file=${release_dir}.tar

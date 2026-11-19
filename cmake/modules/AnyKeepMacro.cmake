@@ -35,7 +35,9 @@ if(NOT ANYKEEP_VERSION_MAJOR)
       execute_process(
         # Dependency/update tags can be closer to HEAD than an application release tag.
         # Limit describe to SemVer-shaped tags so they cannot become the project version.
-        COMMAND ${GIT_EXECUTABLE} -C "${CMAKE_SOURCE_DIR}" describe --tags --always --match "v[0-9]*" --match "[0-9]*"
+        # In Debian CI a container running as root reads a checkout owned by the runner.
+        # Trust only this source directory, rather than changing global Git config.
+        COMMAND ${GIT_EXECUTABLE} -c "safe.directory=${CMAKE_SOURCE_DIR}" -C "${CMAKE_SOURCE_DIR}" describe --tags --always --match "v[0-9]*" --match "[0-9]*"
         RESULT_VARIABLE GIT_REPO_VERSION_RESULT
         OUTPUT_VARIABLE GIT_REPO_FULL_VERSION
         ERROR_VARIABLE GIT_REPO_VERSION_ERROR
