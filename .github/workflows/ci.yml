@@ -64,6 +64,9 @@ jobs:
       - name: Test bounded Ubuntu APT mirror fallback
         run: python3 -m unittest discover -s .github/scripts -p 'test_ubuntu_apt_ci.py'
 
+      - name: Test Debian package version alignment
+        run: python3 -m unittest discover -s .github/scripts -p 'test_sync_debian_changelog_version.py'
+
       - name: Resolve compatible nightly dependencies
         id: nightly
         env:
