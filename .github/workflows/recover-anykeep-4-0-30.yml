@@ -1,6 +1,5 @@
-name: One-time AnyKeep 4.0.30 updater recovery
+name: Recover AnyKeep 4.0.30 stable update pointer
 
-# Temporary trigger used to dispatch the existing verified publication workflow.
 on:
   push:
     branches: [master]
@@ -9,15 +8,12 @@ on:
 
 permissions:
   actions: write
-  contents: read
 
 jobs:
-  dispatch-stable:
-    if: ${{ github.event.head_commit.message == 'ci: dispatch AnyKeep 4.0.30 updater publication' }}
+  dispatch:
     runs-on: ubuntu-latest
     steps:
-      - name: Run the existing verified publisher for the successful release
+      - name: Dispatch updater publisher for release 4.0.30
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh workflow run publish-updates.yml --repo "$GITHUB_REPOSITORY" --ref master --field source_run_id=44555978967
+        run: gh workflow run publish-updates.yml --repo "$GITHUB_REPOSITORY" --ref master -f source_run_id=44555978967
