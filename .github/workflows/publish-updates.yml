@@ -1,13 +1,19 @@
 name: Publish AnyKeep updates
 
+# Called after the release assets have been published by packages.yml.
+# workflow_run is unreliable when the originating workflow was dispatched by
+# GITHUB_TOKEN (as happens in the release-gate -> packages chain).
 on:
-  workflow_run:
-    workflows: ["AnyKeep packages"]
-    types: [completed]
+  workflow_call:
+    inputs:
+      source_run_id:
+        description: 'Package workflow run ID (its release job has succeeded)'
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       source_run_id:
-        description: 'Successful AnyKeep packages run ID to publish'
+        description: 'Completed successful AnyKeep packages run ID to republish'
         required: true
         type: string
 
@@ -18,7 +24,6 @@ permissions:
 jobs:
   publish-updates:
     name: Publish updater payload
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: anykeep-net
@@ -34,15 +39,35 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_id || github.event.workflow_run.id }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
         run: |
           set -euo pipefail
 
-          source_conclusion="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq '.conclusion')"
           source_workflow="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq '.path')"
-          if [[ "$source_conclusion" != success || "$source_workflow" != ".github/workflows/packages.yml" ]]; then
-            echo "::error::Source run must be a successful AnyKeep packages workflow" >&2
+          if [[ "$source_workflow" != ".github/workflows/packages.yml" ]]; then
+            echo "::error::Source run must be an AnyKeep packages workflow" >&2
             exit 1
+          fi
+
+          if [[ "$SOURCE_RUN_ID" == "$GITHUB_RUN_ID" ]]; then
+            # Reusable workflow invoked from the package run itself: the run
+            # remains in_progress until this job finishes, so its conclusion
+            # is necessarily null. Verify the actual release-publishing job
+            # that must precede this call, not the overall run conclusion.
+            source_sha="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq '.head_sha')"
+            release_jobs="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100" \
+              --jq '[.jobs[] | select(.name == "Publish complete package release" and .status == "completed" and .conclusion == "success")] | length')"
+            if [[ "$source_sha" != "$GITHUB_SHA" || "$release_jobs" != 1 ]]; then
+              echo "::error::Current package run has not successfully published its release assets" >&2
+              exit 1
+            fi
+          else
+            # Manual recovery from a previously completed package run.
+            source_conclusion="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq '.conclusion')"
+            if [[ "$source_conclusion" != success ]]; then
+              echo "::error::Manual source run must have completed successfully" >&2
+              exit 1
+            fi
           fi
 
           artifact_count="$(

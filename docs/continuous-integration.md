@@ -87,12 +87,20 @@ dependency setup, update-channel selection, and package targets from drifting
 apart.
 
 
-The post-package `Publish AnyKeep updates` workflow derives the updater channel
-from the Windows artifact itself. The package workflow first uploads all binary
-artifacts to GitHub Releases. The follow-up workflow validates the versioned MSI
-against its manifest and then publishes only `windows-x86_64.json` to
-`anykeep.net/updates/<channel>/`. Stable and nightly therefore share the same
-control-plane manifest service without duplicating binary storage or bandwidth.
+The `Publish AnyKeep updates` reusable workflow is a required downstream job
+in `AnyKeep packages`. Once all platform packages and GitHub Release assets
+are published successfully, it validates the versioned MSI against its manifest
+and publishes only `windows-x86_64.json` to `anykeep.net/updates/<channel>/`.
+Stable and nightly share this channel-manifest service without duplicating
+binary storage or bandwidth. Publishing is part of the same package run: a
+`workflow_run` event does not reliably fire for a package run dispatched with
+`GITHUB_TOKEN` by the release gate, which previously left the stable update
+feed pointing to an older version even after the GitHub Release was published.
+
+For recovery without rebuilding an existing release, manually run
+`Publish AnyKeep updates` on `master` with the **completed successful**
+`AnyKeep packages` run ID as `source_run_id`. It revalidates the original MSI
+and manifest before atomically updating the channel pointer.
 
 ## Windows distribution artifacts
 

@@ -770,3 +770,20 @@ jobs:
             --title "$release_title" \
             "${edit_kind[@]}" \
             --notes-file "$notes_file"
+
+  # Publish the mutable Windows update pointer in the *same* successful
+  # package workflow. A workflow_run event does not reliably start another
+  # workflow when the package run itself came from GITHUB_TOKEN dispatch.
+  # This job runs only after GitHub release assets and immutable manifests
+  # have been uploaded successfully.
+  publish-updater:
+    name: Publish Windows updater channel
+    needs: publish-package-release
+    if: ${{ needs.publish-package-release.result == 'success' }}
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/publish-updates.yml
+    with:
+      source_run_id: ${{ github.run_id }}
+    secrets: inherit
