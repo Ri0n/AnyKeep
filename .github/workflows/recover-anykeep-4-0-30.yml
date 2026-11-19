@@ -1,6 +1,6 @@
 name: One-time AnyKeep 4.0.30 updater recovery
 
-# Temporary recovery trigger; remove it immediately after publication.
+# Temporary trigger used to dispatch the existing verified publication workflow.
 on:
   push:
     branches: [master]
@@ -8,13 +8,16 @@ on:
       - .github/workflows/recover-anykeep-4-0-30.yml
 
 permissions:
-  actions: read
+  actions: write
   contents: read
 
 jobs:
-  recover-stable:
-    if: ${{ github.event.head_commit.message == 'ci: recover AnyKeep 4.0.30 stable updater feed' }}
-    uses: ./.github/workflows/publish-updates.yml
-    with:
-      source_run_id: "44555978967"
-    secrets: inherit
+  dispatch-stable:
+    if: ${{ github.event.head_commit.message == 'ci: dispatch AnyKeep 4.0.30 updater publication' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the existing verified publisher for the successful release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run publish-updates.yml --repo "$GITHUB_REPOSITORY" --ref master --field source_run_id=44555978967
