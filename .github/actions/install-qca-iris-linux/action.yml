@@ -28,7 +28,9 @@ runs:
         set -euo pipefail
 
         run_apt() {
-          if [[ "$(id -u)" == "0" ]]; then
+          if [[ "${{ inputs.distribution }}" == "ubuntu" ]]; then
+            python3 .github/scripts/ubuntu_apt_ci.py "$@"
+          elif [[ "$(id -u)" == "0" ]]; then
             apt-get "$@"
           else
             sudo apt-get "$@"

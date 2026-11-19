@@ -38,7 +38,9 @@ runs:
         set -euo pipefail
 
         run_apt() {
-          if [[ "$(id -u)" == "0" ]]; then
+          if [[ "${{ inputs.distribution }}" == "ubuntu" ]]; then
+            python3 .github/scripts/ubuntu_apt_ci.py "$@"
+          elif [[ "$(id -u)" == "0" ]]; then
             apt-get "$@"
           else
             sudo apt-get "$@"
@@ -46,8 +48,13 @@ runs:
         }
 
         run_apt install -y --no-install-recommends build-essential dpkg-dev fakeroot
-        ./packaging/build-deb "${{ inputs.profile }}" -- \
-          bash -c 'if [[ "$(id -u)" == "0" ]]; then exec apt-get build-dep -y --no-install-recommends ./; else exec sudo apt-get build-dep -y --no-install-recommends ./; fi'
+        if [[ "${{ inputs.distribution }}" == "ubuntu" ]]; then
+          ./packaging/build-deb "${{ inputs.profile }}" -- \
+            python3 .github/scripts/ubuntu_apt_ci.py build-dep -y --no-install-recommends ./
+        else
+          ./packaging/build-deb "${{ inputs.profile }}" -- \
+            bash -c 'if [[ "$(id -u)" == "0" ]]; then exec apt-get build-dep -y --no-install-recommends ./; else exec sudo apt-get build-dep -y --no-install-recommends ./; fi'
+        fi
 
     - name: Build Debian packages
       shell: bash
