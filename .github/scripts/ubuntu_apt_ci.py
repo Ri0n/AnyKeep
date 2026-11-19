@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Bound Ubuntu CI APT network time and retry against the public Ubuntu archive.
 
-Only the download phases are time-limited. dpkg installation runs offline
-without a deadline so a slow maintainer script cannot corrupt package state.
+Only the download phases are time-limited. dpkg installation has no
+deadline so a slow maintainer script cannot corrupt package state.
 """
 import os
 from pathlib import Path
@@ -47,8 +47,22 @@ def normalize_local_debs(arguments: list[str]) -> list[str]:
     ]
 
 
-def offline_apt(arguments: list[str]) -> None:
-    command = [*root_command(), "apt-get", "--no-download", *arguments]
+def install_cached_apt(arguments: list[str]) -> None:
+    # APT's --no-download mode incorrectly rejects locally provided .deb
+    # archives, even when their path is absolute (observed on Ubuntu 24.04
+    # and 26.04). Those archives and their dependencies were prefetched
+    # above, so use normal APT installation for this case. Never put a
+    # timeout around dpkg's configuration phase.
+    local_debs = any(arg.endswith(".deb") and Path(arg).is_absolute()
+                     for arg in arguments)
+    command = [
+        *root_command(), "apt-get",
+        "-o", "Acquire::Retries=0",
+        "-o", "Acquire::http::Timeout=20",
+        "-o", "Acquire::https::Timeout=20",
+        *([] if local_debs else ["--no-download"]),
+        *arguments,
+    ]
     print("+", " ".join(command), flush=True)
     subprocess.run(command, check=True)
 
@@ -133,7 +147,7 @@ def main() -> None:
     if operation == "install":
         arguments = normalize_local_debs(arguments)
     require_download(["--download-only", operation, *arguments])
-    offline_apt([operation, *arguments])
+    install_cached_apt([operation, *arguments])
 
 
 if __name__ == "__main__":

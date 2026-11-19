@@ -47,9 +47,9 @@ class UbuntuAptCITest(TestCase):
     def test_download_times_out_then_refreshes_and_retries(self):
         with patch.object(apt, "bounded_apt", side_effect=[124, 0]) as bounded:
             with patch.object(apt, "switch_to_archive", return_value=["/etc/apt/apt-mirrors.txt"]):
-                with patch.object(apt, "offline_apt") as offline:
+                with patch.object(apt, "install_cached_apt") as offline:
                     apt.require_download(["--download-only", "install", "-y", "ccache"])
-                    apt.offline_apt(["install", "-y", "ccache"])
+                    apt.install_cached_apt(["install", "-y", "ccache"])
         self.assertEqual(bounded.call_args_list, [
             call(["--download-only", "install", "-y", "ccache"]),
             call(["--download-only", "install", "-y", "ccache"]),
@@ -64,6 +64,24 @@ class UbuntuAptCITest(TestCase):
             relative = os.path.relpath(target, Path.cwd())
             normalized = apt.normalize_local_debs(["-y", relative, "qt6-base-dev"])
             self.assertEqual(normalized, ["-y", str(target.resolve()), "qt6-base-dev"])
+
+
+    def test_cached_local_debs_do_not_use_broken_no_download_mode(self):
+        with patch.object(apt, "root_command", return_value=["sudo", "-n"]):
+            with patch.object(apt.subprocess, "run") as run:
+                apt.install_cached_apt(["install", "-y", "/tmp/release/qca.deb"])
+        command = run.call_args.args[0]
+        self.assertIn("/tmp/release/qca.deb", command)
+        self.assertNotIn("--no-download", command)
+        self.assertEqual(run.call_args.kwargs, {"check": True})
+
+    def test_system_package_install_remains_offline(self):
+        with patch.object(apt, "root_command", return_value=["sudo", "-n"]):
+            with patch.object(apt.subprocess, "run") as run:
+                apt.install_cached_apt(["install", "-y", "ccache", "qt6-base-dev"])
+        command = run.call_args.args[0]
+        self.assertIn("--no-download", command)
+        self.assertEqual(run.call_args.kwargs, {"check": True})
 
     def test_direct_source_change_requires_index_refresh(self):
         with patch.object(apt, "bounded_apt", side_effect=[124, 0, 0]) as bounded:
