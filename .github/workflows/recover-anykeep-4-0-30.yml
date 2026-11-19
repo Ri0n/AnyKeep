@@ -1,0 +1,20 @@
+name: One-time AnyKeep 4.0.30 updater recovery
+
+# Temporary recovery trigger; remove it immediately after publication.
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/recover-anykeep-4-0-30.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  recover-stable:
+    if: ${{ github.event.head_commit.message == 'ci: recover AnyKeep 4.0.30 stable updater feed' }}
+    uses: ./.github/workflows/publish-updates.yml
+    with:
+      source_run_id: "44555978967"
+    secrets: inherit
