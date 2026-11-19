@@ -5,8 +5,8 @@
         "minimum_desktop": "6.4"
     },
     "iris": {
-        "tag": "v1.6.2",
-        "commit": "21ded8c0818a7c5d7b6f862efeb2b4eb7f13a02c",
+        "tag": "v1.6.4",
+        "commit": "d2cd7fec756f3ee2484c002c376e73fa012fba5c",
         "nightly_compatibility": "same-minor",
         "minimum_version": "1.6.2"
     },
