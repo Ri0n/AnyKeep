@@ -52,16 +52,19 @@ endif()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_program(_cyrus_nmake NAMES nmake REQUIRED)
-set(ANYKEEP_CYRUS_SASL_GIT_REPOSITORY "https://github.com/Ri0n/cyrus-sasl.git"
-    CACHE STRING "Bundled Cyrus SASL source repository")
+# The pinned CNG commit is no longer advertised by the fork's branches.
+# A plain git clone does not fetch it, although GitHub retains the commit
+# object. Download the immutable commit archive instead of using a moving ref.
+set(ANYKEEP_CYRUS_SASL_ARCHIVE_URL
+    "https://github.com/Ri0n/cyrus-sasl/archive/${ANYKEEP_DEP_CYRUS_SASL_COMMIT}.tar.gz"
+    CACHE STRING "Full-SHA-pinned Cyrus SASL source archive")
 set(ANYKEEP_CYRUS_SASL_LIBRARY "${ANYKEEP_CYRUS_SASL_ROOT}/lib/libsasl2-static.lib")
 
 # This fork provides SCRAM with Windows CNG and QCA crypto callbacks. Build
 # with the application's CRT, including /MDd for a Debug build.
 ExternalProject_Add(anykeep_bundled_cyrus_sasl
-  GIT_REPOSITORY "${ANYKEEP_CYRUS_SASL_GIT_REPOSITORY}"
-  GIT_TAG "${ANYKEEP_DEP_CYRUS_SASL_COMMIT}"
-  UPDATE_COMMAND ""
+  URL "${ANYKEEP_CYRUS_SASL_ARCHIVE_URL}"
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   PREFIX "${_cyrus_prefix}"
   INSTALL_DIR "${ANYKEEP_CYRUS_SASL_ROOT}"
   PATCH_COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/../scripts/prepare-cyrus-windows.py" <SOURCE_DIR>
