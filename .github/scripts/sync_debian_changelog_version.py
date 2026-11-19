@@ -40,13 +40,18 @@ def update_changelog(content: str, version: str) -> str:
 
 
 def main() -> None:
+    # The Debian container can run under a different UID than the checkout
+    # owner. Trust only this exact GitHub Actions workspace, not all paths.
     result = subprocess.run(
         [
-            "git", "-C", str(ROOT), "describe", "--tags", "--long",
+            "git", "-C", str(ROOT), "-c", f"safe.directory={ROOT}",
+            "describe", "--tags", "--long",
             "--match", "v[0-9]*", "--match", "[0-9]*",
         ],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, check=False,
     )
+    if result.returncode:
+        raise RuntimeError(f"Could not describe checkout: {result.stderr.strip()}")
     version = package_version(result.stdout)
     changelog = ROOT / "debian/changelog"
     original = changelog.read_text(encoding="utf-8")
