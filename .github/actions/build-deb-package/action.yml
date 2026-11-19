@@ -23,6 +23,10 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Align Debian package version with Git-derived application version
+      shell: bash
+      run: python3 .github/scripts/sync_debian_changelog_version.py
+
     - name: Install QCA/Iris packages
       uses: ./.github/actions/install-qca-iris-linux
       with:
