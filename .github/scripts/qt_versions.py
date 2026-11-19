@@ -10,13 +10,14 @@ import re
 def qt_configuration(lock: dict) -> dict[str, str]:
     qt = lock["qt"]
     version = qt["toolchain_version"]
-    match = re.fullmatch(r"([1-9][0-9]*)\.([0-9]+)\.\*", version)
+    match = re.fullmatch(r"([1-9][0-9]*)\.([0-9]+)\.(\*|[0-9]+)", version)
     if not match:
-        raise ValueError(f"qt.toolchain_version must be MAJOR.MINOR.*: {version!r}")
+        raise ValueError(f"qt.toolchain_version must be MAJOR.MINOR.* or MAJOR.MINOR.PATCH: {version!r}")
 
     series = f"{match.group(1)}.{match.group(2)}"
     sdk_suffix = f"qt{series}"
-    toolchain_tuple = (int(match.group(1)), int(match.group(2)), 0)
+    toolchain_tuple = (int(match.group(1)), int(match.group(2)),
+                       0 if match.group(3) == "*" else int(match.group(3)))
     for key in ("minimum_mobile", "minimum_desktop"):
         minimum = qt[key]
         minimum_match = re.fullmatch(r"([1-9][0-9]*)\.([0-9]+)(?:\.([0-9]+))?", minimum)
