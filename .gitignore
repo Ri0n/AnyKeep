@@ -35,3 +35,6 @@ debian/libanykeep*.substvars
 debian/libanykeep3/
 debian/*.log
 obj-x86_64-linux-gnu/
+
+# Generated only when exporting a Git-free release source archive.
+anykeep.version
