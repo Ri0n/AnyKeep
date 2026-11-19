@@ -12,6 +12,7 @@ import sys
 
 NETWORK_SECONDS = 120
 PUBLIC_ARCHIVE = "http://archive.ubuntu.com/ubuntu"
+AZURE_ARCHIVE = "http://azure.archive.ubuntu.com/ubuntu"
 REGIONAL_ARCHIVE = re.compile(
     r"https?://(?:[a-z0-9-]+\.)*archive\.ubuntu\.com/ubuntu(?=/|\s|$)", re.I
 )
@@ -35,6 +36,15 @@ def bounded_apt(arguments: list[str]) -> int:
     ]
     print("+", " ".join(command), flush=True)
     return subprocess.run(command, check=False).returncode
+
+
+def normalize_local_debs(arguments: list[str]) -> list[str]:
+    # APT rejects relative local .deb names in its --no-download install phase.
+    return [
+        str(Path(arg).resolve())
+        if arg.endswith(".deb") and arg.startswith(("./", "../")) else arg
+        for arg in arguments
+    ]
 
 
 def offline_apt(arguments: list[str]) -> None:
@@ -62,8 +72,14 @@ def switch_to_archive(apt_root: Path = Path("/etc/apt")) -> list[str]:
     changed: list[str] = []
     mirrors = apt_root / "apt-mirrors.txt"
     if mirrors.is_file():
-        new_content = PUBLIC_ARCHIVE + "\n"
-        if mirrors.read_text(encoding="utf-8") != new_content:
+        original = mirrors.read_text(encoding="utf-8")
+        # Azure-backed Ubuntu archive has been fast on hosted runners while
+        # public archive IPs sometimes reject connections. Keep both mirrors.
+        fallback_order = ([PUBLIC_ARCHIVE, AZURE_ARCHIVE]
+                          if AZURE_ARCHIVE in original
+                          else [AZURE_ARCHIVE, PUBLIC_ARCHIVE])
+        new_content = "\n".join(fallback_order) + "\n"
+        if original != new_content:
             write_system_file(mirrors, new_content)
             changed.append(str(mirrors))
 
@@ -92,11 +108,15 @@ def require_download(arguments: list[str]) -> None:
         raise RuntimeError("APT download failed and no regional Ubuntu archive was available for fallback")
     print("APT fallback changed:", ", ".join(switched), flush=True)
 
-    # After changing APT sources, refresh indexes before downloading packages.
-    if arguments != ["update"] and bounded_apt(["update"]) != 0:
-        raise RuntimeError("APT index refresh failed on the public Ubuntu archive")
+    # A mirror+file source retains its index identity when its backing
+    # mirrorlist changes. Refreshing it is unnecessary and can itself fail on
+    # a temporarily unavailable InRelease endpoint. Direct source rewrites
+    # change the source identity and DO require an index refresh.
+    changed_sources = any(Path(path).name != "apt-mirrors.txt" for path in switched)
+    if arguments != ["update"] and changed_sources and bounded_apt(["update"]) != 0:
+        raise RuntimeError("APT index refresh failed on fallback mirrors")
     if bounded_apt(arguments) != 0:
-        raise RuntimeError("APT download failed on the public Ubuntu archive")
+        raise RuntimeError("APT download failed on fallback mirrors")
 
 
 def main() -> None:
@@ -110,6 +130,8 @@ def main() -> None:
         return
     if not arguments:
         raise SystemExit(f"{operation} requires package arguments")
+    if operation == "install":
+        arguments = normalize_local_debs(arguments)
     require_download(["--download-only", operation, *arguments])
     offline_apt([operation, *arguments])
 

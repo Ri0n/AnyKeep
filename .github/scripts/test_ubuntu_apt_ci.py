@@ -1,4 +1,5 @@
 """Tests for Ubuntu CI APT source rewriting and bounded fallback."""
+import os
 import tempfile
 from pathlib import Path
 from unittest import TestCase
@@ -37,26 +38,55 @@ class UbuntuAptCITest(TestCase):
             with patch.object(apt, "write_system_file", side_effect=lambda p, s: p.write_text(s)):
                 paths = apt.switch_to_archive(root)
             self.assertEqual(len(paths), 2)
-            self.assertEqual((root / "apt-mirrors.txt").read_text(), apt.PUBLIC_ARCHIVE + "\n")
+            self.assertEqual((root / "apt-mirrors.txt").read_text(),
+                             apt.AZURE_ARCHIVE + "\n" + apt.PUBLIC_ARCHIVE + "\n")
             self.assertIn("URIs: http://archive.ubuntu.com/ubuntu", ubuntu.read_text())
             self.assertIn("mirror+file:", ubuntu.read_text())
             self.assertIn("packages.microsoft.com", third_party.read_text())
 
     def test_download_times_out_then_refreshes_and_retries(self):
-        with patch.object(apt, "bounded_apt", side_effect=[124, 0, 0]) as bounded:
+        with patch.object(apt, "bounded_apt", side_effect=[124, 0]) as bounded:
             with patch.object(apt, "switch_to_archive", return_value=["/etc/apt/apt-mirrors.txt"]):
                 with patch.object(apt, "offline_apt") as offline:
                     apt.require_download(["--download-only", "install", "-y", "ccache"])
                     apt.offline_apt(["install", "-y", "ccache"])
         self.assertEqual(bounded.call_args_list, [
             call(["--download-only", "install", "-y", "ccache"]),
-            call(["update"]),
             call(["--download-only", "install", "-y", "ccache"]),
         ])
         offline.assert_called_once_with(["install", "-y", "ccache"])
 
+
+    def test_local_debs_are_resolved_before_both_download_and_install(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "local-package.deb"
+            target.touch()
+            relative = os.path.relpath(target, Path.cwd())
+            normalized = apt.normalize_local_debs(["-y", relative, "qt6-base-dev"])
+            self.assertEqual(normalized, ["-y", str(target.resolve()), "qt6-base-dev"])
+
+    def test_direct_source_change_requires_index_refresh(self):
+        with patch.object(apt, "bounded_apt", side_effect=[124, 0, 0]) as bounded:
+            with patch.object(apt, "switch_to_archive",
+                              return_value=["/etc/apt/sources.list.d/ubuntu.sources"]):
+                apt.require_download(["--download-only", "install", "-y", "ccache"])
+        self.assertEqual(bounded.call_args_list, [
+            call(["--download-only", "install", "-y", "ccache"]),
+            call(["update"]),
+            call(["--download-only", "install", "-y", "ccache"]),
+        ])
+
+    def test_azure_mirror_falls_back_to_public_archive_first(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "apt-mirrors.txt").write_text(apt.AZURE_ARCHIVE + "\n")
+            with patch.object(apt, "write_system_file", side_effect=lambda p, s: p.write_text(s)):
+                apt.switch_to_archive(root)
+            self.assertEqual((root / "apt-mirrors.txt").read_text(),
+                             apt.PUBLIC_ARCHIVE + "\n" + apt.AZURE_ARCHIVE + "\n")
+
     def test_failed_fallback_does_not_run_offline_install(self):
         with patch.object(apt, "bounded_apt", side_effect=[124, 100]):
-            with patch.object(apt, "switch_to_archive", return_value=["changed"]):
+            with patch.object(apt, "switch_to_archive", return_value=["/etc/apt/sources.list.d/ubuntu.sources"]):
                 with self.assertRaisesRegex(RuntimeError, "index refresh failed"):
                     apt.require_download(["--download-only", "install", "qt6-base-dev"])
