@@ -122,6 +122,24 @@ class UbuntuAptCITest(TestCase):
                 self.assertEqual(mirrorlist.read_text(),
                                  apt.AZURE_ARCHIVE + "\n" + apt.PUBLIC_ARCHIVE + "\n")
 
+    def test_large_download_completes_in_third_bounded_window(self):
+        arguments = ["--download-only", "install", "-y", "qt6-base-dev"]
+        with patch.object(apt, "bounded_apt", side_effect=[124, 124, 0]) as bounded:
+            with patch.object(apt, "switch_to_archive",
+                              return_value=["/etc/apt/apt-mirrors.txt"]) as switched:
+                apt.require_download(arguments)
+        self.assertEqual(bounded.call_args_list, [call(arguments)] * 3)
+        self.assertEqual(switched.call_count, 2)
+
+    def test_exhausted_retries_fail_without_unbounded_apt(self):
+        arguments = ["--download-only", "build-dep", "-y", "./"]
+        with patch.object(apt, "bounded_apt", return_value=124) as bounded:
+            with patch.object(apt, "switch_to_archive", return_value=[]) as switched:
+                with self.assertRaisesRegex(RuntimeError, "4 bounded 120s attempts"):
+                    apt.require_download(arguments)
+        self.assertEqual(bounded.call_count, apt.MAX_DOWNLOAD_ATTEMPTS)
+        self.assertEqual(switched.call_count, apt.MAX_DOWNLOAD_ATTEMPTS - 1)
+
     def test_failed_fallback_does_not_run_offline_install(self):
         with patch.object(apt, "bounded_apt", side_effect=[124, 100]):
             with patch.object(apt, "switch_to_archive", return_value=["/etc/apt/sources.list.d/ubuntu.sources"]):

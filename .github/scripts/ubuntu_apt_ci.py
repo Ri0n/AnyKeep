@@ -11,6 +11,10 @@ import subprocess
 import sys
 
 NETWORK_SECONDS = 120
+# Large Qt/GStreamer dependency sets take longer than one or two bounded
+# windows on some GitHub runners. Completed archives remain cached across APT
+# download-only retries, so allow a small finite number of windows.
+MAX_DOWNLOAD_ATTEMPTS = 4
 PUBLIC_ARCHIVE = "http://archive.ubuntu.com/ubuntu"
 AZURE_ARCHIVE = "http://azure.archive.ubuntu.com/ubuntu"
 REGIONAL_ARCHIVE = re.compile(
@@ -117,24 +121,41 @@ def switch_to_archive(apt_root: Path = Path("/etc/apt")) -> list[str]:
 
 
 def require_download(arguments: list[str]) -> None:
-    if bounded_apt(arguments) == 0:
-        return
+    # APT keeps successfully downloaded .deb archives after a timed-out
+    # --download-only invocation. Re-run the same request to finish the
+    # remaining archives without resetting package state or interrupting dpkg.
+    # Four bounded network windows cap this operation at 8 minutes, excluding
+    # the rare case where a direct sources-file rewrite needs an index refresh.
+    for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
+        if bounded_apt(arguments) == 0:
+            return
+        if attempt == MAX_DOWNLOAD_ATTEMPTS:
+            raise RuntimeError(
+                f"APT download failed after {MAX_DOWNLOAD_ATTEMPTS} "
+                f"bounded {NETWORK_SECONDS}s attempts"
+            )
 
-    print("::warning::Ubuntu APT download failed or exceeded 120s; switching archive mirror", flush=True)
-    switched = switch_to_archive()
-    if not switched:
-        raise RuntimeError("APT download failed and no regional Ubuntu archive was available for fallback")
-    print("APT fallback changed:", ", ".join(switched), flush=True)
+        print(
+            f"::warning::Ubuntu APT download attempt {attempt}/"
+            f"{MAX_DOWNLOAD_ATTEMPTS} failed or exceeded {NETWORK_SECONDS}s; "
+            "retrying cached archives with an alternate Ubuntu mirror",
+            flush=True,
+        )
+        switched = switch_to_archive()
+        if switched:
+            print("APT fallback changed:", ", ".join(switched), flush=True)
+        else:
+            # Some runners have no alternative configured. A bounded retry can
+            # still recover from transient network failures.
+            print("APT mirrors unchanged; retrying the remaining downloads", flush=True)
 
-    # A mirror+file source retains its index identity when its backing
-    # mirrorlist changes. Refreshing it is unnecessary and can itself fail on
-    # a temporarily unavailable InRelease endpoint. Direct source rewrites
-    # change the source identity and DO require an index refresh.
-    changed_sources = any(Path(path).name != "apt-mirrors.txt" for path in switched)
-    if arguments != ["update"] and changed_sources and bounded_apt(["update"]) != 0:
-        raise RuntimeError("APT index refresh failed on fallback mirrors")
-    if bounded_apt(arguments) != 0:
-        raise RuntimeError("APT download failed on fallback mirrors")
+        # A mirror+file source retains its index identity when its backing
+        # mirrorlist changes. Refreshing it is unnecessary and can itself fail
+        # on a temporarily unavailable InRelease endpoint. A direct source
+        # rewrite does change the identity and requires updated indexes.
+        changed_sources = any(Path(path).name != "apt-mirrors.txt" for path in switched)
+        if arguments != ["update"] and changed_sources and bounded_apt(["update"]) != 0:
+            raise RuntimeError("APT index refresh failed on fallback mirrors")
 
 
 def main() -> None:
