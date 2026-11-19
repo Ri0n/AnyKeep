@@ -63,7 +63,9 @@ jobs:
       contents: read
 
   extended-android:
-    name: Extended Android / ${{ matrix.abi }} / ${{ matrix.qca }} QCA
+    # Standard CI already checks arm64 using the published QCA SDK.
+    # Check the additional x86_64 ABI here; do not rebuild QCA sources.
+    name: Extended Android / ${{ matrix.abi }} / SDK QCA
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -73,10 +75,6 @@ jobs:
         include:
           - abi: x86_64
             qt-arch: android_x86_64
-            qca: sdk
-          - abi: arm64-v8a
-            qt-arch: android_arm64_v8a
-            qca: bundled
     steps:
       - uses: actions/checkout@v7
         with:
@@ -96,7 +94,6 @@ jobs:
           android-api: ${{ env.ANDROID_API }}
           android-openssl-revision: ${{ env.ANDROID_OPENSSL_REVISION }}
           qca-tag: ${{ env.QCA_TAG }}
-          source-qca: ${{ matrix.qca == 'bundled' }}
           iris-tag: ${{ env.IRIS_TAG }}
           aqt-source: ${{ env.AQT_QT6_SOURCE }}
           github-token: ${{ github.token }}
