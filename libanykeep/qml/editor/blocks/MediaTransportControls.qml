@@ -18,6 +18,7 @@ Rectangle {
     readonly property real contentInset: touchMode ? 6 : 4
     readonly property real rowSpacing: touchMode ? 8 : 2
     readonly property real controlPadding: 6
+    readonly property bool seeking: seekSlider.pressed
     implicitHeight: contentColumn.implicitHeight + 2 * contentInset
     readonly property string timeLabel:
         mediaBlock.formatTime(mediaBlock.current ? mediaBlock.playback.position : 0)
