@@ -82,6 +82,7 @@ Rectangle {
             z: 1
             property bool fullScreenWhenReady: false
             onLoaded: {
+                item.mediaBlock = card.mediaBlock
                 item.playback = mediaBlock.playback
                 if (fullScreenWhenReady) {
                     fullScreenWhenReady = false
