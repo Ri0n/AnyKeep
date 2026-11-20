@@ -165,10 +165,10 @@ Item {
                 objectName: "fullScreenVideoTapArea"
                 anchors.fill: parent
                 z: 1
-                TapHandler {
+                MouseArea {
+                    anchors.fill: parent
                     acceptedButtons: Qt.LeftButton
-                    gesturePolicy: TapHandler.DragThreshold
-                    onTapped: root.controlsVisible = !root.controlsVisible
+                    onClicked: root.controlsVisible = !root.controlsVisible
                 }
             }
 
