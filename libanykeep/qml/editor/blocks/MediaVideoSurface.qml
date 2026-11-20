@@ -212,6 +212,7 @@ Item {
                 ToolTip.text: qsTr("Exit full screen")
                 Accessible.name: qsTr("Exit full screen video")
                 onClicked: root.closeFullScreen()
-            }        }
+            }
+        }
     }
 }
