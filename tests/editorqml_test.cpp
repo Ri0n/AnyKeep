@@ -381,14 +381,57 @@ private slots:
         QVERIFY(playback->setProperty("seeking", true));
         QTRY_VERIFY(inlineBusy->property("running").toBool());
         QVERIFY(QMetaObject::invokeMethod(surface.get(), "openFullScreen"));
+        QQuickWindow *fullScreenWindow = nullptr;
+        QTRY_VERIFY(([&] {
+            for (auto *window : QGuiApplication::allWindows()) {
+                if (window->objectName() == QLatin1String("mediaFullScreenWindow") && window->isVisible()) {
+                    fullScreenWindow = qobject_cast<QQuickWindow *>(window);
+                    return fullScreenWindow != nullptr;
+                }
+            }
+            return false;
+        })());
         QTRY_VERIFY(fullScreenBusy->property("running").toBool());
+        QVERIFY(surface->property("controlsVisible").toBool());
+        // The offscreen platform may show fullscreen windows at 0x0 on
+        // newer Qt versions; give the pointer test a real viewport.
+        fullScreenWindow->setGeometry(0, 0, 640, 480);
+        QTRY_VERIFY(fullScreenWindow->contentItem()->width() > 0);
+        QTRY_VERIFY(fullScreenWindow->contentItem()->height() > 0);
+        auto *tapArea = quickItemByName(fullScreenWindow->contentItem(),
+                                        QStringLiteral("fullScreenVideoTapArea"));
+        QVERIFY(tapArea);
+        QTRY_VERIFY(tapArea->width() > 0);
+        QTRY_VERIFY(tapArea->height() > 0);
+        qInfo() << "fullscreen viewport" << fullScreenWindow->geometry()
+                << "content" << fullScreenWindow->contentItem()->size()
+                << "tap area" << tapArea->size() << "active" << fullScreenWindow->isActive()
+                << "exposed" << fullScreenWindow->isExposed();
+        const QPoint videoCenter = tapArea->mapToScene(QPointF(tapArea->width() / 2,
+                                                               tapArea->height() / 2)).toPoint();
+        QTest::mouseClick(fullScreenWindow, Qt::LeftButton, Qt::NoModifier, videoCenter);
+        QTRY_VERIFY(!surface->property("controlsVisible").toBool());
+        QTest::mouseClick(fullScreenWindow, Qt::LeftButton, Qt::NoModifier, videoCenter);
+        QTRY_VERIFY(surface->property("controlsVisible").toBool());
         QVERIFY(!inlineBusy->property("running").toBool());
         QVERIFY(playback->setProperty("seeking", false));
         QTRY_VERIFY(!fullScreenBusy->property("running").toBool());
         QVERIFY(playback->setProperty("loading", true));
         QTRY_VERIFY(fullScreenBusy->property("running").toBool());
-        QVERIFY(QMetaObject::invokeMethod(surface.get(), "closeFullScreen"));
+        // Android's Back key must dismiss the fullscreen window, not the note.
+        QTest::keyClick(fullScreenWindow, Qt::Key_Back);
+        QTRY_VERIFY(!surface->property("fullScreen").toBool());
         QTRY_VERIFY(inlineBusy->property("running").toBool());
+        QVERIFY(QMetaObject::invokeMethod(surface.get(), "openFullScreen"));
+        QTRY_VERIFY(surface->property("fullScreen").toBool());
+        QQuickItem *exitButton = nullptr;
+        QTRY_VERIFY((exitButton = quickItemByName(fullScreenWindow->contentItem(),
+                                                 QStringLiteral("fullScreenExitButton"))));
+        QVERIFY(exitButton->isVisible());
+        QTest::mouseClick(fullScreenWindow, Qt::LeftButton, Qt::NoModifier,
+                          exitButton->mapToScene(QPointF(exitButton->width() / 2,
+                                                         exitButton->height() / 2)).toPoint());
+        QTRY_VERIFY(!surface->property("fullScreen").toBool());
         QVERIFY(playback->setProperty("loading", false));
         QTRY_VERIFY(!inlineBusy->property("running").toBool());
         QVERIFY(surface->setProperty("playback", QVariant::fromValue<QObject *>(nullptr)));
@@ -508,6 +551,49 @@ private slots:
         QTRY_VERIFY(!poster->isVisible());
         QVERIFY(playback->setProperty("hasVideoFrame", false));
         QTRY_VERIFY(poster->isVisible());
+
+        // The fullscreen presentation must reuse the note's transport rather
+        // than leaving only a close button above the video on Android.
+        QVERIFY(QMetaObject::invokeMethod(media, "openVideoFullScreen"));
+        QQuickWindow *fullScreenWindow = nullptr;
+        QTRY_VERIFY(([&] {
+            for (auto *window : QGuiApplication::allWindows()) {
+                if (window->objectName() == QLatin1String("mediaFullScreenWindow") && window->isVisible()) {
+                    fullScreenWindow = qobject_cast<QQuickWindow *>(window);
+                    return fullScreenWindow != nullptr;
+                }
+            }
+            return false;
+        })());
+        QQuickItem *fullScreenTransport = nullptr;
+        QQuickItem *exitFullScreen = nullptr;
+        QTRY_VERIFY((fullScreenTransport = quickItemByName(fullScreenWindow->contentItem(),
+                                                           QStringLiteral("fullScreenTransportLoader"))));
+        QTRY_VERIFY(fullScreenTransport->property("active").toBool());
+        QTRY_VERIFY((exitFullScreen = quickItemByName(fullScreenWindow->contentItem(),
+                                                      QStringLiteral("mediaFullscreenButton-2"))));
+        QVERIFY(exitFullScreen->isVisible());
+        fullScreenWindow->setGeometry(0, 0, 640, 480);
+        QTRY_VERIFY(fullScreenWindow->contentItem()->width() > 0);
+        auto *tapArea = quickItemByName(fullScreenWindow->contentItem(),
+                                        QStringLiteral("fullScreenVideoTapArea"));
+        QVERIFY(tapArea);
+        QTRY_VERIFY(tapArea->width() > 0);
+        qInfo() << "fullscreen viewport" << fullScreenWindow->geometry()
+                << "content" << fullScreenWindow->contentItem()->size()
+                << "tap area" << tapArea->size() << "active" << fullScreenWindow->isActive()
+                << "exposed" << fullScreenWindow->isExposed();
+        QTest::mouseClick(fullScreenWindow, Qt::LeftButton, Qt::NoModifier,
+                          tapArea->mapToScene(QPointF(tapArea->width() / 2,
+                                                     tapArea->height() / 2)).toPoint());
+        QTRY_VERIFY(!fullScreenTransport->isVisible());
+        QTest::mouseClick(fullScreenWindow, Qt::LeftButton, Qt::NoModifier,
+                          QPoint(fullScreenWindow->width() / 2, fullScreenWindow->height() / 2));
+        QTRY_VERIFY(fullScreenTransport->isVisible());
+        QTest::mouseClick(fullScreenWindow, Qt::LeftButton, Qt::NoModifier,
+                          exitFullScreen->mapToScene(QPointF(exitFullScreen->width() / 2,
+                                                              exitFullScreen->height() / 2)).toPoint());
+        QTRY_VERIFY(!fullScreenWindow->isVisible());
         media->setProperty("playback", QVariant::fromValue<QObject *>(nullptr));
     }
 
