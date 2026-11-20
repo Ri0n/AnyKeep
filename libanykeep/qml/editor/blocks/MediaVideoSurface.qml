@@ -57,6 +57,7 @@ Item {
         interval: 4000
         running: root.fullScreen && root.controlsVisible && root.mediaBlock
                  && root.mediaBlock.playing
+                 && (!fullScreenTransport.item || !fullScreenTransport.item.seeking)
         onTriggered: root.controlsVisible = false
     }
 
