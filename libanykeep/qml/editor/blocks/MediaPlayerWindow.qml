@@ -95,6 +95,7 @@ Window {
                 id: surface
                 anchors.fill: parent
                 playback: playerWindow.playback
+                mediaBlock: adapter
             }
             Label {
                 anchors.top: parent.top
