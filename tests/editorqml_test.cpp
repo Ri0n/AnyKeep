@@ -393,7 +393,22 @@ private slots:
         })());
         QTRY_VERIFY(fullScreenBusy->property("running").toBool());
         QVERIFY(surface->property("controlsVisible").toBool());
-        const QPoint videoCenter(fullScreenWindow->width() / 2, fullScreenWindow->height() / 2);
+        // The offscreen platform may show fullscreen windows at 0x0 on
+        // newer Qt versions; give the pointer test a real viewport.
+        fullScreenWindow->setGeometry(0, 0, 640, 480);
+        QTRY_VERIFY(fullScreenWindow->contentItem()->width() > 0);
+        QTRY_VERIFY(fullScreenWindow->contentItem()->height() > 0);
+        auto *tapArea = quickItemByName(fullScreenWindow->contentItem(),
+                                        QStringLiteral("fullScreenVideoTapArea"));
+        QVERIFY(tapArea);
+        QTRY_VERIFY(tapArea->width() > 0);
+        QTRY_VERIFY(tapArea->height() > 0);
+        qInfo() << "fullscreen viewport" << fullScreenWindow->geometry()
+                << "content" << fullScreenWindow->contentItem()->size()
+                << "tap area" << tapArea->size() << "active" << fullScreenWindow->isActive()
+                << "exposed" << fullScreenWindow->isExposed();
+        const QPoint videoCenter = tapArea->mapToScene(QPointF(tapArea->width() / 2,
+                                                               tapArea->height() / 2)).toPoint();
         QTest::mouseClick(fullScreenWindow, Qt::LeftButton, Qt::NoModifier, videoCenter);
         QTRY_VERIFY(!surface->property("controlsVisible").toBool());
         QTest::mouseClick(fullScreenWindow, Qt::LeftButton, Qt::NoModifier, videoCenter);
@@ -558,8 +573,19 @@ private slots:
         QTRY_VERIFY((exitFullScreen = quickItemByName(fullScreenWindow->contentItem(),
                                                       QStringLiteral("mediaFullscreenButton-2"))));
         QVERIFY(exitFullScreen->isVisible());
+        fullScreenWindow->setGeometry(0, 0, 640, 480);
+        QTRY_VERIFY(fullScreenWindow->contentItem()->width() > 0);
+        auto *tapArea = quickItemByName(fullScreenWindow->contentItem(),
+                                        QStringLiteral("fullScreenVideoTapArea"));
+        QVERIFY(tapArea);
+        QTRY_VERIFY(tapArea->width() > 0);
+        qInfo() << "fullscreen viewport" << fullScreenWindow->geometry()
+                << "content" << fullScreenWindow->contentItem()->size()
+                << "tap area" << tapArea->size() << "active" << fullScreenWindow->isActive()
+                << "exposed" << fullScreenWindow->isExposed();
         QTest::mouseClick(fullScreenWindow, Qt::LeftButton, Qt::NoModifier,
-                          QPoint(fullScreenWindow->width() / 2, fullScreenWindow->height() / 2));
+                          tapArea->mapToScene(QPointF(tapArea->width() / 2,
+                                                     tapArea->height() / 2)).toPoint());
         QTRY_VERIFY(!fullScreenTransport->isVisible());
         QTest::mouseClick(fullScreenWindow, Qt::LeftButton, Qt::NoModifier,
                           QPoint(fullScreenWindow->width() / 2, fullScreenWindow->height() / 2));
