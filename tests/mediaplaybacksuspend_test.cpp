@@ -62,9 +62,13 @@ private slots:
         {
             QVideoSink separateWindow;
             playback.attachVideoOutput(&separateWindow);
-            QVERIFY(!playback.hasVideoFrame());
-            separateWindow.setVideoFrame(frame);
             QVERIFY(playback.hasVideoFrame());
+            QVERIFY(separateWindow.videoFrame().isValid());
+            QVideoFrame laterFrame(frame.surfaceFormat());
+            laterFrame.setStartTime(42000);
+            separateWindow.setVideoFrame(laterFrame);
+            playback.detachVideoOutput(&separateWindow);
+            QCOMPARE(sink.videoFrame().startTime(), qint64(42000));
         }
         // Returning the separate presentation restores the surviving output.
         QVERIFY(playback.hasVideoFrame());
@@ -294,11 +298,63 @@ private slots:
         sink.setVideoFrame(newFrame);
         QVERIFY(!playback.seeking());
 
+        QVERIFY(playback.seek(reference.uri(), 4500));
+        QVERIFY(playback.seeking());
+        QVERIFY(playback.play(reference.uri()));
+        QTRY_VERIFY_WITH_TIMEOUT(playback.position() > 5500, 4000);
+        QVERIFY(!playback.seeking());
+        playback.pause();
+
         QVERIFY(playback.seek(reference.uri(), 6000));
         QVERIFY(playback.seeking());
         playback.stop();
         QVERIFY(!playback.seeking());
         playback.detachVideoOutput(&sink);
+#else
+        QSKIP("Qt Multimedia is unavailable");
+#endif
+    }
+
+    void seekBeforePlayAndRetryFailedSource()
+    {
+#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+        NoteEditor              editor;
+        MediaPlaybackController playback(&editor);
+        const auto              wav = silentWav();
+        MediaReference          reference;
+        reference.id           = QUuid::createUuid();
+        reference.portableName = QStringLiteral("retry.wav");
+        reference.mediaType    = QStringLiteral("audio/wav");
+        reference.size         = wav.size();
+        editor.setMedia({ reference });
+        bool failRead = true;
+        MediaRangeService::registerResolver(
+            &editor, [reference](const MediaReference &r) { return r.id == reference.id; },
+            [&wav, &failRead](MediaReference, qint64 offset, qint64 length, MediaRangeService::Completion done) {
+                if (failRead)
+                    done({}, QStringLiteral("Missing remote range"));
+                else
+                    done(wav.mid(offset, length), {});
+            });
+
+        QVERIFY(playback.seek(reference.uri(), 4000));
+        QTRY_VERIFY_WITH_TIMEOUT(!playback.errorString().isEmpty(), 10000);
+        QVERIFY(!playback.loading());
+        QVERIFY(!playback.seeking());
+        QVERIFY(!playback.playing());
+        QCOMPARE(playback.position(), qint64(4000));
+        failRead = false;
+        QVERIFY(playback.toggle(reference.uri()));
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && playback.position() >= 4000, 10000);
+        QVERIFY(playback.errorString().isEmpty());
+        playback.stop();
+
+        QVERIFY(playback.seek(reference.uri(), 4000));
+        QTRY_COMPARE_WITH_TIMEOUT(playback.duration(), qint64(8000), 10000);
+        QVERIFY(!playback.playing());
+        QVERIFY(playback.play(reference.uri()));
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && playback.position() > 4100, 3000);
+        playback.stop();
 #else
         QSKIP("Qt Multimedia is unavailable");
 #endif

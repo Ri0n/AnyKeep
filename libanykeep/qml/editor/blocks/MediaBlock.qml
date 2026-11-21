@@ -189,6 +189,12 @@ FocusScope {
     function handleNavigationKey(event) {
         if (titleEditing || event.modifiers)
             return false
+        if (video && event.key === Qt.Key_F) {
+            if (!event.isAutoRepeat)
+                openVideoFullScreen()
+            event.accepted = true
+            return true
+        }
         if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
             editorView.navigateBlock(block.index, event.key === Qt.Key_Up ? -1 : 1, !event.isAutoRepeat)
             event.accepted = true
@@ -393,6 +399,13 @@ FocusScope {
                 mediaRoot.reorderController.moveBlockDrag(dx, dy)
             }
             onDragFinished: mediaRoot.reorderController.finishBlockDrag()
+        }
+        VideoTapHandler {
+            enabled: mediaRoot.video && !mediaRoot.editorView.mediaFullScreen
+                     && mediaRoot.playback && mediaRoot.playback.available
+            gesturePolicy: TapHandler.DragThreshold
+            onClicked: mediaRoot.playback.toggle(mediaRoot.block.url)
+            onDoubleClicked: mediaRoot.openVideoFullScreen()
         }
         TapHandler {
             acceptedButtons: Qt.RightButton

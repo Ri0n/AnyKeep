@@ -35,9 +35,10 @@ Rectangle {
 
     TapHandler {
         acceptedButtons: Qt.LeftButton
-        onPressedChanged: {
-            const local = inlineTitle.mapFromItem(transport, point.position.x, point.position.y)
-            if (pressed && (!mediaBlock.audio || !inlineTitle.contains(local)))
+        onTapped: function(eventPoint) {
+            const point = eventPoint.position
+            if (!seekSlider.contains(seekSlider.mapFromItem(transport, point))
+                    && (!mediaBlock.audio || !inlineTitle.contains(inlineTitle.mapFromItem(transport, point))))
                 transport.focusMediaBlock()
         }
     }
@@ -142,7 +143,6 @@ Rectangle {
                 value: mediaBlock.current ? mediaBlock.playback.position : 0
                 enabled: mediaBlock.playback && mediaBlock.knownDuration > 0
                 focusPolicy: Qt.TabFocus
-                onPressedChanged: if (pressed) transport.focusMediaBlock()
                 Keys.onPressed: function(event) { mediaBlock.handleNavigationKey(event) }
                 onMoved: mediaBlock.playback.seek(mediaBlock.block.url, value)
             }
@@ -199,7 +199,7 @@ Rectangle {
                 contentItem: Shared.ThemedIconImpl {
                     objectName: "mediaFullscreenGlyph-" + mediaBlock.block.index
                     themeName: "__bundled__"
-                    fallbackName: transport.fullScreenPresentation ? "window-close-symbolic.svg"
+                    fallbackName: transport.fullScreenPresentation ? "view-restore-symbolic.svg"
                                                                : "view-fullscreen-symbolic.svg"
                     recolorFallback: true
                     fallbackTintMode: String(fullScreenMediaButton.palette.buttonText)

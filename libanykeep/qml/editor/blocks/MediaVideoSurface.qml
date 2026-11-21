@@ -8,9 +8,11 @@ Item {
     id: root
     property var playback: null
     property var mediaBlock: null
-    property bool controlsVisible: true
     property var attachedPlayback: null
-    readonly property bool fullScreen: fullScreenWindow.visible
+    property bool useHostWindow: Qt.platform.os === "android"
+    property Window fullScreenHost: null
+    property int previousVisibility: Window.Windowed
+    readonly property bool fullScreen: fullScreenHost !== null || fullScreenWindow.visible
     readonly property bool waitingForVideo: playback && (playback.loading || playback.seeking)
 
     function attach() {
@@ -29,41 +31,46 @@ Item {
         if (!attachedPlayback || fullScreen)
             return
         const sourceWindow = root.Window.window
-        if (sourceWindow && sourceWindow.screen)
-            fullScreenWindow.screen = sourceWindow.screen
+        if (useHostWindow && sourceWindow) {
+            // Android delivers touch to the activity's Qt window. Present
+            // fullscreen in that scene, above the editor and its hit areas.
+            previousVisibility = sourceWindow.visibility
+            fullScreenHost = sourceWindow
+            sourceWindow.showFullScreen()
+        } else {
+            if (sourceWindow && sourceWindow.screen)
+                fullScreenWindow.screen = sourceWindow.screen
+            fullScreenWindow.showFullScreen()
+            fullScreenWindow.requestActivate()
+        }
         attachedPlayback.attachVideoOutput(fullScreenVideo)
-        controlsVisible = true
-        fullScreenWindow.showFullScreen()
-        fullScreenWindow.requestActivate()
         fullScreenContent.forceActiveFocus()
     }
 
     function closeFullScreen() {
         if (!fullScreen)
             return
-        fullScreenWindow.hide()
-        controlsVisible = true
-        if (attachedPlayback)
+        if (attachedPlayback) {
             attachedPlayback.attachVideoOutput(inlineVideo)
+            attachedPlayback.detachVideoOutput(fullScreenVideo)
+        }
+        if (fullScreenHost) {
+            fullScreenHost.visibility = previousVisibility
+            fullScreenHost = null
+        } else {
+            fullScreenWindow.hide()
+        }
         const sourceWindow = root.Window.window
         if (sourceWindow)
             sourceWindow.requestActivate()
         root.forceActiveFocus()
     }
 
-    // Autohide is a playback affordance, not a delayed layout correction.
-    // Keep the controls on screen when paused or when the user opens fullscreen.
-    Timer {
-        interval: 4000
-        running: root.fullScreen && root.controlsVisible && root.mediaBlock
-                 && root.mediaBlock.playing
-                 && (!fullScreenTransport.item || !fullScreenTransport.item.seeking)
-        onTriggered: root.controlsVisible = false
-    }
-
     onPlaybackChanged: attach()
     Component.onCompleted: attach()
     Component.onDestruction: {
+        if (fullScreenHost)
+            fullScreenHost.visibility = previousVisibility
         if (attachedPlayback) {
             attachedPlayback.detachVideoOutput(inlineVideo)
             attachedPlayback.detachVideoOutput(fullScreenVideo)
@@ -107,16 +114,47 @@ Item {
             root.closeFullScreen()
         }
 
-        Item {
+        FocusScope {
             id: fullScreenContent
+            parent: root.fullScreenHost ? root.Window.contentItem : fullScreenWindow.contentItem
             anchors.fill: parent
+            visible: root.fullScreen
+            z: 100
+            Rectangle {
+                anchors.fill: parent
+                color: "black"
+                z: -1
+            }
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.AllButtons
+            }
             focus: true
             Keys.onEscapePressed: root.closeFullScreen()
             Keys.onPressed: function(event) {
-                if (event.key === Qt.Key_Back) {
-                    root.closeFullScreen()
+                if (event.key === Qt.Key_Back || (event.key === Qt.Key_F && !event.modifiers)) {
+                    if (!event.isAutoRepeat)
+                        root.closeFullScreen()
                     event.accepted = true
                 }
+            }
+
+            HoverHandler {
+                id: videoHover
+                enabled: !root.useHostWindow
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                property point lastPosition: Qt.point(-1, -1)
+                onPointChanged: {
+                    const position = point.scenePosition
+                    if (!hovered || (lastPosition.x === position.x && lastPosition.y === position.y))
+                        return
+                    lastPosition = position
+                    controlsTimeout.restart()
+                }
+            }
+            Timer {
+                id: controlsTimeout
+                interval: 2500
             }
 
             // Anchor the shortcut to this scene's item. A Shortcut declared
@@ -138,12 +176,14 @@ Item {
 
             VideoOutput {
                 id: fullScreenVideo
+                objectName: "fullScreenVideoOutput"
                 anchors.fill: parent
                 fillMode: VideoOutput.PreserveAspectFit
             }
 
             Rectangle {
                 anchors.centerIn: parent
+                z: 1
                 width: 80
                 height: 80
                 radius: 40
@@ -159,16 +199,19 @@ Item {
                 }
             }
 
-            // Capture taps above VideoOutput but below the transport, so taps
-            // on playback buttons and the seek slider do not hide controls.
             Item {
                 objectName: "fullScreenVideoTapArea"
-                anchors.fill: parent
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: fullScreenTransport.visible ? fullScreenTransport.top : parent.bottom
                 z: 1
-                MouseArea {
-                    anchors.fill: parent
-                    acceptedButtons: Qt.LeftButton
-                    onClicked: root.controlsVisible = !root.controlsVisible
+                VideoTapHandler {
+                    enabled: root.fullScreen && root.mediaBlock !== null
+                             && root.playback && root.playback.available
+                    gesturePolicy: TapHandler.DragThreshold
+                    onClicked: root.playback.toggle(root.mediaBlock.block.url)
+                    onDoubleClicked: root.closeFullScreen()
                 }
             }
 
@@ -180,12 +223,23 @@ Item {
                 anchors.bottom: parent.bottom
                 height: item ? item.implicitHeight : 0
                 active: root.fullScreen && root.mediaBlock !== null
-                visible: root.controlsVisible
+                visible: root.mediaBlock !== null
+                         && (!root.mediaBlock.playing || root.waitingForVideo || controlsTimeout.running
+                             || transportHover.hovered || (item && item.seeking))
                 z: 2
+                HoverHandler {
+                    id: transportHover
+                    enabled: videoHover.enabled
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                }
                 sourceComponent: MediaTransportControls {
                     mediaBlock: root.mediaBlock
                     embedded: true
                     fullScreenPresentation: true
+                    color: {
+                        const background = mediaBlock.editorView.documentCardColor
+                        return Qt.rgba(background.r, background.g, background.b, 0.94)
+                    }
                     onExitFullScreenRequested: root.closeFullScreen()
                 }
             }
@@ -199,11 +253,11 @@ Item {
                 anchors.margins: 16
                 width: 48
                 height: 48
-                visible: root.controlsVisible && !root.mediaBlock
+                visible: !root.mediaBlock
                 z: 2
                 contentItem: Shared.ThemedIconImpl {
                     themeName: "__bundled__"
-                    fallbackName: "window-close-symbolic.svg"
+                    fallbackName: "view-restore-symbolic.svg"
                     recolorFallback: true
                     fallbackTintMode: "white"
                     pixelSize: 24

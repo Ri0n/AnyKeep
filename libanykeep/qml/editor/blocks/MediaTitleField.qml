@@ -32,14 +32,12 @@ TextField {
         when: !titleField.editing && !titleField.historyTransaction
         restoreMode: Binding.RestoreNone
     }
-    placeholderText: mediaBlock.video ? qsTr("Video title") : ""
     clip: true
     autoScroll: true
     verticalAlignment: TextInput.AlignVCenter
     readOnly: !editing
     selectByMouse: editing
     color: mediaBlock.video ? "white" : mediaBlock.editorView.documentTextColor
-    placeholderTextColor: mediaBlock.video ? "#c0ffffff" : palette.placeholderText
     font.bold: mediaBlock.selected
     // Some Qt Quick Controls styles set individual paddings (notably
     // Material's TextField) even when Control.padding is overridden. Specify
@@ -119,5 +117,5 @@ TextField {
         ignoreUnknownSignals: true
         function onFinishTitleEditing() { titleField.editing = false }
     }
-    Accessible.name: placeholderText
+    Accessible.name: mediaBlock.video ? qsTr("Video title") : ""
 }

@@ -117,6 +117,11 @@ Rectangle {
             card.mediaBlock.editorView.mediaFullScreen = videoSurface.item.fullScreen
         }
     }
+    Connections {
+        target: mediaBlock.editorView
+        enabled: !!videoSurface.item && videoSurface.item.fullScreen
+        function onExitMediaFullScreen() { videoSurface.item.closeFullScreen() }
+    }
     Component.onDestruction: {
         if (videoSurface.item && videoSurface.item.fullScreen)
             mediaBlock.editorView.mediaFullScreen = false

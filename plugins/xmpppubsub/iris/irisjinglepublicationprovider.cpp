@@ -8,6 +8,7 @@
 
 #include <iris/jingle-ft.h>
 #include <iris/jingle-session.h>
+#include <iris/xmpp_caps.h>
 #include <iris/xmpp_client.h>
 #include <iris/xmpp_pubsub.h>
 #include <iris/xmpp_pubsubitem.h>
@@ -426,6 +427,28 @@ bool IrisJinglePublicationProvider::cacheCapability(const IrisJingleCapability &
                 qCWarning(lcIrisJingleMedia) << "Could not create file-transfer content: publication=" << id;
                 session->deleteLater();
                 return static_cast<XMPP::Jingle::Session *>(nullptr);
+            }
+
+            // A JinglePub start can arrive before presence/disco populates
+            // the requester's caps. Iris filters all automatic transport
+            // candidates against that cache, leaving nothing to initiate.
+            if (publicationManager->client()->capsManager()->disco(requester).features().list().isEmpty()) {
+                const auto candidates = jingleManager->availableTransports(
+                    XMPP::Jingle::TransportFeature::Reliable | XMPP::Jingle::TransportFeature::Ordered
+                    | XMPP::Jingle::TransportFeature::DataOriented);
+                for (auto ns = candidates.crbegin(); ns != candidates.crend(); ++ns) {
+                    auto transport = session->newOutgoingTransport(*ns);
+                    if (transport && app->setTransport(transport))
+                        break;
+                    if (transport)
+                        transport->releaseIfUnused();
+                }
+                if (!app->transport()) {
+                    session->deleteLater();
+                    return static_cast<XMPP::Jingle::Session *>(nullptr);
+                }
+                qCDebug(lcIrisJingleMedia)
+                    << "Selected initial transport before peer discovery:" << app->transport()->pad()->ns();
             }
 
             XMPP::Jingle::FileTransfer::File file;

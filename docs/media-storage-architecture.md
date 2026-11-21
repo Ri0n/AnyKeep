@@ -890,9 +890,10 @@ future design, not part of PR #155.
 
 Each timed-media session owns one player. Video presentation lazily attaches an
 inline Qt Multimedia output and switches that session's player to a dedicated
-OS-fullscreen output while fullscreen is active; playback position and state
-remain unchanged. Probing/poster extraction is a separate derived-cache concern
-and must not write frame-by-frame playback state into storage.
+OS-fullscreen output while fullscreen is active. The session carries the last
+frame across output changes while playback is paused. Probing and poster
+extraction belong to the derived cache. Playback must not write frame-by-frame
+state into storage.
 
 The mobile shell keeps the screen awake while foreground video is playing and
 clears this request on pause or navigation. When the application becomes hidden
