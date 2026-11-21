@@ -82,6 +82,7 @@ Rectangle {
             z: 1
             property bool fullScreenWhenReady: false
             onLoaded: {
+                item.mediaBlock = card.mediaBlock
                 item.playback = mediaBlock.playback
                 if (fullScreenWhenReady) {
                     fullScreenWhenReady = false
@@ -115,6 +116,11 @@ Rectangle {
         function onFullScreenChanged() {
             card.mediaBlock.editorView.mediaFullScreen = videoSurface.item.fullScreen
         }
+    }
+    Connections {
+        target: mediaBlock.editorView
+        enabled: !!videoSurface.item && videoSurface.item.fullScreen
+        function onExitMediaFullScreen() { videoSurface.item.closeFullScreen() }
     }
     Component.onDestruction: {
         if (videoSurface.item && videoSurface.item.fullScreen)

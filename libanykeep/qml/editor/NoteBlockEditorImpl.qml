@@ -11,6 +11,7 @@ ListView {
     property var platformBackend: typeof qmlNoteEditor !== "undefined" ? qmlNoteEditor : null
     property var audioTranscriptionController: null
     property bool mediaFullScreen: false
+    signal exitMediaFullScreen()
     readonly property color documentBackgroundColor: palette.base
     readonly property color documentTextColor: palette.text
     readonly property color documentSecondaryTextColor: palette.placeholderText

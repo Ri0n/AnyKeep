@@ -39,10 +39,13 @@ class AndroidBackNavigationTest(unittest.TestCase):
         )
 
         editor = EDITOR.read_text(encoding="utf-8")
-        # Do not skip draft-aware close/save handling for a new note.
+        # Back dismisses fullscreen first. Closing the note still goes
+        # through the draft-aware save path before popping the page.
         self.assertRegex(
             editor,
             r'function closeEditor\(\)\s*\{\s*'
+            r'if \(editorPane\.blockEditor\.mediaFullScreen\)\s*\{\s*'
+            r'editorPane\.blockEditor\.exitMediaFullScreen\(\)\s*return\s*\}\s*'
             r'if \(editorPane\.closeEditor\(\)\)\s*backRequested\(\)',
         )
         self.assertIn('closeHandler: function() { return mobileApp.closeCurrentNote() }', editor)

@@ -381,14 +381,34 @@ private slots:
         QVERIFY(playback->setProperty("seeking", true));
         QTRY_VERIFY(inlineBusy->property("running").toBool());
         QVERIFY(QMetaObject::invokeMethod(surface.get(), "openFullScreen"));
+        QQuickWindow *fullScreenWindow = nullptr;
+        QTRY_VERIFY(([&] {
+            for (auto *window : QGuiApplication::allWindows()) {
+                if (window->objectName() == QLatin1String("mediaFullScreenWindow") && window->isVisible()) {
+                    fullScreenWindow = qobject_cast<QQuickWindow *>(window);
+                    return fullScreenWindow != nullptr;
+                }
+            }
+            return false;
+        })());
         QTRY_VERIFY(fullScreenBusy->property("running").toBool());
         QVERIFY(!inlineBusy->property("running").toBool());
         QVERIFY(playback->setProperty("seeking", false));
         QTRY_VERIFY(!fullScreenBusy->property("running").toBool());
         QVERIFY(playback->setProperty("loading", true));
         QTRY_VERIFY(fullScreenBusy->property("running").toBool());
-        QVERIFY(QMetaObject::invokeMethod(surface.get(), "closeFullScreen"));
+        // Android's Back key must dismiss the fullscreen window, not the note.
+        QTest::keyClick(fullScreenWindow, Qt::Key_Back);
+        QTRY_VERIFY(!surface->property("fullScreen").toBool());
         QTRY_VERIFY(inlineBusy->property("running").toBool());
+        QVERIFY(QMetaObject::invokeMethod(surface.get(), "openFullScreen"));
+        QTRY_VERIFY(surface->property("fullScreen").toBool());
+        QQuickItem *exitButton = nullptr;
+        QTRY_VERIFY(
+            (exitButton = quickItemByName(fullScreenWindow->contentItem(), QStringLiteral("fullScreenExitButton"))));
+        QVERIFY(exitButton->isVisible());
+        clickQuickItem(fullScreenWindow, exitButton);
+        QTRY_VERIFY(!surface->property("fullScreen").toBool());
         QVERIFY(playback->setProperty("loading", false));
         QTRY_VERIFY(!inlineBusy->property("running").toBool());
         QVERIFY(surface->setProperty("playback", QVariant::fromValue<QObject *>(nullptr)));
@@ -453,7 +473,7 @@ private slots:
         QVERIFY(!quickItemByName(root, QStringLiteral("mediaVideoCard-2")));
     }
 
-    void videoPosterRemainsVisibleUntilAPlaybackFrameArrives()
+    void videoTapsTogglePlaybackFromPosterAndFullScreen()
     {
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("Video"));
@@ -487,13 +507,18 @@ private slots:
             import QtQml
             QtObject {
                 property bool available: true
-                property string currentSourceUri: "anykeep-media:/missing/clip.mp4"
+                property string currentSourceUri: ""
                 property bool hasVideoFrame: false
                 property bool playing: false
-                property bool loading: true
+                property bool loading: false
                 property bool seeking: false
-                property real duration: 0
+                property real duration: 18000
                 property real position: 0
+                function toggle(source) {
+                    currentSourceUri = source
+                    playing = !playing
+                }
+                function seek(source, offset) { position = offset }
                 function attachVideoOutput(output) {}
                 function detachVideoOutput(output) {}
             }
@@ -502,13 +527,167 @@ private slots:
         std::unique_ptr<QObject> playback(component.create());
         QVERIFY2(playback, qPrintable(component.errorString()));
         QVERIFY(media->setProperty("playback", QVariant::fromValue(playback.get())));
+        auto *inlineHitArea   = quickItemByName(media, QStringLiteral("mediaVisualHitLayer-2"));
+        auto *inlineTransport = quickItemByName(media, QStringLiteral("mediaCard-2"));
+        QVERIFY(inlineHitArea && inlineTransport);
+
+        clickQuickItem(host.quickWidget(), inlineHitArea);
+        QTRY_VERIFY(playback->property("playing").toBool());
+        QCOMPARE(playback->property("currentSourceUri").toString(), uri);
         QTRY_COMPARE(outputLoader->property("status").toInt(), 1); // Loader.Ready
         QVERIFY(poster->isVisible());
         QVERIFY(playback->setProperty("hasVideoFrame", true));
         QTRY_VERIFY(!poster->isVisible());
-        QVERIFY(playback->setProperty("hasVideoFrame", false));
-        QTRY_VERIFY(poster->isVisible());
+        clickQuickItem(host.quickWidget(), inlineHitArea);
+        QTRY_VERIFY(!playback->property("playing").toBool());
+        QVERIFY(!poster->isVisible());
+        QVERIFY(inlineTransport->isVisible());
+
+        auto *inlineSlider = quickItemByName(inlineTransport, QStringLiteral("mediaSeekSlider-2"));
+        QVERIFY(inlineSlider);
+        clickQuickItem(host.quickWidget(), inlineSlider);
+        QTRY_VERIFY(playback->property("position").toDouble() > 0);
+        QVERIFY(!playback->property("playing").toBool());
+        QVERIFY(playback->setProperty("position", 0));
+
+        auto *enterFullScreen = quickItemByName(inlineTransport, QStringLiteral("mediaFullscreenButton-2"));
+        QVERIFY(enterFullScreen);
+        QTRY_VERIFY(media->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_F);
+        QQuickWindow *fullScreenWindow = nullptr;
+        QTRY_VERIFY(([&] {
+            for (auto *window : QGuiApplication::allWindows()) {
+                if (window->objectName() == QLatin1String("mediaFullScreenWindow") && window->isVisible()) {
+                    fullScreenWindow = qobject_cast<QQuickWindow *>(window);
+                    return fullScreenWindow != nullptr;
+                }
+            }
+            return false;
+        })());
+        auto *fullScreenRoot      = fullScreenWindow->contentItem();
+        auto *fullScreenVideo     = quickItemByName(fullScreenRoot, QStringLiteral("fullScreenVideoOutput"));
+        auto *fullScreenTransport = quickItemByName(fullScreenRoot, QStringLiteral("fullScreenTransportLoader"));
+        auto *tapArea             = quickItemByName(fullScreenRoot, QStringLiteral("fullScreenVideoTapArea"));
+        QVERIFY(fullScreenVideo && fullScreenTransport && tapArea);
+        QTRY_VERIFY(fullScreenTransport->isVisible() && fullScreenTransport->height() > 0);
+        QTRY_VERIFY(tapArea->width() > 0 && tapArea->height() > 0);
+        QVERIFY(!playback->property("playing").toBool());
+        QCOMPARE(fullScreenVideo->size(), fullScreenRoot->size());
+        QCOMPARE(fullScreenTransport->parentItem(), fullScreenVideo->parentItem());
+        QVERIFY(fullScreenTransport->z() > fullScreenVideo->z());
+        QCOMPARE(fullScreenTransport->y() + fullScreenTransport->height(), fullScreenVideo->height());
+
+        clickQuickItem(fullScreenWindow, tapArea);
+        QTRY_VERIFY(playback->property("playing").toBool());
+        QTRY_VERIFY_WITH_TIMEOUT(!fullScreenTransport->isVisible(), 3500);
+        const QPoint hoverPoint = tapArea->mapToScene(QPointF(tapArea->width() / 3, tapArea->height() / 2)).toPoint();
+        QTest::mouseMove(fullScreenWindow, hoverPoint);
+        QTRY_VERIFY(fullScreenTransport->isVisible());
+        QVERIFY(playback->property("playing").toBool());
+        QVERIFY(playback->setProperty("seeking", true));
+        QTest::qWait(2600);
+        QVERIFY(fullScreenTransport->isVisible());
+        QVERIFY(playback->setProperty("seeking", false));
+        QTRY_VERIFY(!fullScreenTransport->isVisible());
+
+        auto      *touch       = QTest::createTouchDevice();
+        const auto videoCenter = tapArea->mapToScene(QPointF(tapArea->width() / 2, tapArea->height() / 2)).toPoint();
+        QTest::touchEvent(fullScreenWindow, touch).press(0, videoCenter);
+        QTest::touchEvent(fullScreenWindow, touch).release(0, videoCenter);
+        QTRY_VERIFY(!playback->property("playing").toBool());
+        QTRY_VERIFY(fullScreenTransport->isVisible());
+
+        auto *slider         = quickItemByName(fullScreenTransport, QStringLiteral("mediaSeekSlider-2"));
+        auto *exitFullScreen = quickItemByName(fullScreenTransport, QStringLiteral("mediaFullscreenButton-2"));
+        QVERIFY(slider && exitFullScreen);
+        clickQuickItem(fullScreenWindow, slider);
+        QTRY_VERIFY(playback->property("position").toDouble() > 0);
+        QVERIFY(!playback->property("playing").toBool());
+        QVERIFY(fullScreenTransport->isVisible());
+        QTest::keyClick(fullScreenWindow, Qt::Key_F);
+        QTRY_VERIFY(!fullScreenWindow->isVisible());
+        QVERIFY(inlineTransport->isVisible());
+        clickQuickItem(host.quickWidget(), enterFullScreen);
+        QTRY_VERIFY(fullScreenWindow->isVisible());
+        QTRY_VERIFY(fullScreenWindow->isActive() && fullScreenWindow->isExposed());
+        const QPoint mouseCenter = tapArea->mapToScene(QPointF(tapArea->width() / 2, tapArea->height() / 2)).toPoint();
+        // Qt 6.4's mouseDClick gives all four events the same timestamp.
+        // Send two complete clicks with distinct timestamps to exercise TapHandler.
+        const QPoint globalCenter = fullScreenWindow->mapToGlobal(mouseCenter);
+        const auto   sendClick    = [&](int timestamp) {
+            qt_handleMouseEvent(fullScreenWindow, mouseCenter, globalCenter, Qt::LeftButton, Qt::LeftButton,
+                                QEvent::MouseButtonPress, Qt::NoModifier, timestamp);
+            qt_handleMouseEvent(fullScreenWindow, mouseCenter, globalCenter, Qt::NoButton, Qt::LeftButton,
+                                QEvent::MouseButtonRelease, Qt::NoModifier, timestamp + 10);
+        };
+        QTest::lastMouseTimestamp += 1000;
+        sendClick(QTest::lastMouseTimestamp);
+        QTest::lastMouseTimestamp += 50;
+        sendClick(QTest::lastMouseTimestamp);
+        QTest::lastMouseTimestamp += 10;
+        QTRY_VERIFY(!fullScreenWindow->isVisible());
+        QVERIFY(!playback->property("playing").toBool());
         media->setProperty("playback", QVariant::fromValue<QObject *>(nullptr));
+    }
+
+    void videoFullscreenReceivesTouchInTheHostWindow()
+    {
+        QQmlEngine engine;
+        installThemedIconImageProvider(&engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import "qrc:/qml/editor/blocks" as Blocks
+            Blocks.MediaPlayerWindow {
+                sourceUri: "anykeep-media:/missing/clip.mp4"
+                mediaTitle: "Video"
+                previewUrl: ""
+                playback: QtObject {
+                    property bool available: true
+                    property bool playing: true
+                    property bool loading: false
+                    property bool seeking: false
+                    property bool hasVideoFrame: false
+                    property real duration: 18000
+                    property real position: 0
+                    property string errorString: ""
+                    function toggle(source) { playing = !playing }
+                    function attachVideoOutput(output) {}
+                    function detachVideoOutput(output) {}
+                }
+            }
+        )",
+                          QUrl());
+        std::unique_ptr<QObject> object(component.create());
+        QVERIFY2(object, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(object.get());
+        QVERIFY(window);
+        window->show();
+        auto *busy    = quickItemByName(window->contentItem(), QStringLiteral("inlineVideoBusyIndicator"));
+        auto *surface = ancestorWithProperty(busy, "useHostWindow");
+        QVERIFY(surface);
+        QVERIFY(surface->setProperty("useHostWindow", true));
+        QVERIFY(QMetaObject::invokeMethod(surface, "openFullScreen"));
+        QTRY_COMPARE(window->visibility(), QWindow::FullScreen);
+        auto *tapArea   = quickItemByName(window->contentItem(), QStringLiteral("fullScreenVideoTapArea"));
+        auto *transport = quickItemByName(window->contentItem(), QStringLiteral("fullScreenTransportLoader"));
+        QVERIFY(tapArea && transport);
+        QTRY_VERIFY(tapArea->width() > 0 && tapArea->height() > 0);
+        QVERIFY(!transport->isVisible());
+        auto        *touch  = QTest::createTouchDevice();
+        const QPoint center = tapArea->mapToScene(QPointF(tapArea->width() / 2, tapArea->height() / 2)).toPoint();
+        QTest::touchEvent(window, touch).press(0, center);
+        QTest::touchEvent(window, touch).release(0, center);
+        QTRY_VERIFY(transport->isVisible());
+
+        auto *exit = quickItemByName(transport, QStringLiteral("mediaFullscreenButton--1"));
+        QVERIFY(exit);
+        QTRY_VERIFY(exit->isVisible() && exit->width() > 0);
+        const QPoint button = exit->mapToScene(QPointF(exit->width() / 2, exit->height() / 2)).toPoint();
+        QTest::touchEvent(window, touch).press(0, button);
+        QTest::touchEvent(window, touch).release(0, button);
+        QTRY_COMPARE(window->visibility(), QWindow::Windowed);
+        QVERIFY(!surface->property("fullScreen").toBool());
     }
 
     void timedMediaTitlesEditInsideTheCard_data()

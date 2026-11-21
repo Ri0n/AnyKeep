@@ -10,11 +10,15 @@ Rectangle {
     id: transport
     required property var mediaBlock
     property bool embedded: false
-    property bool touchMode: mediaBlock.editorView.touchMode
+    property bool fullScreenPresentation: false
+    property bool touchMode: fullScreenPresentation && Qt.platform.os === "android"
+                             ? true : mediaBlock.editorView.touchMode
+    signal exitFullScreenRequested()
     readonly property real buttonExtent: touchMode ? 48 : 32
     readonly property real contentInset: touchMode ? 6 : 4
     readonly property real rowSpacing: touchMode ? 8 : 2
     readonly property real controlPadding: 6
+    readonly property bool seeking: seekSlider.pressed
     implicitHeight: contentColumn.implicitHeight + 2 * contentInset
     readonly property string timeLabel:
         mediaBlock.formatTime(mediaBlock.current ? mediaBlock.playback.position : 0)
@@ -24,12 +28,18 @@ Rectangle {
     radius: embedded ? 0 : 5
     clip: true
 
+    function focusMediaBlock() {
+        if (!fullScreenPresentation)
+            mediaBlock.selectAndFocus()
+    }
+
     TapHandler {
         acceptedButtons: Qt.LeftButton
-        onPressedChanged: {
-            const local = inlineTitle.mapFromItem(transport, point.position.x, point.position.y)
-            if (pressed && (!mediaBlock.audio || !inlineTitle.contains(local)))
-                mediaBlock.selectAndFocus()
+        onTapped: function(eventPoint) {
+            const point = eventPoint.position
+            if (!seekSlider.contains(seekSlider.mapFromItem(transport, point))
+                    && (!mediaBlock.audio || !inlineTitle.contains(inlineTitle.mapFromItem(transport, point))))
+                transport.focusMediaBlock()
         }
     }
 
@@ -117,7 +127,7 @@ Rectangle {
                 Accessible.name: mediaBlock.loading ? qsTr("Loading media")
                                                   : (mediaBlock.playing ? qsTr("Pause media") : qsTr("Play media"))
                 onClicked: {
-                    mediaBlock.selectAndFocus()
+                    transport.focusMediaBlock()
                     mediaBlock.playback.toggle(mediaBlock.block.url)
                 }
             }
@@ -133,7 +143,6 @@ Rectangle {
                 value: mediaBlock.current ? mediaBlock.playback.position : 0
                 enabled: mediaBlock.playback && mediaBlock.knownDuration > 0
                 focusPolicy: Qt.TabFocus
-                onPressedChanged: if (pressed) mediaBlock.selectAndFocus()
                 Keys.onPressed: function(event) { mediaBlock.handleNavigationKey(event) }
                 onMoved: mediaBlock.playback.seek(mediaBlock.block.url, value)
             }
@@ -168,7 +177,7 @@ Rectangle {
                 Accessible.name: mediaBlock.block.mediaTranscript.length > 0
                                  ? qsTr("Show transcript") : qsTr("Transcribe audio")
                 onClicked: {
-                    mediaBlock.selectAndFocus()
+                    transport.focusMediaBlock()
                     if (mediaBlock.block.mediaTranscript.length > 0)
                         mediaBlock.transcriptExpanded = !mediaBlock.transcriptExpanded
                     else
@@ -190,23 +199,29 @@ Rectangle {
                 contentItem: Shared.ThemedIconImpl {
                     objectName: "mediaFullscreenGlyph-" + mediaBlock.block.index
                     themeName: "__bundled__"
-                    fallbackName: "view-fullscreen-symbolic.svg"
+                    fallbackName: transport.fullScreenPresentation ? "view-restore-symbolic.svg"
+                                                               : "view-fullscreen-symbolic.svg"
                     recolorFallback: true
                     fallbackTintMode: String(fullScreenMediaButton.palette.buttonText)
                     pixelSize: 20
                 }
                 ToolTip.visible: hovered
-                ToolTip.text: qsTr("Full screen")
-                Accessible.name: qsTr("Show video full screen")
+                ToolTip.text: transport.fullScreenPresentation ? qsTr("Exit full screen") : qsTr("Full screen")
+                Accessible.name: transport.fullScreenPresentation ? qsTr("Exit full screen video")
+                                                                 : qsTr("Show video full screen")
                 onClicked: {
-                    mediaBlock.selectAndFocus()
-                    mediaBlock.openVideoFullScreen()
+                    transport.focusMediaBlock()
+                    if (transport.fullScreenPresentation)
+                        transport.exitFullScreenRequested()
+                    else
+                        mediaBlock.openVideoFullScreen()
                 }
             }
             ToolButton {
                 id: detachVideoButton
                 objectName: "mediaSeparateWindowButton-" + mediaBlock.block.index
-                visible: mediaBlock.video && mediaBlock.playback && typeof mediaBlock.playback.openWindow === "function"
+                visible: !transport.fullScreenPresentation && mediaBlock.video && mediaBlock.playback
+                         && typeof mediaBlock.playback.openWindow === "function"
                 enabled: visible && mediaBlock.playback.available
                 Layout.preferredWidth: transport.buttonExtent
                 Layout.preferredHeight: transport.buttonExtent
@@ -224,7 +239,7 @@ Rectangle {
                 ToolTip.visible: hovered
                 ToolTip.text: Accessible.name
                 onClicked: {
-                    mediaBlock.selectAndFocus()
+                    transport.focusMediaBlock()
                     mediaBlock.openVideoWindow()
                 }
             }
@@ -232,6 +247,7 @@ Rectangle {
             ToolButton {
                 id: mediaActionsButton
                 objectName: "mediaActionsButton-" + mediaBlock.block.index
+                visible: !transport.fullScreenPresentation
                 Layout.preferredWidth: transport.buttonExtent
                 Layout.preferredHeight: transport.buttonExtent
                 padding: transport.controlPadding
@@ -248,7 +264,7 @@ Rectangle {
                 }
                 Accessible.name: qsTr("Media actions")
                 onClicked: {
-                    mediaBlock.selectAndFocus()
+                    transport.focusMediaBlock()
                     mediaBlock.openMediaContextMenu()
                 }
             }

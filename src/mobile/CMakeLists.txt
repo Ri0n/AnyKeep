@@ -92,6 +92,7 @@ set(anykeep_mobile_editor_block_qml
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/ImageAlignmentGlyph.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/MediaBlock.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/MediaVideoSurface.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/VideoTapHandler.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/MediaVideoCard.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/MediaPlayerWindow.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/MediaCornerMask.qml"

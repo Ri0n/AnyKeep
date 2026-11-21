@@ -1,9 +1,11 @@
 #include "iris/irischunkedmediasource.h"
 #include "iris/irisjinglepublicationprovider.h"
+#include "iris/irisxmppbackend.h"
 #include "mediapartialchunkcache.h"
 #include "secureenvelope.h"
 
 #include <iris/jingle-ft.h>
+#include <iris/jingle-session.h>
 #include <iris/xmpp_client.h>
 #include <iris/xmpp_pubsub.h>
 #include <iris/xmpp_status.h>
@@ -239,8 +241,9 @@ void IrisJinglePublicationProviderTest::openChecksPublicationAuthority()
     config.resource   = QStringLiteral("source");
     config.instanceId = QStringLiteral("open-offer");
     XMPP::Client                  client;
+    IrisXmppBackend               backend;
     auto                         *manager = client.jingleManager()->publicationManager();
-    IrisJinglePublicationProvider provider(nullptr, config, directory.filePath(QStringLiteral("offers")),
+    IrisJinglePublicationProvider provider(&backend, config, directory.filePath(QStringLiteral("offers")),
                                            SecureEnvelope::generateMasterKey());
     manager->registerProvider(&provider);
     const auto answer = [&client, &config](XMPP::Task *task, const XMPP::Jingle::JinglePub &offer = {},
@@ -323,6 +326,25 @@ void IrisJinglePublicationProviderTest::openChecksPublicationAuthority()
         QCOMPARE(manager->publishedSessionState(id), XMPP::Jingle::PublicationManager::SessionState::Active);
     else
         QVERIFY(manager->publishedSessionState(id) != XMPP::Jingle::PublicationManager::SessionState::Active);
+
+    if (reply == QLatin1String("matching")) {
+        // An authenticated own device can request media before presence has
+        // established its capabilities. The acknowledged session needs an offer.
+        QDomDocument document;
+        auto         iq = document.createElementNS(QStringLiteral("jabber:client"), QStringLiteral("iq"));
+        iq.setAttribute(QStringLiteral("type"), QStringLiteral("get"));
+        iq.setAttribute(QStringLiteral("id"), QStringLiteral("media-start"));
+        iq.setAttribute(QStringLiteral("from"), config.jid + QStringLiteral("/requester"));
+        auto start = document.createElementNS(QStringLiteral("urn:xmpp:jinglepub:1"), QStringLiteral("start"));
+        start.setAttribute(QStringLiteral("id"), id);
+        iq.appendChild(start);
+        QVERIFY(client.rootTask()->take(iq));
+        const auto sessions = client.jingleManager()->findChildren<XMPP::Jingle::Session *>();
+        QCOMPARE(sessions.size(), 1);
+        const auto contents = sessions.first()->contentList();
+        QCOMPARE(contents.size(), 1);
+        QVERIFY(contents.first()->transport());
+    }
 }
 
 void IrisJinglePublicationProviderTest::discoversChunkedReplicas_data()

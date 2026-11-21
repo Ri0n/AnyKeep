@@ -5,6 +5,8 @@ import QtQuick.Controls
 
 Page {
     id: root
+    // The player lives at the window root, outside the note's scene subtree.
+    opacity: editorPane.blockEditor.mediaFullScreen ? 0 : 1
 
     required property var editor
     property double deleteRequestId: 0
@@ -53,6 +55,10 @@ Page {
                     qsTr("Delete"), qsTr("Cancel"), true)
     }
     function closeEditor() {
+        if (editorPane.blockEditor.mediaFullScreen) {
+            editorPane.blockEditor.exitMediaFullScreen()
+            return
+        }
         if (editorPane.closeEditor())
             backRequested()
     }

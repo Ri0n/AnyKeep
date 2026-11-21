@@ -68,6 +68,13 @@ Window {
         Keys.onSpacePressed: playback.toggle(sourceUri)
         Keys.onLeftPressed: playback.seek(sourceUri, Math.max(0, playback.position - 5000))
         Keys.onRightPressed: playback.seek(sourceUri, playback.position + 5000)
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_F && !event.modifiers) {
+                if (!event.isAutoRepeat)
+                    surface.openFullScreen()
+                event.accepted = true
+            }
+        }
         Item {
             anchors.top: parent.top
             anchors.left: parent.left
@@ -95,6 +102,7 @@ Window {
                 id: surface
                 anchors.fill: parent
                 playback: playerWindow.playback
+                mediaBlock: adapter
             }
             Label {
                 anchors.top: parent.top
@@ -107,7 +115,14 @@ Window {
                 color: "white"
                 background: Rectangle { radius: 4; color: "#a0000000" }
             }
-            TapHandler { onTapped: content.forceActiveFocus() }
+            VideoTapHandler {
+                enabled: !surface.fullScreen
+                onClicked: {
+                    content.forceActiveFocus()
+                    playback.toggle(sourceUri)
+                }
+                onDoubleClicked: surface.openFullScreen()
+            }
             Label {
                 anchors.centerIn: parent
                 width: Math.min(implicitWidth, Math.max(0, parent.width - 32))
