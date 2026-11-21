@@ -609,8 +609,22 @@ private slots:
         QVERIFY(inlineTransport->isVisible());
         clickQuickItem(host.quickWidget(), enterFullScreen);
         QTRY_VERIFY(fullScreenWindow->isVisible());
+        QTRY_VERIFY(fullScreenWindow->isActive() && fullScreenWindow->isExposed());
         const QPoint mouseCenter = tapArea->mapToScene(QPointF(tapArea->width() / 2, tapArea->height() / 2)).toPoint();
-        QTest::mouseDClick(fullScreenWindow, Qt::LeftButton, Qt::NoModifier, mouseCenter, 1);
+        // Qt 6.4's mouseDClick gives all four events the same timestamp.
+        // Send two complete clicks with distinct timestamps to exercise TapHandler.
+        const QPoint globalCenter = fullScreenWindow->mapToGlobal(mouseCenter);
+        const auto   sendClick    = [&](int timestamp) {
+            qt_handleMouseEvent(fullScreenWindow, mouseCenter, globalCenter, Qt::LeftButton, Qt::LeftButton,
+                                QEvent::MouseButtonPress, Qt::NoModifier, timestamp);
+            qt_handleMouseEvent(fullScreenWindow, mouseCenter, globalCenter, Qt::NoButton, Qt::LeftButton,
+                                QEvent::MouseButtonRelease, Qt::NoModifier, timestamp + 10);
+        };
+        QTest::lastMouseTimestamp += 1000;
+        sendClick(QTest::lastMouseTimestamp);
+        QTest::lastMouseTimestamp += 50;
+        sendClick(QTest::lastMouseTimestamp);
+        QTest::lastMouseTimestamp += 10;
         QTRY_VERIFY(!fullScreenWindow->isVisible());
         QVERIFY(!playback->property("playing").toBool());
         media->setProperty("playback", QVariant::fromValue<QObject *>(nullptr));
