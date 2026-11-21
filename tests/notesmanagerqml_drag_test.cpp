@@ -1,5 +1,8 @@
+#include <QFile>
 #include <QJsonDocument>
+#include <QQmlProperty>
 #include <QQuickItem>
+#include <QQuickView>
 #include <QtTest>
 
 #include "managerinteractionfixture.h"
@@ -134,6 +137,78 @@ void NotesManagerQmlTest::notesManagerContextMenusAndSelectionWork()
     QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
     QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-a\nnote-a2")));
     QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-b\nnote-b")));
+}
+
+void NotesManagerQmlTest::mobileStorageLongPressOpensContextActions()
+{
+    ManagerInteractionFixture fixture;
+    fixture.quick.hide();
+    fixture.notesModel.item(3)->setData(2, Qt::UserRole + 9);
+
+    QQuickView view(fixture.quick.engine(), nullptr);
+    view.setResizeMode(QQuickView::SizeRootObjectToView);
+    view.resize(360, 480);
+    view.setSource(QUrl(QStringLiteral("qrc:/qml/ManagerInteractionHarness.qml")));
+    QVERIFY(view.rootObject());
+    auto *page      = view.rootObject()->findChild<QQuickItem *>(QStringLiteral("managerPage"));
+    auto *workspace = view.rootObject()->findChild<QObject *>(QStringLiteral("managerWorkspace"));
+    auto *menu      = view.rootObject()->findChild<QObject *>(QStringLiteral("storageContextMenu"));
+    QVERIFY(page);
+    QVERIFY(workspace);
+    QVERIFY(menu);
+    page->setProperty("touchActions", true);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+    QQuickItem *storage = nullptr;
+    QTRY_VERIFY((storage = quickVisibleItemByName(page, QStringLiteral("groupedDelegate-storage-b-"))));
+    const auto center
+        = [](QQuickItem *item) { return item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint(); };
+    auto *device = QTest::createTouchDevice();
+    for (const auto *name : { "storageContextNewNote", "storageContextRaisePriority", "storageContextSelectAll" }) {
+        const QPoint point = center(storage);
+        QTest::touchEvent(&view, device).press(0, point);
+        QTRY_VERIFY_WITH_TIMEOUT(menu->property("opened").toBool(), 2500);
+        QTest::touchEvent(&view, device).release(0, point);
+        QVERIFY(menu->property("opened").toBool());
+        QCOMPARE(page->property("selectedStorageId").toString(), QStringLiteral("storage-b"));
+        for (const auto *entry : { "storageContextNewNote", "storageContextRaisePriority", "storageContextSelectAll",
+                                   "storageContextSettings" }) {
+            auto *menuItem = menu->findChild<QQuickItem *>(QString::fromLatin1(entry));
+            QVERIFY2(menuItem, entry);
+            const auto icon = QQmlProperty::read(menuItem, QStringLiteral("icon.source")).toUrl();
+            QCOMPARE(icon.scheme(), QStringLiteral("qrc"));
+            QVERIFY2(QFile::exists(QLatin1Char(':') + icon.path()), entry);
+        }
+
+        auto *item = menu->findChild<QQuickItem *>(QString::fromLatin1(name));
+        QVERIFY2(item, name);
+        QVERIFY(item->isEnabled());
+        QTest::mouseClick(&view, Qt::LeftButton, Qt::NoModifier, center(item));
+        QTRY_VERIFY(!menu->property("visible").toBool());
+    }
+    QCOMPARE(workspace->property("createdNoteStorage").toString(), QStringLiteral("storage-b"));
+    QCOMPARE(workspace->property("movedStorages").toInt(), 1);
+    QCOMPARE(workspace->property("storageDestinationRow").toInt(), 0);
+    QVERIFY(page->property("selectionMode").toBool());
+    const auto selected = page->property("selectedNotes").toMap();
+    QCOMPARE(selected.size(), 2);
+    QVERIFY(selected.value(QStringLiteral("storage-b\nnote-b")).toMap().value(QStringLiteral("favorite")).toBool());
+    QVERIFY(selected.contains(QStringLiteral("storage-b\noffscreen")));
+
+    auto *strip = quickVisibleItemByName(page, QStringLiteral("mobileSelectionActionStrip"));
+    QVERIFY(strip);
+    QTRY_VERIFY(strip->property("interactive").toBool());
+    const auto   startX = strip->property("contentX").toReal();
+    const QPoint start  = strip->mapToScene(QPointF(strip->width() - 12, strip->height() / 2)).toPoint();
+    QTest::touchEvent(&view, device).press(0, start);
+    for (int step = 1; step <= 8; ++step) {
+        QTest::touchEvent(&view, device).move(0, start - QPoint(step * 16, 0));
+        QTest::qWait(15);
+    }
+    QTest::touchEvent(&view, device).release(0, start - QPoint(128, 0));
+    QTRY_VERIFY(strip->property("contentX").toReal() > startX + 40);
+    QCOMPARE(page->property("selectedNotes").toMap(), selected);
 }
 
 void NotesManagerQmlTest::notesManagerInternalDragsWork()

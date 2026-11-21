@@ -5,6 +5,7 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWidget>
+#include <QScopeGuard>
 #include <QStandardItemModel>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -63,8 +64,18 @@ void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()
                 property bool searchInBody: false
                 property bool loading: false
                 property bool busy: false
+                property bool metadataBatchBusy: false
+                property bool movePreparationBusy: false
+                signal noteMovesPrepared(var preparedNotes)
+                property int trashCount: 0
                 property int noteCount: 3
-                property var storages: []
+                property var storages: [
+                    { storageId: "store", name: "Source storage", writable: true },
+                    { storageId: "destination", name: "Destination storage", writable: true,
+                      iconSource: "qrc:/svg/folder-symbolic.svg" }
+                ]
+                property string movedToStorage: ""
+                property string movedToFolder: ""
                 property int folderNoteCreateCount: 0
                 property string createdNoteFolderId: ""
 
@@ -85,15 +96,26 @@ void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()
                 function setFolderFlags(folderId, favorite, archived) { return true }
                 function collapseAllFolders() { return true }
                 function folderIdForNote(storageId, noteId) { return "" }
-                function assignNoteFolder(storageId, noteId, folderId) { return true }
+                function assignNoteFolder(storageId, noteId, folderId) {
+                    movedToFolder = folderId
+                    return true
+                }
                 function openStandalone(storageId, noteId) { return true }
                 function deleteNote(storageId, noteId) { return true }
-                function trashNote(storageId, noteId) { return true }
+                function trashNote(storageId, noteId) { ++trashCount; return true }
                 function restoreRecycledNote(storageId, noteId) { return true }
                 function isRecycledNote(storageId, noteId) { return false }
                 function copyNote(sourceStorageId, noteId, destinationStorageId) { return true }
                 function moveNote(sourceStorageId, noteId, destinationStorageId) { return true }
-                function moveNotes(notes, destinationStorageId, anchorNoteId, insertAfter) { return true }
+                function moveSelectedNotes(notes, destinationStorageId) {
+                    movedToStorage = destinationStorageId
+                    movePreparationBusy = true
+                    return true
+                }
+                function finishMove(preparedNotes) {
+                    noteMovesPrepared(preparedNotes)
+                    movePreparationBusy = false
+                }
                 function moveStorage(sourceStorageId, destinationStorageId) { return true }
                 function moveStorageToRow(sourceStorageId, destinationRow) { return true }
                 function openStorageSettings(storageId) {}
@@ -148,36 +170,182 @@ void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()
     QTRY_VERIFY(!searchField->hasActiveFocus());
     QTRY_VERIFY(inbox->hasActiveFocus());
 
-    // The Android selection bar must remain compact even at a narrow
-    // navigation width. Check every action, not just the three from #207.
+    for (int index = 0; index < 12; ++index) {
+        const auto name = QStringLiteral("folder-%1").arg(index);
+        foldersModel.addFolder(name, name);
+    }
+    quick.resize(320, 430);
     page->setProperty("touchActions", true);
     auto *selection = page->findChild<QObject *>(QStringLiteral("notesManagerSelectionController"));
     QVERIFY(selection);
-    selection->setProperty("selectedNotes", QVariantMap {
-        { QStringLiteral("store\\nnote"),
-          QVariantMap { { QStringLiteral("storageId"), QStringLiteral("store") },
-                        { QStringLiteral("noteId"), QStringLiteral("note") },
-                        { QStringLiteral("title"), QStringLiteral("Note") },
-                        { QStringLiteral("favorite"), false } } }
-    });
+    const QVariantMap selectedNotes { { QStringLiteral("store\nnote"),
+                                        QVariantMap { { QStringLiteral("storageId"), QStringLiteral("store") },
+                                                      { QStringLiteral("noteId"), QStringLiteral("note") },
+                                                      { QStringLiteral("title"), QStringLiteral("Note") },
+                                                      { QStringLiteral("favorite"), false } } } };
+    selection->setProperty("selectedNotes", selectedNotes);
     QTRY_VERIFY(page->property("selectionMode").toBool());
-    auto *actions = quickItemByName(page, QStringLiteral("mobileNoteSelectionActionBar"));
+
+    auto *actions  = quickVisibleItemByName(page, QStringLiteral("mobileNoteSelectionActionBar"));
+    auto *deselect = quickVisibleItemByName(page, QStringLiteral("mobileSelectionClear"));
+    auto *more     = quickVisibleItemByName(page, QStringLiteral("mobileSelectionMore"));
+    auto *menu     = page->findChild<QObject *>(QStringLiteral("mobileSelectionMoreMenu"));
+    auto *strip    = quickVisibleItemByName(page, QStringLiteral("mobileSelectionActionStrip"));
     QVERIFY(actions);
-    QTRY_VERIFY(actions->isVisible());
-    const QStringList buttons {
-        QStringLiteral("mobileSelectionDelete"),
-        QStringLiteral("mobileSelectionMoveStorage"),
-        QStringLiteral("mobileSelectionMoveFolder"),
-        QStringLiteral("mobileSelectionArchive"),
-        QStringLiteral("mobileSelectionTag"),
-        QStringLiteral("mobileSelectionFavorite"),
-        QStringLiteral("mobileSelectionClear"),
+    QVERIFY(strip);
+    QVERIFY(deselect);
+    QVERIFY(more);
+    QVERIFY(menu);
+
+    const auto click = [&quick](QQuickItem *item) {
+        const QPointF center(item->width() / 2, item->height() / 2);
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier,
+                          item->mapToItem(quick.rootObject(), center).toPoint());
     };
-    for (const auto &name : buttons) {
-        auto *button = quickItemByName(page, name);
-        QVERIFY2(button, qPrintable(name));
-        QCOMPARE(button->property("text").toString(), QString());
-        QVERIFY(button->property("width").toReal() <= 44);
+    const auto originalDirection = QGuiApplication::layoutDirection();
+    const auto restoreDirection
+        = qScopeGuard([originalDirection] { QGuiApplication::setLayoutDirection(originalDirection); });
+    for (const auto direction : { Qt::LeftToRight, Qt::RightToLeft }) {
+        QGuiApplication::setLayoutDirection(direction);
+        QTRY_COMPARE(page->width(), 320.0);
+        for (const auto &name : { "mobileSelectionMore", "mobileSelectionClear" }) {
+            auto *button = quickVisibleItemByName(page, QString::fromLatin1(name));
+            QVERIFY2(button, name);
+            QVERIFY(button->width() >= 48);
+            QVERIFY(button->height() >= 48);
+            auto *icon = button->property("contentItem").value<QQuickItem *>();
+            QVERIFY(icon);
+            QVERIFY(icon->property("pixelSize").toInt() >= 28);
+            const auto bounds = button->mapRectToItem(actions, QRectF(0, 0, button->width(), button->height()));
+            QVERIFY(QRectF(0, 0, actions->width(), actions->height()).contains(bounds));
+        }
+
+        QTRY_VERIFY(strip->width() >= 100 && strip->property("contentWidth").toReal() > strip->width());
+        QVERIFY(QMetaObject::invokeMethod(strip, "positionViewAtEnd"));
+        auto *storage = quickVisibleItemByName(strip, QStringLiteral("mobileSelectionStorageButton"));
+        QVERIFY(storage);
+        QCOMPARE(storage->width(), 52.0);
+        QCOMPARE(storage->height(), 52.0);
+        auto *icon = storage->property("contentItem").value<QQuickItem *>();
+        QVERIFY(icon);
+        QCOMPARE(icon->property("pixelSize").toInt(), 28);
+        const QRectF stripBounds(0, 0, strip->width(), strip->height());
+        QTRY_VERIFY(stripBounds.contains(storage->mapRectToItem(strip, QRectF(0, 0, 52, 52))));
+
+        QVERIFY(!menu->property("visible").toBool());
+        click(more);
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QCOMPARE(workspace->property("trashCount").toInt(), 0);
+        auto *menuContent = menu->property("contentItem").value<QQuickItem *>();
+        QVERIFY(menuContent);
+        auto *move = quickVisibleItemByName(menuContent, QStringLiteral("mobileSelectionMoveStorage"));
+        QVERIFY(move);
+        QTRY_VERIFY(move->mapToItem(menuContent, QPointF()).y() > 0);
+        const auto menuBounds
+            = menuContent->mapRectToItem(page, QRectF(0, 0, menuContent->width(), menuContent->height()));
+        QVERIFY(QRectF(0, 0, page->width(), page->height()).contains(menuBounds));
+        for (const auto &name : { "mobileSelectionMenuTag", "mobileSelectionMenuFavorite", "mobileSelectionMoveFolder",
+                                  "mobileSelectionMoveStorage", "mobileSelectionArchive", "mobileSelectionMenuClear",
+                                  "mobileSelectionDelete" }) {
+            auto *item = quickVisibleItemByName(menuContent, QString::fromLatin1(name));
+            QVERIFY2(item, name);
+            QVERIFY(item->height() >= 48);
+            const auto bounds = item->mapRectToItem(page, QRectF(0, 0, item->width(), item->height()));
+            QVERIFY(QRectF(0, 0, page->width(), page->height()).contains(bounds));
+        }
+        auto *moveDialog = page->findChild<QObject *>(QStringLiteral("mobileMoveDestinationDialog"));
+        QVERIFY(moveDialog);
+        click(move);
+        QTRY_VERIFY(moveDialog->property("opened").toBool());
+        QTRY_VERIFY(!menu->property("visible").toBool());
+        auto *destinations = moveDialog->property("contentItem").value<QQuickItem *>();
+        QVERIFY(destinations);
+        QQuickItem *storageDestination = nullptr;
+        QTRY_VERIFY((storageDestination
+                     = quickVisibleItemByName(destinations, QStringLiteral("mobileMoveDestination-destination"))));
+        auto *currentStorage = quickVisibleItemByName(destinations, QStringLiteral("mobileMoveDestination-store"));
+        QVERIFY(currentStorage);
+        QVERIFY(!currentStorage->isEnabled());
+        QVERIFY(storageDestination->isEnabled());
+        auto *storageIcon = quickVisibleItemByName(storageDestination, QStringLiteral("mobileDestinationStorageIcon"));
+        QVERIFY(storageIcon);
+        QCOMPARE(storageIcon->property("source").toUrl(), QUrl(QStringLiteral("qrc:/svg/folder-symbolic.svg")));
+        QVERIFY(quickVisibleItemByName(currentStorage, QStringLiteral("mobileDestinationCurrentMark")));
+        QVERIFY(!quickVisibleItemByName(storageDestination, QStringLiteral("mobileDestinationCurrentMark")));
+        auto *destinationName = quickVisibleItemByName(storageDestination, QStringLiteral("mobileDestinationName"));
+        auto *currentName     = quickVisibleItemByName(currentStorage, QStringLiteral("mobileDestinationName"));
+        QVERIFY(destinationName);
+        QVERIFY(currentName);
+        QCOMPARE(destinationName->property("font").value<QFont>().pixelSize(), 18);
+        QCOMPARE(destinationName->property("color").value<QColor>(), currentName->property("color").value<QColor>());
+        QVERIFY(QMetaObject::invokeMethod(moveDialog, "reject"));
+        QTRY_VERIFY(!moveDialog->property("visible").toBool());
+        QVERIFY(page->property("selectionMode").toBool());
+
+        click(more);
+        QTRY_VERIFY(menu->property("opened").toBool());
+        auto *moveFolder = quickVisibleItemByName(menuContent, QStringLiteral("mobileSelectionMoveFolder"));
+        QVERIFY(moveFolder);
+        QTRY_VERIFY(moveFolder->mapToItem(menuContent, QPointF()).y() > 0);
+        click(moveFolder);
+        QTRY_VERIFY(moveDialog->property("opened").toBool());
+        QQuickItem *folder = nullptr;
+        QTRY_VERIFY((folder = quickVisibleItemByName(destinations, QStringLiteral("mobileMoveDestination-inbox"))));
+        QTRY_VERIFY(destinations->property("contentHeight").toReal() > destinations->height());
+        const auto bounds
+            = destinations->mapRectToItem(page, QRectF(0, 0, destinations->width(), destinations->height()));
+        QVERIFY(QRectF(0, 0, page->width(), page->height()).contains(bounds));
+        if (direction == Qt::RightToLeft) {
+            click(folder);
+            QTRY_COMPARE(workspace->property("movedToFolder").toString(), QStringLiteral("inbox"));
+            QTRY_VERIFY(!page->property("selectionMode").toBool());
+            selection->setProperty("selectedNotes", selectedNotes);
+        } else {
+            QVERIFY(QMetaObject::invokeMethod(moveDialog, "reject"));
+        }
+        QTRY_VERIFY(!moveDialog->property("visible").toBool());
     }
-    QVERIFY(actions->height() <= 52);
+
+    quick.resize(480, 430);
+    QTRY_VERIFY(strip->width() >= strip->property("contentWidth").toReal());
+    QVERIFY(!strip->property("interactive").toBool());
+
+    auto          moveSelection = selectedNotes;
+    const QString failedKey     = QStringLiteral("store\nfailed");
+    const QString laterKey      = QStringLiteral("store\nlater");
+    moveSelection.insert(failedKey,
+                         QVariantMap { { QStringLiteral("storageId"), QStringLiteral("store") },
+                                       { QStringLiteral("noteId"), QStringLiteral("failed") } });
+    selection->setProperty("selectedNotes", moveSelection);
+
+    auto *storageButton = quickVisibleItemByName(strip, QStringLiteral("mobileSelectionStorageButton"));
+    QVERIFY(storageButton);
+    click(storageButton);
+    auto *moveDialog = page->findChild<QObject *>(QStringLiteral("mobileMoveDestinationDialog"));
+    QTRY_VERIFY(moveDialog->property("opened").toBool());
+    auto       *destinations = moveDialog->property("contentItem").value<QQuickItem *>();
+    QQuickItem *destination  = nullptr;
+    QTRY_VERIFY(
+        (destination = quickVisibleItemByName(destinations, QStringLiteral("mobileMoveDestination-destination"))));
+    click(destination);
+    QTRY_COMPARE(workspace->property("movedToStorage").toString(), QStringLiteral("destination"));
+    QTRY_VERIFY(!moveDialog->property("visible").toBool());
+    QCOMPARE(page->property("selectedNotes").toMap(), moveSelection);
+    QVERIFY(!storageButton->isEnabled());
+
+    moveSelection.insert(laterKey,
+                         QVariantMap { { QStringLiteral("storageId"), QStringLiteral("store") },
+                                       { QStringLiteral("noteId"), QStringLiteral("later") } });
+    selection->setProperty("selectedNotes", moveSelection);
+    const QVariantList preparedNotes { selectedNotes.first() };
+    QVERIFY(QMetaObject::invokeMethod(workspace, "finishMove", Q_ARG(QVariant, QVariant(preparedNotes))));
+    moveSelection.remove(selectedNotes.firstKey());
+    QTRY_COMPARE(page->property("selectedNotes").toMap(), moveSelection);
+    QVERIFY(actions->isVisible());
+    QVERIFY(storageButton->isEnabled());
+
+    click(deselect);
+    QTRY_VERIFY(!actions->isVisible());
+    QVERIFY(!page->property("selectionMode").toBool());
+    QCOMPARE(workspace->property("trashCount").toInt(), 0);
 }

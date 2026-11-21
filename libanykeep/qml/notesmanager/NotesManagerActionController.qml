@@ -12,6 +12,7 @@ QtObject {
     required property var storageContextMenu
     required property var deleteDialog
     property var pendingMetadataSelection: []
+    property bool preparingSelectionMove: false
 
     function flushEditorChanges() {
         Qt.inputMethod.commit()
@@ -87,9 +88,27 @@ QtObject {
     function createNote() {
         if (page.viewMode === page.foldersMode)
             return foldersPage.createNoteInSelectedFolder()
+        return createNoteInStorage(page.selectedStorageId)
+    }
+
+    function createNoteInStorage(storageId) {
         if (workspace.currentEditor && !checkpointEditor())
             return false
-        return workspace.createNote(page.selectedStorageId)
+        return workspace.createNote(storageId)
+    }
+
+    function selectStorageNotes(storageId) {
+        noteSelection.replaceSelection(workspace.storageNoteDescriptors(storageId))
+    }
+
+    function storagePriorityRow(storageId) {
+        return workspace.storages.findIndex(function(storage) { return storage.storageId === storageId })
+    }
+
+    function raiseStoragePriority(storageId) {
+        const row = storagePriorityRow(storageId)
+        if (row > 0)
+            workspace.moveStorageToRow(storageId, row - 1)
     }
 
     function openStandalone(storageId, noteId) {
@@ -307,27 +326,27 @@ QtObject {
     }
 
     function moveContextNotesToStorage(destinationStorageId) {
-        if (!destinationStorageId)
+        if (!destinationStorageId || preparingSelectionMove || workspace.movePreparationBusy)
             return false
-        const notes = []
-        for (const note of page.contextMenuNotes || []) {
-            if (note.storageId !== destinationStorageId) {
-                notes.push({
-                    storageId: note.storageId,
-                    noteId: note.noteId,
-                    title: note.title,
-                    order: note.order
-                })
-            }
-        }
-        if (notes.length === 0)
+        const notes = (page.contextMenuNotes || []).filter(function(note) {
+            return note.storageId !== destinationStorageId
+        })
+        if (notes.length === 0 || (workspace.currentEditor && !checkpointEditor()))
             return false
-        if (workspace.currentEditor && !checkpointEditor())
-            return false
-        const changed = workspace.moveNotes(notes, destinationStorageId, "", false)
-        if (changed)
-            noteSelection.clear()
-        return changed
+
+        preparingSelectionMove = true
+        const started = workspace.moveSelectedNotes(notes, destinationStorageId)
+        if (!started)
+            preparingSelectionMove = false
+        return started
+    }
+
+    function finishSelectionMove(preparedNotes) {
+        if (!preparingSelectionMove)
+            return
+        if (preparedNotes.length > 0)
+            noteSelection.completeBatch(preparedNotes, [])
+        preparingSelectionMove = false
     }
 
     function copyContextNotesToStorage(destinationStorageId) {

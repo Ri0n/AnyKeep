@@ -8,6 +8,7 @@
 #include "notetitleresolver.h"
 #include "storageiconimageprovider.h"
 
+#include <QAbstractProxyModel>
 #include <QDataStream>
 #include <QIODevice>
 #include <QMimeData>
@@ -91,9 +92,9 @@ public:
 
     void assign(const Note &note)
     {
-        summary      = note;
-        id           = note.id();
-        title        = note.displayTitle();
+        summary = note;
+        id      = note.id();
+        title   = note.displayTitle();
         // Loaded notes and PTF summaries are not always able to synthesize a
         // display title (for example, a note starting with a non-text block).
         // Present the same fallback as an unpublished draft instead of
@@ -558,11 +559,14 @@ void NotesModel::storageOrderChanged()
         if (!ordered.contains(item))
             ordered.append(item);
     }
-    if (ordered == storages_)
-        return;
-    beginResetModel();
-    storages_ = ordered;
-    endResetModel();
+    for (int destination = 0; destination < ordered.size(); ++destination) {
+        const int source = storages_.indexOf(ordered.at(destination), destination);
+        if (source == destination)
+            continue;
+        beginMoveRows({}, source, source, {}, destination);
+        storages_.move(source, destination);
+        endMoveRows();
+    }
 }
 
 void NotesModel::storageIndexChanged(const QString &storageId)
@@ -607,6 +611,21 @@ void NotesModel::replaceVisibleNotes(NMMItem *storageItem, int desiredCount)
     if (desiredCount < 0)
         desiredCount = pageSize_;
 
+    auto      projected = projectStorageNotes(storageItem);
+    const int count     = storageItem->syntheticStorage ? projected.size() : qMin(desiredCount, projected.size());
+    while (projected.size() > count)
+        delete projected.takeLast();
+    if (count > 0) {
+        beginInsertRows(parentIndex, 0, count - 1);
+        storageItem->children = std::move(projected);
+        endInsertRows();
+    }
+    if (parentIndex.isValid())
+        emit dataChanged(parentIndex, parentIndex, { HasMoreRole, NoteCountRole });
+}
+
+QList<NMMItem *> NotesModel::projectStorageNotes(NMMItem *storageItem) const
+{
     QList<NMMItem *> projected;
     const auto       pending = draftManager_ ? draftManager_->pendingDrafts() : QList<DraftRecord> {};
     QSet<QString>    movedSourceIds;
@@ -629,8 +648,7 @@ void NotesModel::replaceVisibleNotes(NMMItem *storageItem, int desiredCount)
         QHash<QString, DraftRecord> draftByNote;
         for (const auto &draft : pending) {
             if (draft.operation == DraftRecord::Delete || draft.state == DraftRecord::Deleting
-                || (folderCatalogManager_ && folderCatalogManager_->isAvailable()
-                    && !draft.remoteNoteId.isEmpty()
+                || (folderCatalogManager_ && folderCatalogManager_->isAvailable() && !draft.remoteNoteId.isEmpty()
                     && folderCatalogManager_->catalog().isRecycled(storageItem->id, draft.remoteNoteId)))
                 continue;
             if (draft.storageId != storageItem->id || isUnpublishedDraft(draft))
@@ -664,16 +682,36 @@ void NotesModel::replaceVisibleNotes(NMMItem *storageItem, int desiredCount)
                                            right->pendingDraft, right->favorite, right->lastChange, right->title);
     });
 
-    const int count = storageItem->syntheticStorage ? projected.size() : qMin(desiredCount, projected.size());
-    while (projected.size() > count)
-        delete projected.takeLast();
-    if (count > 0) {
-        beginInsertRows(parentIndex, 0, count - 1);
-        storageItem->children = std::move(projected);
-        endInsertRows();
+    return projected;
+}
+
+QVariantList NotesModel::storageNoteDescriptors(const QString &storageId, const QAbstractProxyModel *filter) const
+{
+    auto *storage = storageItem(storageId);
+    if (!storage)
+        return {};
+
+    // Search already exposes every matching row. Without search, read the
+    // full projection without fetching pages or touching the attached view.
+    const auto   parent = storageIndex(storageId);
+    const auto   notes  = filter ? storage->children : projectStorageNotes(storage);
+    QVariantList result;
+    result.reserve(notes.size());
+    for (int row = 0; row < notes.size(); ++row) {
+        if (filter && !filter->mapFromSource(index(row, 0, parent)).isValid())
+            continue;
+        const auto *note = notes.at(row);
+        result.append(QVariantMap {
+            { QStringLiteral("storageId"), storageId },
+            { QStringLiteral("noteId"), note->id },
+            { QStringLiteral("title"), note->title },
+            { QStringLiteral("favorite"), note->favorite },
+            { QStringLiteral("order"), row },
+        });
     }
-    if (parentIndex.isValid())
-        emit dataChanged(parentIndex, parentIndex, { HasMoreRole, NoteCountRole });
+    if (!filter)
+        qDeleteAll(notes);
+    return result;
 }
 
 void NotesModel::draftsChanged()
@@ -771,8 +809,7 @@ int NotesModel::projectedNoteCount(const NMMItem *storageItem) const
         if (draft.removeSourceStorageId == storageItem->id && !draft.removeSourceNoteId.isEmpty())
             ids.remove(draft.removeSourceNoteId);
         if (draft.storageId != storageItem->id || isUnpublishedDraft(draft)
-            || (folderCatalogManager_ && folderCatalogManager_->isAvailable()
-                && !draft.remoteNoteId.isEmpty()
+            || (folderCatalogManager_ && folderCatalogManager_->isAvailable() && !draft.remoteNoteId.isEmpty()
                 && folderCatalogManager_->catalog().isRecycled(storageItem->id, draft.remoteNoteId)))
             continue;
         ids.insert(draft.remoteNoteId.isEmpty() ? draft.id.toString(QUuid::WithoutBraces) : draft.remoteNoteId);

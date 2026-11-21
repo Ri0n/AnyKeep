@@ -40,8 +40,7 @@ namespace {
 } // namespace
 
 DraftStoreError DraftManager::stageTransfer(const Note &source, const QString &destinationStorageId,
-                                            const QUuid &destinationFolderId, QUuid *draftId,
-                                            bool folderUserOverride)
+                                            const QUuid &destinationFolderId, QUuid *draftId, bool folderUserOverride)
 {
     if (!store_)
         return { DraftStoreError::Locked, lastError_.isEmpty() ? tr("Draft store is locked") : lastError_ };
@@ -64,60 +63,41 @@ DraftStoreError DraftManager::stageTransfer(const Note &source, const QString &d
         return { DraftStoreError::InvalidArgument, tr("The destination storage does not support note attachments") };
     }
 
-    Note destination = destinationStorage->createNote();
+    const Note destination = destinationStorage->createNote();
     if (destination.isNull())
         return { DraftStoreError::Io, tr("Could not create the destination note") };
 
-    // The durable draft stores the canonical logical document. Conversion to
-    // a storage-specific representation is a publication-boundary concern, so
-    // retargeting before acknowledgement is lossless and reversible.
-    const QString title = source.title();
-    const QString body  = source.text();
-    destination.setTitle(title);
-    destination.setText(body, source.format());
-    destination.setTags(source.tags());
-    destination.setFolderId(destinationFolderId);
-    destination.setMedia(source.media());
-    if (destinationStorage->supportsFavorite())
-        destination.setFavorite(source.isFavorite());
-
-    const QUuid transferDraftId = acquireEditingSession(destination);
-    const auto  saveError
-        = saveEditing(transferDraftId, destination, title, body, source.format(), folderUserOverride);
-    if (saveError) {
-        releaseEditingSession(transferDraftId);
-        return saveError;
-    }
-
-    auto transfer = store_->load(transferDraftId);
-    if (!transfer) {
-        releaseEditingSession(transferDraftId);
-        return transfer.error;
-    }
-    transfer.value.tags                  = source.tags();
-    transfer.value.removeSourceStorageId = source.storageId();
-    transfer.value.removeSourceNoteId    = source.id();
-    // The transfer's base token belongs to the persisted source, not to the
-    // newly-created destination Note placeholder. Retaining it makes pre-ACK
-    // retargeting back to the source concurrency-safe.
-    transfer.value.backendData = source.backendData();
-    transfer.value.updatedAt   = QDateTime::currentDateTimeUtc();
-    if (const auto writeError = store_->write(transfer.value)) {
-        releaseEditingSession(transferDraftId);
-        return writeError;
-    }
-
-    const auto readyError = markReady(transferDraftId);
-    releaseEditingSession(transferDraftId);
-    if (readyError)
-        return readyError;
+    // Publishable transfers carry the canonical document and both sides of
+    // the move in the same durable write. The base token still belongs to the
+    // source so a pre-ACK move back can restore its concurrency state.
+    DraftRecord transfer;
+    transfer.id                    = QUuid::createUuid();
+    transfer.state                 = DraftRecord::Ready;
+    transfer.storageId             = destinationStorageId;
+    transfer.remoteNoteId          = destination.id();
+    transfer.title                 = source.title();
+    transfer.body                  = source.text();
+    transfer.format                = source.format();
+    transfer.tags                  = source.tags();
+    transfer.folderId              = destinationFolderId;
+    transfer.folderUserOverride    = folderUserOverride;
+    transfer.media                 = source.media();
+    transfer.removeSourceStorageId = source.storageId();
+    transfer.removeSourceNoteId    = source.id();
+    transfer.backendData           = source.backendData();
+    transfer.revision              = 1;
+    transfer.updatedAt             = QDateTime::currentDateTimeUtc();
+    if (const auto error = store_->write(transfer))
+        return error;
     if (draftId)
-        *draftId = transferDraftId;
+        *draftId = transfer.id;
+    emit draftsChanged();
+    QTimer::singleShot(0, this, &DraftManager::publishPending);
     return {};
 }
 
-DraftStoreResult<DraftRecord> DraftManager::retargetEditingDraft(const QUuid &draftId,
-                                                                              const QString &destinationStorageId)
+DraftStoreResult<DraftRecord> DraftManager::retargetEditingDraft(const QUuid   &draftId,
+                                                                 const QString &destinationStorageId)
 {
     if (!store_)
         return { {}, { DraftStoreError::Locked, lastError_.isEmpty() ? tr("Draft store is locked") : lastError_ } };
@@ -183,11 +163,11 @@ DraftStoreError DraftManager::copyDraft(const QUuid &draftId, const QString &des
     copy.removeSourceNoteId.clear();
     copy.remoteNoteId.clear();
     QVariantMap portableData;
-    const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+    const auto  favoriteKey = QString::fromLatin1(FavoriteBackendKey);
     if (copy.backendData.contains(favoriteKey))
         portableData.insert(favoriteKey, copy.backendData.value(favoriteKey));
     copy.backendData = std::move(portableData);
-    copy.state = DraftRecord::Ready;
+    copy.state       = DraftRecord::Ready;
     copy.lastError.clear();
     copy.retryAt  = {};
     copy.revision = 1;
@@ -267,8 +247,7 @@ DraftStoreError DraftManager::retargetDraftForPublication(DraftRecord   *record,
     if (const auto formatError = resolveDestinationFormat(destinationStorage, record->format, &targetFormat))
         return formatError;
 
-    const bool transferPending
-        = !record->removeSourceStorageId.isEmpty() && !record->removeSourceNoteId.isEmpty();
+    const bool transferPending = !record->removeSourceStorageId.isEmpty() && !record->removeSourceNoteId.isEmpty();
 
     // Before destination acknowledgement, moving back to the persisted source
     // cancels the transfer. Restore the original remote identity and its base
@@ -300,7 +279,7 @@ DraftStoreError DraftManager::retargetDraftForPublication(DraftRecord   *record,
         // target-specific hints when rerouting, but keep portable user
         // metadata which belongs to the logical note rather than a backend.
         QVariantMap portableData;
-        const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+        const auto  favoriteKey = QString::fromLatin1(FavoriteBackendKey);
         if (record->backendData.contains(favoriteKey))
             portableData.insert(favoriteKey, record->backendData.value(favoriteKey));
         record->backendData = std::move(portableData);

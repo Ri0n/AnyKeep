@@ -188,6 +188,15 @@ ApplicationWindow {
         }
     }
 
+    Connections {
+        target: mobileApp.workspace
+        function onStorageSettingsRequested(storageId) {
+            const storage = mobileApp.workspace.storages.find(function(item) { return item.storageId === storageId })
+            if (storage)
+                navigation.push(storageSettings, { "storageId": storageId, "storageName": storage.name })
+        }
+    }
+
     Component {
         id: storageSettings
         StorageSettingsPage {

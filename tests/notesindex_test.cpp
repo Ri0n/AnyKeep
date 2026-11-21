@@ -4,10 +4,12 @@
 #include "notemanager.h"
 #include "notesindex.h"
 #include "notesmodel.h"
+#include "notessearchmodel.h"
 #include "recentnotesmodel.h"
 
 #include <QPointer>
 #include <QScopeGuard>
+#include <QSettings>
 
 #include <algorithm>
 #include <utility>
@@ -434,6 +436,50 @@ private slots:
         QVERIFY(recentModel.index(0, 0).data(NotesModel::FavoriteRole).toBool());
     }
 
+    void storagePriorityChangeKeepsTheGroupedRows()
+    {
+        auto      *manager            = NoteManager::instance();
+        const auto originalPriorities = QSettings().value(QStringLiteral("storage.priority")).toStringList();
+        auto       first              = std::make_unique<FakeStorage>(QStringLiteral("fake-priority-first"));
+        auto       second             = std::make_unique<FakeStorage>(QStringLiteral("fake-priority-second"));
+        first->sourceNotes            = { first->makeNote(QStringLiteral("first-note"), QStringLiteral("First")) };
+        second->sourceNotes           = { second->makeNote(QStringLiteral("second-note"), QStringLiteral("Second")) };
+        auto         *firstStorage    = first.get();
+        auto         *secondStorage   = second.get();
+        const QString firstId         = firstStorage->systemName();
+        const QString secondId        = secondStorage->systemName();
+        manager->registerStorage(std::move(first));
+        manager->registerStorage(std::move(second));
+        const auto cleanup = qScopeGuard([&] {
+            manager->unregisterStorage(firstStorage);
+            manager->unregisterStorage(secondStorage);
+            manager->setPriorities(originalPriorities);
+        });
+        manager->setPriorities({ firstId, secondId });
+        QTRY_COMPARE(manager->notesIndex()->noteCount(firstId), 1);
+        QTRY_COMPARE(manager->notesIndex()->noteCount(secondId), 1);
+
+        NotesModel       model;
+        NotesSearchModel grouped;
+        grouped.setSourceModel(&model);
+        const QPersistentModelIndex firstGroup(grouped.index(0, 0));
+        const QPersistentModelIndex secondGroup(grouped.index(1, 0));
+        QCOMPARE(firstGroup.data(NotesModel::StorageIdRole).toString(), firstId);
+        QCOMPARE(secondGroup.data(NotesModel::StorageIdRole).toString(), secondId);
+        const QPersistentModelIndex firstNote(grouped.index(0, 0, firstGroup));
+        QSignalSpy                  reset(&model, &QAbstractItemModel::modelReset);
+        QSignalSpy                  moved(&model, &QAbstractItemModel::rowsMoved);
+
+        manager->setPriorities({ secondId, firstId });
+
+        QCOMPARE(reset.size(), 0);
+        QCOMPARE(moved.size(), 1);
+        QCOMPARE(firstGroup.row(), 1);
+        QCOMPARE(secondGroup.row(), 0);
+        QCOMPARE(firstNote.parent(), QModelIndex(firstGroup));
+        QCOMPARE(firstNote.data(NotesModel::NoteIdRole).toString(), QStringLiteral("first-note"));
+    }
+
     void visiblePageKeepsItsTailWhenAnInsertedNoteIncreasesTheCount()
     {
         auto       storage  = std::make_unique<FakeStorage>(QStringLiteral("fake-visible-page"));
@@ -468,6 +514,19 @@ private slots:
         QVERIFY(!model.fetchMoreNear(raw->systemName(), QStringLiteral("note-0")));
         QCOMPARE(model.rowCount(storageIndex), model.pageSize());
 
+        {
+            QSignalSpy                  inserted(&model, &QAbstractItemModel::rowsInserted);
+            QSignalSpy                  removed(&model, &QAbstractItemModel::rowsRemoved);
+            const QPersistentModelIndex loadedNote(model.index(29, 0, storageIndex));
+            const auto                  selection = model.storageNoteDescriptors(raw->systemName(), nullptr);
+            QCOMPARE(selection.size(), 35);
+            QCOMPARE(selection.last().toMap().value(QStringLiteral("noteId")).toString(), QStringLiteral("note-34"));
+            QCOMPARE(model.rowCount(storageIndex), model.pageSize());
+            QCOMPARE(inserted.size(), 0);
+            QCOMPARE(removed.size(), 0);
+            QCOMPARE(loadedNote.data(NotesModel::NoteIdRole).toString(), QStringLiteral("note-29"));
+        }
+
         auto inserted = raw->makeNote(QStringLiteral("inserted"), QStringLiteral("Inserted"));
         inserted.setLastChangeUTC(baseTime.addSecs(-28).addMSecs(-500));
         raw->sourceNotes.append(inserted);
@@ -481,6 +540,13 @@ private slots:
         QVERIFY(model.fetchMoreNear(raw->systemName(), QStringLiteral("note-29")));
         QCOMPARE(model.rowCount(storageIndex), 36);
         QVERIFY(!model.fetchMoreNear(raw->systemName(), QStringLiteral("note-34")));
+
+        NotesSearchModel filter;
+        filter.setSourceModel(&model);
+        filter.setSearchText(QStringLiteral("Note 34"));
+        const auto matching = model.storageNoteDescriptors(raw->systemName(), &filter);
+        QCOMPARE(matching.size(), 1);
+        QCOMPARE(matching.first().toMap().value(QStringLiteral("noteId")).toString(), QStringLiteral("note-34"));
     }
 };
 

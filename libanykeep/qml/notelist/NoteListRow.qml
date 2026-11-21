@@ -576,6 +576,7 @@ SwipeDelegate {
     }
 
     TapHandler {
+        id: touchHold
         enabled: collection.touchActions
         acceptedButtons: Qt.LeftButton
         acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Stylus
@@ -583,12 +584,11 @@ SwipeDelegate {
         onLongPressed: {
             row.claimInteractionFocus()
             row.suppressClickUntil = Date.now() + 1000
-            // A long press enters mobile multi-selection rather than showing
-            // a popup that obscures the selected notes.
+            // Long-press a note to enter selection mode, or a group to open its menu.
             if (row.noteRow)
                 collection.setNoteSelected(row, true)
             else
-                collection.requestContextMenu(row)
+                collection.requestContextMenu(row, row.mapToItem(collection, touchHold.point.position))
         }
     }
 }

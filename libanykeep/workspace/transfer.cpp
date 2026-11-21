@@ -21,6 +21,8 @@
 #include <QTimer>
 #include <algorithm>
 #include <limits>
+#include <memory>
+#include <utility>
 
 namespace AnyKeep {
 
@@ -32,11 +34,16 @@ bool NotesWorkspaceController::moveNote(const QString &sourceStorageId, const QS
 
 bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const QString &noteId,
                                           const QString &destinationStorageId, const QUuid &reorderBatchId,
-                                          int reorderIndex)
+                                          int reorderIndex, std::function<void(bool, const QString &)> prepared)
 {
+    const auto reportPrepared = [prepared = std::move(prepared)](bool success, const QString &error = {}) {
+        if (prepared)
+            prepared(success, error);
+        return success;
+    };
     if (sourceStorageId.isEmpty() || noteId.isEmpty() || destinationStorageId.isEmpty()
         || sourceStorageId == destinationStorageId) {
-        return false;
+        return reportPrepared(false);
     }
     setError({});
 
@@ -46,11 +53,11 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
         pendingDraftId = QUuid(noteId);
         if (pendingDraftId.isNull()) {
             setError(tr("The draft identifier is invalid"));
-            return false;
+            return reportPrepared(false, errorString_);
         }
         liveEditor = draftManager_->liveEditorForDraft(pendingDraftId);
     } else {
-        liveEditor = draftManager_->liveEditorForNote(sourceStorageId, noteId);
+        liveEditor         = draftManager_->liveEditorForNote(sourceStorageId, noteId);
         const auto pending = draftManager_->pendingDraftForNote(sourceStorageId, noteId);
         if (pending) {
             pendingDraftId = pending.value.id;
@@ -71,7 +78,7 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
     if (liveEditor) {
         if (!liveEditor->retargetStorage(destinationStorageId)) {
             setError(liveEditor->errorString());
-            return false;
+            return reportPrepared(false, errorString_);
         }
         if (!liveEditor->folderId().isNull()) {
             rememberPendingFolderAssignment(liveEditor->draftId(), liveEditor->folderId());
@@ -79,7 +86,7 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
         }
         if (!reorderBatchId.isNull())
             pendingMoves_.insert(liveEditor->draftId(), { reorderBatchId, reorderIndex, false });
-        return true;
+        return reportPrepared(true);
     }
 
     // A persisted draft with no live view can be retargeted directly. Its
@@ -88,34 +95,48 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
         const auto error = draftManager_->moveDraft(pendingDraftId, destinationStorageId);
         if (error) {
             setError(error.message);
-            return false;
+            return reportPrepared(false, error.message);
         }
         if (!reorderBatchId.isNull())
             pendingMoves_.insert(pendingDraftId, { reorderBatchId, reorderIndex, false });
-        return true;
+        return reportPrepared(true);
     }
 
+    auto      *manager = NoteManager::instance();
+    const auto storage = manager->storage(sourceStorageId);
+    auto      *job     = manager->loadNoteAsync(sourceStorageId, noteId, this);
+    if (!job) {
+        setError(tr("Could not start loading the selected note"));
+        return reportPrepared(false, errorString_);
+    }
     beginOperation();
-    auto      *job    = NoteManager::instance()->loadNoteAsync(sourceStorageId, noteId, this);
-    const auto loaded = [this, job, destinationStorageId, reorderBatchId, reorderIndex]() {
-        if (job->state() != StorageJob::Succeeded) {
-            if (job->state() != StorageJob::Cancelled)
-                setError(job->error().message.isEmpty() ? tr("Failed to load the note for moving")
-                                                        : job->error().message);
-            job->deleteLater();
-            endOperation();
-            completePendingReorderMove(reorderBatchId, reorderIndex, {});
-            return;
+    const auto loaded = [this, job, destinationStorageId, reorderBatchId, reorderIndex, reportPrepared]() {
+        bool    staged = false;
+        QString error;
+        if (job->state() == StorageJob::Succeeded) {
+            staged = beginMove(job->result(), destinationStorageId, reorderBatchId, reorderIndex);
+            if (!staged)
+                error = errorString_;
+        } else if (job->state() != StorageJob::Cancelled) {
+            error = job->error().message.isEmpty() ? tr("Failed to load the note for moving") : job->error().message;
+            setError(error);
         }
-        const Note source = job->result();
+        if (!staged)
+            completePendingReorderMove(reorderBatchId, reorderIndex, {});
         job->deleteLater();
         endOperation();
-        if (!beginMove(source, destinationStorageId, reorderBatchId, reorderIndex))
-            completePendingReorderMove(reorderBatchId, reorderIndex, {});
+        reportPrepared(staged, error);
     };
     connect(job, &StorageJob::finished, this, loaded);
-    if (job->isFinished())
+    if (job->isFinished()) {
         QTimer::singleShot(0, this, loaded);
+    } else if (storage) {
+        // A removed backend may drop its asynchronous completion callback.
+        connect(manager, &NoteManager::storageRemoved, job, [job, storage](NoteStorage::Ptr removed) {
+            if (removed == storage)
+                job->fail({ StorageError::Unavailable, tr("The source storage is unavailable"), false });
+        });
+    }
     return true;
 }
 
@@ -217,6 +238,21 @@ bool NotesWorkspaceController::copyNote(const QString &sourceStorageId, const QS
 bool NotesWorkspaceController::moveNotes(const QVariantList &notes, const QString &destinationStorageId,
                                          const QString &anchorNoteId, bool insertAfter)
 {
+    return startNoteMoves(notes, destinationStorageId, anchorNoteId, insertAfter, false);
+}
+
+bool NotesWorkspaceController::moveSelectedNotes(const QVariantList &notes, const QString &destinationStorageId)
+{
+    if (movePreparationBusy_) {
+        setError(tr("Another bulk note operation is still running"));
+        return false;
+    }
+    return startNoteMoves(notes, destinationStorageId, {}, false, true);
+}
+
+bool NotesWorkspaceController::startNoteMoves(const QVariantList &notes, const QString &destinationStorageId,
+                                              const QString &anchorNoteId, bool insertAfter, bool reportPreparation)
+{
     if (notes.isEmpty() || destinationStorageId.isEmpty())
         return false;
     const auto destinationStorage = NoteManager::instance()->storage(destinationStorageId);
@@ -281,6 +317,8 @@ bool NotesWorkspaceController::moveNotes(const QVariantList &notes, const QStrin
     }
 
     if (pendingMoveCount == 0) {
+        if (reportPreparation)
+            return false;
         if (!reorderSupported)
             return true;
         QStringList noteIds;
@@ -304,14 +342,56 @@ bool NotesWorkspaceController::moveNotes(const QVariantList &notes, const QStrin
         pendingReorders_.insert(reorderBatchId, std::move(batch));
     }
 
+    struct Preparation {
+        int          remaining { 0 };
+        int          failed { 0 };
+        QString      firstError;
+        QVariantList prepared;
+    };
+    std::shared_ptr<Preparation> preparation;
+    if (reportPreparation) {
+        preparation            = std::make_shared<Preparation>();
+        preparation->remaining = pendingMoveCount;
+        movePreparationBusy_   = true;
+        emit movePreparationBusyChanged();
+    }
+
     bool started = false;
     for (qsizetype i = 0; i < sources.size(); ++i) {
         const auto &source = sources.at(i);
         if (source.storageId == destinationStorageId)
             continue;
-        const bool moveStarted
-            = moveNoteAt(source.storageId, source.noteId, destinationStorageId, reorderBatchId, int(i));
-        started = moveStarted || started;
+
+        std::function<void(bool, const QString &)> prepared;
+        if (preparation) {
+            prepared = [this, preparation, source](bool success, const QString &error) {
+                if (success) {
+                    preparation->prepared.append(QVariantMap {
+                        { QStringLiteral("storageId"), source.storageId },
+                        { QStringLiteral("noteId"), source.noteId },
+                    });
+                } else {
+                    ++preparation->failed;
+                    if (preparation->firstError.isEmpty())
+                        preparation->firstError = error;
+                }
+                if (--preparation->remaining > 0)
+                    return;
+                if (preparation->failed > 0) {
+                    auto summary
+                        = tr("%n selected note(s) could not be queued for moving", nullptr, preparation->failed);
+                    if (!preparation->firstError.isEmpty())
+                        summary += QStringLiteral(": ") + preparation->firstError;
+                    setError(summary);
+                }
+                emit noteMovesPrepared(preparation->prepared);
+                movePreparationBusy_ = false;
+                emit movePreparationBusyChanged();
+            };
+        }
+        const bool moveStarted = moveNoteAt(source.storageId, source.noteId, destinationStorageId, reorderBatchId,
+                                            int(i), std::move(prepared));
+        started                = moveStarted || started;
         if (!moveStarted)
             completePendingReorderMove(reorderBatchId, int(i), {});
     }
@@ -468,8 +548,8 @@ bool NotesWorkspaceController::stageMove(const Note &source, const QString &dest
     return true;
 }
 
-bool NotesWorkspaceController::stageDurableMove(const Note &source, const QString &destinationStorageId,
-                                                QUuid *draftId, bool folderUserOverride)
+bool NotesWorkspaceController::stageDurableMove(const Note &source, const QString &destinationStorageId, QUuid *draftId,
+                                                bool folderUserOverride)
 {
     const QUuid folderId = effectiveFolderId(source);
     const auto  error

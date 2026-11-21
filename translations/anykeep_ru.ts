@@ -1368,6 +1368,106 @@ Notes will be automatically saved to special storage, so you should not worry ab
         <source>Update and restart</source>
         <translation>Обновить и перезапустить</translation>
     </message>
+    <message>
+        <source>%1 selected</source>
+        <translation>Выбрано: %1</translation>
+    </message>
+    <message>
+        <source>%1 notes selected</source>
+        <translation>Выбрано заметок: %1</translation>
+    </message>
+    <message>
+        <source>Clear selection</source>
+        <translation>Снять выделение</translation>
+    </message>
+    <message>
+        <source>More actions for selected notes</source>
+        <translation>Дополнительные действия с выбранными заметками</translation>
+    </message>
+    <message>
+        <source>Move to folder…</source>
+        <translation>Переместить в папку…</translation>
+    </message>
+    <message>
+        <source>Move to storage…</source>
+        <translation>Переместить в хранилище…</translation>
+    </message>
+    <message>
+        <source>Archive…</source>
+        <translation>Архивировать…</translation>
+    </message>
+    <message>
+        <source>Delete permanently</source>
+        <translation>Удалить безвозвратно</translation>
+    </message>
+    <message>
+        <source>Delete selected notes</source>
+        <translation>Удалить выбранные заметки</translation>
+    </message>
+    <message>
+        <source>Move to Recycle Bin</source>
+        <translation>Переместить в корзину</translation>
+    </message>
+    <message>
+        <source>New note in this storage</source>
+        <translation>Добавить заметку</translation>
+    </message>
+    <message>
+        <source>Select all notes in this storage</source>
+        <translation>Выделить все заметки</translation>
+    </message>
+    <message>
+        <source>Select all matching notes</source>
+        <translation>Выделить найденные</translation>
+    </message>
+    <message>
+        <source>Raise storage priority</source>
+        <translation>Повысить приоритет</translation>
+    </message>
+    <message>
+        <source>Storage settings…</source>
+        <translation>Настройки хранилища…</translation>
+    </message>
+    <message>
+        <source>Add tag…</source>
+        <translation>Добавить метку…</translation>
+    </message>
+    <message>
+        <source>Toggle favorites</source>
+        <translation>Изменить избранное</translation>
+    </message>
+    <message>
+        <source>Move to storage</source>
+        <translation>Переместить в хранилище</translation>
+    </message>
+    <message>
+        <source>Move to folder</source>
+        <translation>Переместить в папку</translation>
+    </message>
+    <message>
+        <source>Archive in folder</source>
+        <translation>Архивировать в папку</translation>
+    </message>
+    <message>
+        <source>Unsorted</source>
+        <translation>Без папки</translation>
+    </message>
+    <message>
+        <source>Create archived folder…</source>
+        <translation>Создать архивную папку…</translation>
+    </message>
+    <message>
+        <source>No destinations available</source>
+        <translation>Нет доступных мест для переноса</translation>
+    </message>
+    <message>
+        <source>Current storage</source>
+        <translation>Текущее хранилище</translation>
+    </message>
+    <message>
+        <source>Preparing selected notes for moving…</source>
+        <translation>Подготавливаем выбранные заметки к переносу…</translation>
+    </message>
 </context>
 <context>
     <name>AnyKeep::UpdateController</name>
@@ -1522,6 +1622,21 @@ Notes will be automatically saved to special storage, so you should not worry ab
     <message>
         <source>Could not save the prepared update state</source>
         <translation>Не удалось сохранить состояние подготовленного обновления</translation>
+    </message>
+</context>
+<context>
+    <name>AnyKeep::NotesWorkspaceController</name>
+    <message>
+        <source>The source storage is unavailable</source>
+        <translation>Исходное хранилище недоступно</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n selected note(s) could not be queued for moving</source>
+        <translation>
+            <numerusform>Не удалось поставить в очередь на перенос %n заметку</numerusform>
+            <numerusform>Не удалось поставить в очередь на перенос %n заметки</numerusform>
+            <numerusform>Не удалось поставить в очередь на перенос %n заметок</numerusform>
+        </translation>
     </message>
 </context>
 </TS>

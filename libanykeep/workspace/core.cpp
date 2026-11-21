@@ -12,6 +12,7 @@
 #include "notestorage.h"
 #include "notetransfercontroller.h"
 #include "recentnotesmodel.h"
+#include "storageiconimageprovider.h"
 #include "storagejob.h"
 #include "storageprioritymodel.h"
 #include "utils.h"
@@ -212,12 +213,20 @@ QVariantList NotesWorkspaceController::storages() const
         QVariantMap item;
         item.insert(QStringLiteral("storageId"), storage->systemName());
         item.insert(QStringLiteral("name"), storage->name());
+        item.insert(QStringLiteral("iconSource"), storageIconSource(storage->systemName()));
         item.insert(QStringLiteral("accessible"), storage->isAccessible());
+        item.insert(QStringLiteral("writable"), storage->canAcceptWrites());
+        item.insert(QStringLiteral("configurable"), storage->isConfigurable());
         item.insert(QStringLiteral("supportsMedia"), storage->supportsMedia());
         item.insert(QStringLiteral("supportsNoteReordering"), storage->supportsNoteReordering());
         result.append(item);
     }
     return result;
+}
+
+QVariantList NotesWorkspaceController::storageNoteDescriptors(const QString &storageId) const
+{
+    return notesModel_->storageNoteDescriptors(storageId, searchText().trimmed().isEmpty() ? nullptr : searchModel_);
 }
 
 void NotesWorkspaceController::setSearchText(const QString &text) { searchModel_->setSearchText(text); }

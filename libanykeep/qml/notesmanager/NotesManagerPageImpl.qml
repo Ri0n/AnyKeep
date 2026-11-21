@@ -42,8 +42,9 @@ Item {
     property var contextMenuNotes: []
     property bool dontAskAgainForPermanentDeletion: false
     readonly property var selectedNotes: noteSelection.selectedNotes
-    readonly property bool selectionMode: touchActions
-                                          && Object.keys(selectedNotes || ({})).length > 0
+    readonly property int selectedNoteCount: Object.keys(selectedNotes).length
+    readonly property bool selectionMode: touchActions && selectedNoteCount > 0
+    readonly property bool selectionActionsAvailable: !workspace.metadataBatchBusy && !workspace.movePreparationBusy
     readonly property var activeDragDelegate: groupedNotes.activePayload
     readonly property var dropBoundary: groupedNotes.dropBoundary
     readonly property var dropTargetDelegate: dropBoundary
@@ -82,6 +83,102 @@ Item {
         implicitHeight: visible ? (root.touchActions ? 8 : 6) : 0
     }
 
+    component SelectionIconButton: ToolButton {
+        id: button
+        required property string iconFile
+
+        Layout.preferredWidth: 52
+        Layout.preferredHeight: 52
+        focusPolicy: Qt.NoFocus
+        enabled: root.selectionActionsAvailable
+        contentItem: Shared.ThemedIcon {
+            themeName: "__bundled__"
+            fallbackName: button.iconFile
+            recolorFallback: true
+            pixelSize: 28
+        }
+        ToolTip.visible: hovered || pressed
+        ToolTip.text: Accessible.name
+    }
+
+    component MobileSelectionAction: Action {
+        required property string iconFile
+        property string buttonName
+        icon.source: "qrc:/svg/" + iconFile
+        enabled: root.selectionActionsAvailable
+    }
+
+    MobileSelectionAction {
+        id: clearSelectionAction
+        iconFile: "selection-clear-symbolic.svg"
+        text: qsTr("Clear selection")
+        enabled: true
+        onTriggered: root.clearMobileSelection()
+    }
+
+    MobileSelectionAction {
+        id: tagSelectionAction
+        buttonName: "mobileSelectionTag"
+        iconFile: "tag-symbolic.svg"
+        text: qsTr("Add tag…")
+        onTriggered: {
+            if (root.prepareMobileSelectedNotes()) {
+                mobileTagName.text = ""
+                mobileTagError.text = ""
+                mobileTagDialog.open()
+            }
+        }
+    }
+
+    MobileSelectionAction {
+        id: favoriteSelectionAction
+        buttonName: "mobileSelectionFavorite"
+        iconFile: "emblem-favorite-symbolic.svg"
+        text: qsTr("Toggle favorites")
+        onTriggered: {
+            if (root.prepareMobileSelectedNotes())
+                root.setContextNotesFavorite(!root.contextNotesAllFavorite())
+        }
+    }
+
+    MobileSelectionAction {
+        id: folderSelectionAction
+        buttonName: "mobileSelectionFolderButton"
+        iconFile: "folder-symbolic.svg"
+        text: qsTr("Move to folder…")
+        enabled: root.workspace.folderCatalogAvailable && root.selectionActionsAvailable
+        onTriggered: {
+            if (root.prepareMobileSelectedNotes())
+                mobileDestinationDialog.openPicker("folder")
+        }
+    }
+
+    MobileSelectionAction {
+        id: storageSelectionAction
+        buttonName: "mobileSelectionStorageButton"
+        iconFile: "drive-harddisk-symbolic.svg"
+        text: qsTr("Move to storage…")
+        onTriggered: {
+            if (root.prepareMobileSelectedNotes())
+                mobileDestinationDialog.openPicker("storage")
+        }
+    }
+
+    MobileSelectionAction {
+        id: archiveSelectionAction
+        buttonName: "mobileSelectionArchiveButton"
+        iconFile: "archive-symbolic.svg"
+        text: qsTr("Archive…")
+        enabled: root.workspace.folderCatalogAvailable && root.selectionActionsAvailable
+        onTriggered: {
+            if (root.prepareMobileSelectedNotes())
+                mobileDestinationDialog.openPicker("archive")
+        }
+    }
+
+    component SelectionMenuItem: MenuItem {
+        implicitHeight: Math.max(48, implicitContentHeight + topPadding + bottomPadding)
+    }
 
     Manager.NotesManagerActionController {
         id: actionController
@@ -534,8 +631,10 @@ Item {
                                               groupedNotes.mapToItem(root, position))
                         }
                         groupContextHandler: function(item, position) {
+                            storageContextMenu.canSelectNotes = item.noteCount > 0
                             root.showStorageMenu(item.storageId, item.title,
-                                                 groupedNotes.mapToItem(root, position))
+                                                 position === undefined ? undefined
+                                                                        : groupedNotes.mapToItem(root, position))
                         }
                         groupSourceProvider: function(item, items) {
                             return items.filter(function(candidate) {
@@ -602,206 +701,131 @@ Item {
                     }
                 }
 
-                // Seven compact icon actions fit the mobile navigation width.
-                // All operations share the context-note action controller.
                 ToolBar {
                     id: selectionActionBar
                     objectName: "mobileNoteSelectionActionBar"
                     visible: root.selectionMode
                     Layout.fillWidth: true
-                    Layout.preferredHeight: visible ? 48 : 0
+                    Layout.preferredHeight: 56
                     background: Rectangle { color: selectionActionBar.palette.window }
 
                     RowLayout {
                         anchors.fill: parent
-                        spacing: 0
+                        spacing: 4
                         layoutDirection: Qt.application.layoutDirection
 
                         Label {
-                            Layout.fillWidth: true
                             Layout.minimumWidth: 24
-                            Layout.leftMargin: 4
-                            text: selectionActionBar.width < 430
-                                  ? String(root.selectedNoteDescriptors().length)
-                                  : qsTr("%1 selected").arg(root.selectedNoteDescriptors().length)
-                            elide: Text.ElideRight
-                            Accessible.name: qsTr("%1 notes selected").arg(root.selectedNoteDescriptors().length)
+                            text: String(root.selectedNoteCount)
+                            horizontalAlignment: Text.AlignHCenter
+                            Accessible.name: qsTr("%1 notes selected").arg(root.selectedNoteCount)
                         }
-                        ToolButton {
-                            objectName: "mobileSelectionDelete"
-                            Layout.preferredWidth: 39
-                            Layout.preferredHeight: 44
-                            display: AbstractButton.IconOnly
-                            focusPolicy: Qt.NoFocus
-                            enabled: !root.workspace.metadataBatchBusy
-                            contentItem: Shared.ThemedIcon {
-                                themeName: "__bundled__"
-                                fallbackName: "user-trash-full-symbolic.svg"
-                                recolorFallback: true
-                                pixelSize: 22
-                            }
-                            Accessible.name: qsTr("Delete selected notes")
-                            ToolTip.visible: hovered || pressed
-                            ToolTip.text: Accessible.name
-                            onClicked: {
-                                if (root.prepareMobileSelectedNotes())
-                                    root.requestContextNotesDeletion()
-                            }
-                        }
-                        ToolButton {
-                            objectName: "mobileSelectionMoveStorage"
-                            Layout.preferredWidth: 39
-                            Layout.preferredHeight: 44
-                            display: AbstractButton.IconOnly
-                            focusPolicy: Qt.NoFocus
-                            enabled: !root.workspace.metadataBatchBusy
-                            contentItem: Shared.ThemedIcon {
-                                themeName: "__bundled__"
-                                fallbackName: "drive-harddisk-symbolic.svg"
-                                recolorFallback: true
-                                pixelSize: 22
-                            }
-                            Accessible.name: qsTr("Move selected notes to storage")
-                            ToolTip.visible: hovered || pressed
-                            ToolTip.text: Accessible.name
-                            onClicked: {
-                                if (root.prepareMobileSelectedNotes())
-                                    moveDialog.open()
-                            }
-                        }
-                        ToolButton {
-                            objectName: "mobileSelectionMoveFolder"
-                            Layout.preferredWidth: 39
-                            Layout.preferredHeight: 44
-                            display: AbstractButton.IconOnly
-                            focusPolicy: Qt.NoFocus
-                            enabled: root.workspace.folderCatalogAvailable && !root.workspace.metadataBatchBusy
-                            contentItem: Shared.ThemedIcon {
-                                themeName: "__bundled__"
-                                fallbackName: "folder-symbolic.svg"
-                                recolorFallback: true
-                                pixelSize: 22
-                            }
-                            Accessible.name: qsTr("Move selected notes to folder")
-                            ToolTip.visible: hovered || pressed
-                            ToolTip.text: Accessible.name
-                            onClicked: {
-                                if (root.prepareMobileSelectedNotes())
-                                    mobileSelectionFolderPicker.popup()
-                            }
-                            Shared.FolderPickerMenu {
-                                id: mobileSelectionFolderPicker
-                                workspace: root.workspace
-                                currentFolderId: root.selectedNoteFolderId()
-                                selectionMixed: root.contextNotesHaveMixedFolders()
-                                onFolderSelected: function(folderId) { root.assignContextNotesFolder(folderId) }
-                            }
-                        }
-                        ToolButton {
-                            objectName: "mobileSelectionArchive"
-                            Layout.preferredWidth: 39
-                            Layout.preferredHeight: 44
-                            display: AbstractButton.IconOnly
-                            focusPolicy: Qt.NoFocus
-                            enabled: root.workspace.folderCatalogAvailable && !root.workspace.metadataBatchBusy
-                            contentItem: Shared.ThemedIcon {
-                                themeName: "__bundled__"
-                                fallbackName: "archive-symbolic.svg"
-                                recolorFallback: true
-                                pixelSize: 22
-                            }
-                            Accessible.name: qsTr("Archive selected notes")
-                            ToolTip.visible: hovered || pressed
-                            ToolTip.text: Accessible.name
-                            onClicked: {
-                                if (root.prepareMobileSelectedNotes())
-                                    mobileArchiveFolderPicker.popup()
-                            }
-                            Shared.FolderPickerMenu {
-                                id: mobileArchiveFolderPicker
-                                workspace: root.workspace
-                                archivedOnly: true
-                                currentFolderId: root.selectedNoteFolderId()
-                                selectionMixed: root.contextNotesHaveMixedFolders()
-                                onFolderSelected: function(folderId) { root.archiveContextNotes(folderId) }
-                                onCreateArchivedFolderRequested: {
-                                    archiveFolderName.text = ""
-                                    archiveCreateError.text = ""
-                                    mobileArchiveCreateDialog.open()
-                                }
-                            }
-                        }
-                        ToolButton {
-                            objectName: "mobileSelectionTag"
-                            Layout.preferredWidth: 39
-                            Layout.preferredHeight: 44
-                            display: AbstractButton.IconOnly
-                            focusPolicy: Qt.NoFocus
-                            enabled: !root.workspace.metadataBatchBusy
-                            contentItem: Shared.ThemedIcon {
-                                themeName: "__bundled__"
-                                fallbackName: "tag-symbolic.svg"
-                                recolorFallback: true
-                                pixelSize: 22
-                            }
-                            Accessible.name: qsTr("Add tag to selected notes")
-                            ToolTip.visible: hovered || pressed
-                            ToolTip.text: Accessible.name
-                            onClicked: {
-                                if (root.prepareMobileSelectedNotes()) {
-                                    mobileTagName.text = ""
-                                    mobileTagError.text = ""
-                                    mobileTagDialog.open()
-                                }
-                            }
-                        }
-                        ToolButton {
-                            objectName: "mobileSelectionFavorite"
-                            Layout.preferredWidth: 39
-                            Layout.preferredHeight: 44
-                            display: AbstractButton.IconOnly
-                            focusPolicy: Qt.NoFocus
-                            enabled: !root.workspace.metadataBatchBusy
-                            contentItem: Shared.ThemedIcon {
-                                themeName: "__bundled__"
-                                fallbackName: "emblem-favorite-symbolic.svg"
-                                recolorFallback: true
-                                pixelSize: 22
-                            }
-                            Accessible.name: qsTr("Toggle favorites for selected notes")
-                            ToolTip.visible: hovered || pressed
-                            ToolTip.text: Accessible.name
-                            onClicked: {
-                                if (root.prepareMobileSelectedNotes())
-                                    root.setContextNotesFavorite(!root.contextNotesAllFavorite())
-                            }
-                        }
-                        ToolButton {
+                        SelectionIconButton {
                             objectName: "mobileSelectionClear"
-                            Layout.preferredWidth: 39
-                            Layout.preferredHeight: 44
-                            display: AbstractButton.IconOnly
-                            focusPolicy: Qt.NoFocus
-                            contentItem: Shared.ThemedIcon {
-                                themeName: "__bundled__"
-                                fallbackName: "window-close-symbolic.svg"
-                                recolorFallback: true
-                                pixelSize: 22
+                            iconFile: clearSelectionAction.iconFile
+                            action: clearSelectionAction
+                            enabled: true
+                            Accessible.name: clearSelectionAction.text
+                        }
+                        ListView {
+                            objectName: "mobileSelectionActionStrip"
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: contentWidth
+                            Layout.preferredHeight: 52
+                            clip: true
+                            orientation: ListView.Horizontal
+                            layoutDirection: Qt.application.layoutDirection
+                            boundsBehavior: Flickable.StopAtBounds
+                            interactive: contentWidth > width
+                            spacing: 4
+                            model: [tagSelectionAction, favoriteSelectionAction, folderSelectionAction,
+                                    storageSelectionAction, archiveSelectionAction]
+
+                            delegate: SelectionIconButton {
+                                required property MobileSelectionAction modelData
+
+                                objectName: modelData.buttonName
+                                width: 52
+                                height: 52
+                                action: modelData
+                                enabled: modelData.enabled
+                                iconFile: modelData.iconFile
+                                Accessible.name: modelData.text
                             }
-                            Accessible.name: qsTr("Clear selection")
-                            ToolTip.visible: hovered || pressed
-                            ToolTip.text: Accessible.name
-                            onClicked: root.clearMobileSelection()
+
+                            ScrollBar.horizontal: ScrollBar { interactive: false }
+                        }
+                        SelectionIconButton {
+                            id: selectionMoreButton
+                            objectName: "mobileSelectionMore"
+                            iconFile: "overflow-menu-symbolic.svg"
+                            Accessible.name: qsTr("More actions for selected notes")
+                            onClicked: {
+                                if (root.prepareMobileSelectedNotes())
+                                    selectionMoreMenu.open()
+                            }
+
+                            Menu {
+                                id: selectionMoreMenu
+                                objectName: "mobileSelectionMoreMenu"
+                                parent: selectionMoreButton
+                                modal: true
+                                dim: false
+                                focus: true
+                                margins: 8
+                                width: Math.min(280, root.width - 2 * margins)
+                                height: Math.min(implicitHeight, root.height - 2 * margins)
+                                x: Qt.application.layoutDirection === Qt.RightToLeft
+                                   ? 0 : selectionMoreButton.width - width
+                                y: -height - 4
+
+                                SelectionMenuItem {
+                                    objectName: "mobileSelectionMenuTag"
+                                    action: tagSelectionAction
+                                }
+                                SelectionMenuItem {
+                                    objectName: "mobileSelectionMenuFavorite"
+                                    action: favoriteSelectionAction
+                                }
+                                SelectionMenuItem {
+                                    objectName: "mobileSelectionMoveFolder"
+                                    action: folderSelectionAction
+                                }
+                                SelectionMenuItem {
+                                    objectName: "mobileSelectionMoveStorage"
+                                    action: storageSelectionAction
+                                }
+                                SelectionMenuItem {
+                                    objectName: "mobileSelectionArchive"
+                                    action: archiveSelectionAction
+                                }
+                                SelectionMenuItem {
+                                    objectName: "mobileSelectionMenuClear"
+                                    action: clearSelectionAction
+                                }
+                                MenuSeparator {}
+                                SelectionMenuItem {
+                                    objectName: "mobileSelectionDelete"
+                                    icon.source: "qrc:/svg/user-trash-full-symbolic.svg"
+                                    text: root.contextNotesAllRecycled() ? qsTr("Delete permanently")
+                                          : root.contextNotesAnyRecycled() ? qsTr("Delete selected notes")
+                                          : qsTr("Move to Recycle Bin")
+                                    onTriggered: {
+                                        if (root.prepareMobileSelectedNotes())
+                                            root.requestContextNotesDeletion()
+                                    }
+                                }
+                            }
                         }
                     }
                 }
 
-
                 Label {
                     Layout.fillWidth: true
-                    visible: root.workspace.errorString.length > 0
-                    text: root.workspace.errorString
-                    color: palette.brightText
+                    visible: actionController.preparingSelectionMove || root.workspace.errorString.length > 0
+                    text: actionController.preparingSelectionMove
+                          ? qsTr("Preparing selected notes for moving…") : root.workspace.errorString
+                    color: actionController.preparingSelectionMove ? palette.windowText : palette.brightText
                     wrapMode: Text.WordWrap
                 }
             }
@@ -904,8 +928,13 @@ Item {
         CompactContextMenuItem {
             objectName: "noteContextMove"
             text: root.contextNoteCount() > 1 ? qsTr("Move notes…") : qsTr("Move…")
-            enabled: root.contextNoteCount() > 0
-            onTriggered: moveDialog.open()
+            enabled: root.contextNoteCount() > 0 && !root.workspace.movePreparationBusy
+            onTriggered: {
+                if (root.touchActions)
+                    mobileDestinationDialog.openPicker("storage")
+                else
+                    moveDialog.open()
+            }
         }
         Shared.FolderPickerMenu {
             id: noteFolderPicker
@@ -946,15 +975,37 @@ Item {
         focus: true
         width: root.touchActions ? Math.min(280, root.width - 32) : implicitWidth
 
+        property bool canSelectNotes: false
+        readonly property int storageRow: actionController.storagePriorityRow(root.selectedStorageId)
+        readonly property var storage: storageRow >= 0 ? root.workspace.storages[storageRow] : null
+
         CompactContextMenuItem {
+            objectName: "storageContextNewNote"
+            icon.source: "qrc:/icons/new"
             text: qsTr("New note in this storage")
-            onTriggered: {
-                if (!root.workspace.currentEditor || root.checkpointEditor())
-                    root.workspace.createNote(root.selectedStorageId)
-            }
+            enabled: Boolean(storageContextMenu.storage && storageContextMenu.storage.writable)
+            onTriggered: actionController.createNoteInStorage(root.selectedStorageId)
         }
         CompactContextMenuItem {
+            objectName: "storageContextSelectAll"
+            icon.source: "qrc:/svg/selection-all-symbolic.svg"
+            text: root.workspace.searchText.trim().length > 0 ? qsTr("Select all matching notes")
+                                                             : qsTr("Select all notes in this storage")
+            enabled: storageContextMenu.canSelectNotes
+            onTriggered: actionController.selectStorageNotes(root.selectedStorageId)
+        }
+        CompactContextMenuItem {
+            objectName: "storageContextRaisePriority"
+            icon.source: "qrc:/svg/go-up-symbolic.svg"
+            text: qsTr("Raise storage priority")
+            enabled: storageContextMenu.storageRow > 0
+            onTriggered: actionController.raiseStoragePriority(root.selectedStorageId)
+        }
+        CompactContextMenuItem {
+            objectName: "storageContextSettings"
+            icon.source: "qrc:/svg/preferences-system-symbolic.svg"
             text: qsTr("Storage settings…")
+            enabled: Boolean(storageContextMenu.storage && storageContextMenu.storage.configurable)
             onTriggered: root.workspace.openStorageSettings(root.selectedStorageId)
         }
     }
@@ -1111,6 +1162,146 @@ Item {
     }
 
     Dialog {
+        id: mobileDestinationDialog
+        objectName: "mobileMoveDestinationDialog"
+
+        property string mode: ""
+        property var destinations: []
+        property var currentFolderId: null
+        readonly property int rowHeight: 52
+
+        function openPicker(destinationMode) {
+            mode = destinationMode
+            currentFolderId = mode !== "storage" && !root.contextNotesHaveMixedFolders()
+                              ? root.selectedNoteFolderId() : null
+            if (mode === "storage") {
+                destinations = root.workspace.storages.map(function(storage) {
+                    const hasNotesToMove = root.contextMenuNotes.some(function(note) {
+                        return note.storageId !== storage.storageId
+                    })
+                    return {
+                        id: storage.storageId,
+                        title: storage.name,
+                        iconSource: storage.iconSource || "qrc:/svg/drive-harddisk-symbolic.svg",
+                        current: !hasNotesToMove,
+                        available: storage.writable && hasNotesToMove
+                    }
+                })
+            } else {
+                const archived = mode === "archive"
+                const folders = root.workspace.folderNotesModel?.folderPickerItems(archived) || []
+                const entries = archived ? [] : [{ id: "", title: qsTr("Unsorted"), available: true }]
+                for (const folder of folders) {
+                    if (archived && !folder.inArchivedBranch)
+                        continue
+                    const prefix = "    ".repeat(folder.depth) + (folder.favorite ? "★ " : "")
+                    entries.push({ id: folder.folderId, title: prefix + folder.title, available: true })
+                }
+                if (archived)
+                    entries.push({ id: "", title: qsTr("Create archived folder…"), available: true })
+                destinations = entries
+            }
+            destinationList.positionViewAtBeginning()
+            open()
+        }
+
+        function choose(destinationId) {
+            close()
+            if (mode === "storage") {
+                root.moveContextNotesToStorage(destinationId)
+            } else if (mode === "folder") {
+                root.assignContextNotesFolder(destinationId)
+            } else if (destinationId.length > 0) {
+                root.archiveContextNotes(destinationId)
+            } else {
+                archiveFolderName.text = ""
+                archiveCreateError.text = ""
+                mobileArchiveCreateDialog.open()
+            }
+        }
+
+        parent: root
+        x: (root.width - width) / 2
+        y: (root.height - height) / 2
+        width: Math.min(420, root.width - 32)
+        height: Math.min(implicitHeight, Math.max(0, root.height - 32))
+        modal: true
+        focus: true
+        title: mode === "storage" ? qsTr("Move to storage")
+                                 : mode === "folder" ? qsTr("Move to folder") : qsTr("Archive in folder")
+        standardButtons: Dialog.Cancel
+
+        contentItem: ListView {
+            id: destinationList
+            objectName: "mobileMoveDestinationList"
+            implicitHeight: Math.max(1, count) * mobileDestinationDialog.rowHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            model: mobileDestinationDialog.destinations
+            currentIndex: -1
+            ScrollBar.vertical: ScrollBar {}
+
+            Label {
+                anchors.centerIn: parent
+                visible: destinationList.count === 0
+                text: qsTr("No destinations available")
+            }
+
+            delegate: ItemDelegate {
+                id: destinationRow
+                required property var modelData
+                readonly property bool currentStorage: Boolean(modelData.current)
+                objectName: "mobileMoveDestination-" + modelData.id
+                width: destinationList.width
+                height: mobileDestinationDialog.rowHeight
+                text: modelData.title
+                enabled: Boolean(modelData.available)
+                highlighted: mobileDestinationDialog.mode !== "storage"
+                             && (mobileDestinationDialog.mode === "folder" || modelData.id !== "")
+                             && modelData.id === mobileDestinationDialog.currentFolderId
+                Accessible.description: currentStorage ? qsTr("Current storage") : ""
+                font.pixelSize: 18
+
+                contentItem: RowLayout {
+                    spacing: 10
+                    layoutDirection: destinationRow.mirrored ? Qt.RightToLeft : Qt.LeftToRight
+
+                    Image {
+                        objectName: "mobileDestinationStorageIcon"
+                        visible: mobileDestinationDialog.mode === "storage"
+                        Layout.preferredWidth: 26
+                        Layout.preferredHeight: 26
+                        sourceSize.width: 26
+                        sourceSize.height: 26
+                        source: destinationRow.modelData.iconSource || ""
+                        fillMode: Image.PreserveAspectFit
+                        opacity: destinationRow.enabled || destinationRow.currentStorage ? 1 : 0.55
+                    }
+                    Label {
+                        objectName: "mobileDestinationName"
+                        Layout.fillWidth: true
+                        text: destinationRow.text
+                        font: destinationRow.font
+                        elide: Text.ElideRight
+                        color: destinationRow.enabled || destinationRow.currentStorage
+                               ? mobileDestinationDialog.palette.windowText : mobileDestinationDialog.palette.mid
+                    }
+                    Label {
+                        objectName: "mobileDestinationCurrentMark"
+                        visible: destinationRow.currentStorage
+                        text: "✓"
+                        font: destinationRow.font
+                        color: mobileDestinationDialog.palette.windowText
+                        Accessible.ignored: true
+                    }
+                }
+
+                onClicked: mobileDestinationDialog.choose(modelData.id)
+            }
+        }
+    }
+
+    Dialog {
         id: moveDialog
         objectName: "moveNotesDialog"
         parent: root
@@ -1184,6 +1375,9 @@ Item {
         ignoreUnknownSignals: true
         function onMetadataBatchFinished(failedNotes, errorSummary) {
             actionController.finishMetadataBatch(failedNotes)
+        }
+        function onNoteMovesPrepared(preparedNotes) {
+            actionController.finishSelectionMove(preparedNotes)
         }
         function onCurrentEditorChanged() {
             if (root.workspace.currentEditor) {

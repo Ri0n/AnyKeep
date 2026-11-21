@@ -31,6 +31,9 @@ class MemoryDraftStore final : public DraftStore {
 public:
     DraftStoreError write(const DraftRecord &record) override
     {
+        if (failWrite_)
+            return { DraftStoreError::Io, QStringLiteral("injected draft write failure") };
+        ++writeCount_;
         records_.insert(record.id, record);
         return {};
     }
@@ -64,6 +67,8 @@ public:
 
     QHash<QUuid, DraftRecord> records_;
     QUuid                     failRemoveId_;
+    int                       writeCount_ { 0 };
+    bool                      failWrite_ { false };
 };
 
 class TransferStorage final : public NoteStorage {
@@ -340,11 +345,11 @@ void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAl
 
 void DraftManagerTransferTest::synchronouslyFailedLoadDoesNotStrandDraft()
 {
-    auto storage = std::make_unique<TransferStorage>(QStringLiteral("synchronous-load-failure"));
+    auto       storage = std::make_unique<TransferStorage>(QStringLiteral("synchronous-load-failure"));
     const auto note = storage->addStored(QStringLiteral("note"), QStringLiteral("Title"), QStringLiteral("Original"));
     storage->failLoadsSynchronously_ = true;
-    auto *raw = registerStorage(std::move(storage));
-    const auto cleanup = qScopeGuard([raw]() {
+    auto      *raw                   = registerStorage(std::move(storage));
+    const auto cleanup               = qScopeGuard([raw]() {
         if (NoteManager::instance()->storage(raw->systemName()) == raw)
             NoteManager::instance()->unregisterStorage(raw);
     });
@@ -365,11 +370,11 @@ void DraftManagerTransferTest::synchronouslyFailedLoadDoesNotStrandDraft()
 
 void DraftManagerTransferTest::synchronouslyFailedSaveDoesNotStrandDraft()
 {
-    auto storage = std::make_unique<TransferStorage>(QStringLiteral("synchronous-save-failure"));
+    auto       storage = std::make_unique<TransferStorage>(QStringLiteral("synchronous-save-failure"));
     const auto note = storage->addStored(QStringLiteral("note"), QStringLiteral("Title"), QStringLiteral("Original"));
     storage->failSavesSynchronously_ = true;
-    auto *raw = registerStorage(std::move(storage));
-    const auto cleanup = qScopeGuard([raw]() {
+    auto      *raw                   = registerStorage(std::move(storage));
+    const auto cleanup               = qScopeGuard([raw]() {
         if (NoteManager::instance()->storage(raw->systemName()) == raw)
             NoteManager::instance()->unregisterStorage(raw);
     });
@@ -390,17 +395,17 @@ void DraftManagerTransferTest::synchronouslyFailedSaveDoesNotStrandDraft()
 
 void DraftManagerTransferTest::synchronouslyFailedRemovalDoesNotStrandDelete()
 {
-    auto storage = std::make_unique<TransferStorage>(QStringLiteral("synchronous-remove-failure"));
+    auto       storage = std::make_unique<TransferStorage>(QStringLiteral("synchronous-remove-failure"));
     const auto note = storage->addStored(QStringLiteral("note"), QStringLiteral("Title"), QStringLiteral("Original"));
     storage->failRemovesSynchronously_ = true;
-    auto *raw = registerStorage(std::move(storage));
-    const auto cleanup = qScopeGuard([raw]() {
+    auto      *raw                     = registerStorage(std::move(storage));
+    const auto cleanup                 = qScopeGuard([raw]() {
         if (NoteManager::instance()->storage(raw->systemName()) == raw)
             NoteManager::instance()->unregisterStorage(raw);
     });
 
-    auto store = std::make_unique<MemoryDraftStore>();
-    auto *storeRaw = store.get();
+    auto         store    = std::make_unique<MemoryDraftStore>();
+    auto        *storeRaw = store.get();
     DraftManager drafts(std::move(store));
     QVERIFY(!drafts.queueRemoval(raw->systemName(), note.id()));
     drafts.publishPending();
@@ -408,8 +413,8 @@ void DraftManagerTransferTest::synchronouslyFailedRemovalDoesNotStrandDelete()
     const auto deletionRetried = [storeRaw]() {
         const auto records = storeRaw->records();
         return records && std::any_of(records.value.cbegin(), records.value.cend(), [](const DraftRecord &record) {
-            return record.operation == DraftRecord::Delete && record.state == DraftRecord::Retry;
-        });
+                   return record.operation == DraftRecord::Delete && record.state == DraftRecord::Retry;
+               });
     };
     QTRY_VERIFY(deletionRetried());
     QCOMPARE(raw->removeCalls_, 0);
@@ -438,12 +443,20 @@ void DraftManagerTransferTest::publishesDestinationBeforeDeletingSource()
     QSignalSpy   published(&drafts, &DraftManager::draftPublished);
     const auto   folder = QUuid::createUuid();
     QUuid        draftId;
-    const auto   error = drafts.stageTransfer(source, destinationRaw->systemName(), folder, &draftId);
+    data->failWrite_ = true;
+    QCOMPARE(drafts.stageTransfer(source, destinationRaw->systemName(), folder, &draftId).code, DraftStoreError::Io);
+    QVERIFY(draftId.isNull());
+    QVERIFY(data->records_.isEmpty());
+    data->failWrite_ = false;
+
+    const auto error = drafts.stageTransfer(source, destinationRaw->systemName(), folder, &draftId);
     QVERIFY2(!error, qPrintable(error.message));
+    QCOMPARE(data->writeCount_, 1);
     QVERIFY(!draftId.isNull());
     QVERIFY(drafts.hasPendingTransferFrom(sourceRaw->systemName(), source.id()));
 
     const auto staged = data->records_.value(draftId);
+    QCOMPARE(staged.state, DraftRecord::Ready);
     QCOMPARE(staged.removeSourceStorageId, sourceRaw->systemName());
     QCOMPARE(staged.removeSourceNoteId, source.id());
     QCOMPARE(staged.backendData, source.backendData());

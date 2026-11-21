@@ -7,7 +7,10 @@
 #include <QAbstractItemModel>
 #include <QHash>
 #include <QStringList>
+#include <QVariantList>
 #include <QVariantMap>
+
+class QAbstractProxyModel;
 
 namespace AnyKeep {
 
@@ -70,8 +73,9 @@ public:
     bool            dropMimeData(const QMimeData *data, Qt::DropAction action, int row, int column,
                                  const QModelIndex &parent) override;
 
-    int pageSize() const { return pageSize_; }
-    int noteCount() const;
+    int          pageSize() const { return pageSize_; }
+    int          noteCount() const;
+    QVariantList storageNoteDescriptors(const QString &storageId, const QAbstractProxyModel *filter) const;
 
     Q_INVOKABLE void        refresh();
     Q_INVOKABLE void        refreshStorage(const QString &storageId);
@@ -98,13 +102,14 @@ private slots:
     void storageIndexStateChanged(const QString &storageId);
 
 private:
-    void        replaceVisibleNotes(NMMItem *storageItem, int desiredCount = -1);
-    void        draftsChanged();
-    QModelIndex storageIndex(const QString &storageId) const;
-    QModelIndex noteIndex(const QString &storageId, const QString &noteId) const;
-    NMMItem    *storageItem(const QString &storageId) const;
-    QList<Note> indexedNotes(const QString &storageId) const;
-    int         projectedNoteCount(const NMMItem *storageItem) const;
+    void             replaceVisibleNotes(NMMItem *storageItem, int desiredCount = -1);
+    QList<NMMItem *> projectStorageNotes(NMMItem *storageItem) const;
+    void             draftsChanged();
+    QModelIndex      storageIndex(const QString &storageId) const;
+    QModelIndex      noteIndex(const QString &storageId, const QString &noteId) const;
+    NMMItem         *storageItem(const QString &storageId) const;
+    QList<Note>      indexedNotes(const QString &storageId) const;
+    int              projectedNoteCount(const NMMItem *storageItem) const;
 
     QList<NMMItem *>      storages_;
     int                   pageSize_ { 30 };

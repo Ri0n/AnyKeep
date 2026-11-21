@@ -9,6 +9,7 @@ private slots:
     void loadsNotesManagerQmlShell();
     void notesManagerFoldersTabInstantiatesInOwnerContext();
     void notesManagerContextMenusAndSelectionWork();
+    void mobileStorageLongPressOpensContextActions();
     void notesManagerInternalDragsWork();
     void notesManagerVirtualizedDragsWork();
     void recentNoteSwipeClosesEveryDeleteAction();

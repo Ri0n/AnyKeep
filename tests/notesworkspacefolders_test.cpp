@@ -42,6 +42,24 @@ public:
         }
         return {};
     }
+    NoteLoadJob *loadNoteAsync(const QString &id, QObject *owner = nullptr) override
+    {
+        if (id != deferredLoadId)
+            return NoteStorage::loadNoteAsync(id, owner);
+        auto *job = new NoteLoadJob(owner ? owner : this);
+        job->start();
+        deferredLoad = job;
+        return job;
+    }
+    NoteSaveJob *saveNoteAsync(const Note &note, QObject *owner = nullptr) override
+    {
+        if (!deferSaves)
+            return NoteStorage::saveNoteAsync(note, owner);
+        auto *job = new NoteSaveJob(owner ? owner : this);
+        job->start();
+        deferredSave = job;
+        return job;
+    }
     Note createNote() override
     {
         Note note(new NoteData(this));
@@ -54,8 +72,8 @@ public:
         lastSavedFolderId = note.folderId();
         return true;
     }
-    bool supportsNativeFolders() const override { return snapshotFolderWrites; }
-    bool supportsDraftSnapshotSave() const override { return snapshotFolderWrites; }
+    bool                 supportsNativeFolders() const override { return snapshotFolderWrites; }
+    bool                 supportsDraftSnapshotSave() const override { return snapshotFolderWrites; }
     NoteFolderChangeJob *changeNoteFolderAsync(const Note &note, QObject *owner = nullptr) override
     {
         ++folderChangeCalls;
@@ -63,11 +81,15 @@ public:
     }
     void removeNote(const QString &) override {}
 
-    bool snapshotFolderWrites { false };
-    bool writeAvailable { true };
-    int saveCalls { 0 };
-    int folderChangeCalls { 0 };
-    QUuid lastSavedFolderId;
+    bool                  snapshotFolderWrites { false };
+    bool                  writeAvailable { true };
+    bool                  deferSaves { false };
+    QString               deferredLoadId;
+    QPointer<NoteLoadJob> deferredLoad;
+    QPointer<NoteSaveJob> deferredSave;
+    int                   saveCalls { 0 };
+    int                   folderChangeCalls { 0 };
+    QUuid                 lastSavedFolderId;
 
     Note makeNote(const QString &id, const QString &title)
     {
@@ -100,6 +122,8 @@ private slots:
     void recentReorderRejectsCrossStorageMove();
     void exposesBodySearchMatchesForEditorFind();
     void sharesLiveModelAcrossViewsAndRetargetsMove();
+    void bulkMoveReportsDurableDraftsWithPartialSourceFailure_data();
+    void bulkMoveReportsDurableDraftsWithPartialSourceFailure();
     void opensDurableDraftWithoutTargetStorage();
 };
 
@@ -141,14 +165,13 @@ void NotesWorkspaceFoldersTest::createsFoldersWithInitialFlagsAtomically()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    FolderCatalogManager catalog(makeCatalogStore(directory));
-    DraftManager drafts(makeDraftStore(directory));
+    FolderCatalogManager     catalog(makeCatalogStore(directory));
+    DraftManager             drafts(makeDraftStore(directory));
     NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
     QVERIFY(catalog.initialize());
 
     QSignalSpy changed(&catalog, &FolderCatalogManager::catalogChanged);
-    const auto rootId = workspace.createFolderWithFlags(QStringLiteral("Important"),
-                                                         {}, true, false);
+    const auto rootId = workspace.createFolderWithFlags(QStringLiteral("Important"), {}, true, false);
     QVERIFY(!rootId.isEmpty());
     const auto *root = catalog.catalog().folder(QUuid(rootId));
     QVERIFY(root);
@@ -157,8 +180,7 @@ void NotesWorkspaceFoldersTest::createsFoldersWithInitialFlagsAtomically()
     QVERIFY(!root->archived);
     QCOMPARE(changed.count(), 1);
 
-    const auto archivedId = workspace.createFolderWithFlags(QStringLiteral("Old notes"),
-                                                             rootId, false, true);
+    const auto archivedId = workspace.createFolderWithFlags(QStringLiteral("Old notes"), rootId, false, true);
     QVERIFY(!archivedId.isEmpty());
     const auto *child = catalog.catalog().folder(QUuid(archivedId));
     QVERIFY(child);
@@ -290,14 +312,14 @@ void NotesWorkspaceFoldersTest::recyclesLiveSnapshotWithOneStorageWriter()
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     FolderCatalogManager catalog(makeCatalogStore(directory));
-    DraftManager drafts(makeDraftStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
     QVERIFY(catalog.initialize());
 
     auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-snapshot-recycle"));
     storage->snapshotFolderWrites = true;
     storage->notes = { storage->makeNote(QStringLiteral("note"), QStringLiteral("Note with remote snapshot")) };
-    auto *raw = storage.get();
-    auto *manager = NoteManager::instance();
+    auto *raw      = storage.get();
+    auto *manager  = NoteManager::instance();
     manager->registerStorage(std::move(storage));
     const auto cleanup = qScopeGuard([manager, raw]() {
         if (manager->storage(raw->systemName()) == raw)
@@ -325,14 +347,14 @@ void NotesWorkspaceFoldersTest::pendingRecycledSnapshotAppearsInRecycleBinNotDra
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     FolderCatalogManager catalog(makeCatalogStore(directory));
-    DraftManager drafts(makeDraftStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
     QVERIFY(catalog.initialize());
 
     auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-offline-recycle"));
     storage->snapshotFolderWrites = true;
-    storage->notes = { storage->makeNote(QStringLiteral("note"), QStringLiteral("Offline note")) };
-    auto *raw = storage.get();
-    auto *manager = NoteManager::instance();
+    storage->notes                = { storage->makeNote(QStringLiteral("note"), QStringLiteral("Offline note")) };
+    auto *raw                     = storage.get();
+    auto *manager                 = NoteManager::instance();
     manager->registerStorage(std::move(storage));
     const auto cleanup = qScopeGuard([manager, raw]() {
         if (manager->storage(raw->systemName()) == raw)
@@ -484,14 +506,14 @@ void NotesWorkspaceFoldersTest::sharesLiveModelAcrossViewsAndRetargetsMove()
     DraftManager         drafts(makeDraftStore(directory));
     QVERIFY(catalog.initialize());
 
-    auto source = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-live-editor"));
+    auto       source   = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-live-editor"));
     const auto note     = source->makeNote(QStringLiteral("note"), QStringLiteral("Shared note"));
     const auto removed  = source->makeNote(QStringLiteral("removed"), QStringLiteral("Delete me"));
     const auto recycled = source->makeNote(QStringLiteral("recycled"), QStringLiteral("Recycle me"));
-    source->notes = { note, removed, recycled };
-    auto *sourceRaw = source.get();
+    source->notes       = { note, removed, recycled };
+    auto *sourceRaw     = source.get();
 
-    auto destination = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-destination"));
+    auto  destination    = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-destination"));
     auto *destinationRaw = destination.get();
 
     auto *manager = NoteManager::instance();
@@ -580,6 +602,99 @@ void NotesWorkspaceFoldersTest::sharesLiveModelAcrossViewsAndRetargetsMove()
     QVERIFY(movedEditor.isNull());
 }
 
+void NotesWorkspaceFoldersTest::bulkMoveReportsDurableDraftsWithPartialSourceFailure_data()
+{
+    QTest::addColumn<bool>("removeStorage");
+    QTest::newRow("network failure") << false;
+    QTest::newRow("source storage removed") << true;
+}
+
+void NotesWorkspaceFoldersTest::bulkMoveReportsDurableDraftsWithPartialSourceFailure()
+{
+    QFETCH(bool, removeStorage);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
+    QVERIFY(catalog.initialize());
+
+    const QString sourceId      = QStringLiteral("bulk-move-source");
+    const QString destinationId = QStringLiteral("bulk-move-target");
+    const QString availableId   = QStringLiteral("available");
+    const QString offlineId     = QStringLiteral("offline");
+    auto          source        = std::make_unique<WorkspaceFolderStorage>(sourceId);
+    Note          available     = source->makeNote(availableId, QStringLiteral("Available"));
+    available.setText(QStringLiteral("Note body"), Note::Markdown);
+    source->notes           = { available, source->makeNote(offlineId, QStringLiteral("Offline")) };
+    source->deferredLoadId  = offlineId;
+    auto destination        = std::make_unique<WorkspaceFolderStorage>(destinationId);
+    destination->deferSaves = true;
+
+    auto *manager            = NoteManager::instance();
+    auto *sourceStorage      = source.get();
+    auto *destinationStorage = destination.get();
+    manager->registerStorage(std::move(source));
+    manager->registerStorage(std::move(destination));
+    const auto cleanup = qScopeGuard([&] {
+        if (manager->storage(destinationId) == destinationStorage)
+            manager->unregisterStorage(destinationStorage);
+        if (manager->storage(sourceId) == sourceStorage)
+            manager->unregisterStorage(sourceStorage);
+    });
+    QTRY_VERIFY(manager->notesIndex()->hasSnapshot(sourceId));
+    QTRY_VERIFY(manager->notesIndex()->hasSnapshot(destinationId));
+
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
+    QSignalSpy               prepared(&workspace, &NotesWorkspaceController::noteMovesPrepared);
+    const QVariantMap        availableSelection { { QStringLiteral("storageId"), sourceId },
+                                                  { QStringLiteral("noteId"), availableId } };
+    const QVariantMap        offlineSelection { { QStringLiteral("storageId"), sourceId },
+                                                { QStringLiteral("noteId"), offlineId } };
+    const QVariantList       selection { availableSelection, offlineSelection };
+    QVERIFY(workspace.moveSelectedNotes(selection, destinationId));
+    QVERIFY(workspace.movePreparationBusy());
+    QVERIFY(sourceStorage->deferredLoad);
+
+    QTRY_VERIFY(destinationStorage->deferredSave);
+    QCOMPARE(prepared.count(), 0);
+    QVERIFY(workspace.movePreparationBusy());
+    QVERIFY(!workspace.moveSelectedNotes(selection, destinationId));
+
+    const QString error
+        = removeStorage ? QStringLiteral("The source storage is unavailable") : QStringLiteral("Source went offline");
+    QVERIFY(!sourceStorage->note(availableId).isNull());
+    if (removeStorage)
+        manager->unregisterStorage(sourceStorage);
+    else
+        QVERIFY(sourceStorage->deferredLoad->fail({ StorageError::Network, error, true }));
+    QCOMPARE(prepared.count(), 1);
+    QCOMPARE(prepared.first().first().toList(), (QVariantList { availableSelection }));
+    QVERIFY(!workspace.movePreparationBusy());
+    QVERIFY(workspace.errorString().contains(error));
+    QVERIFY(!drafts.hasPendingTransferFrom(sourceId, offlineId));
+
+    const auto pending = drafts.pendingDrafts();
+    QCOMPARE(pending.size(), 1);
+    const auto &transfer = pending.first();
+    QCOMPARE(transfer.state, DraftRecord::Publishing);
+    QCOMPARE(transfer.body, available.text());
+    QCOMPARE(transfer.removeSourceNoteId, availableId);
+    QCOMPARE(transfer.removeSourceStorageId, sourceId);
+
+    // The same durable transfer can be opened even while the backend waits
+    // for an acknowledgement, and autosave keeps its original source.
+    QVERIFY(workspace.openNote(destinationId, transfer.id.toString(QUuid::WithoutBraces)));
+    auto *editor = workspace.editor();
+    QVERIFY(editor);
+    QCOMPARE(editor->draftId(), transfer.id);
+    editor->setText(QStringLiteral("Available\n\nEdited while waiting"));
+    QVERIFY(workspace.saveCurrentNote());
+    const auto editing = drafts.editingDraft(transfer.id);
+    QVERIFY2(editing, qPrintable(editing.error.message));
+    QCOMPARE(editing.value.body, QStringLiteral("Edited while waiting"));
+    QCOMPARE(editing.value.removeSourceNoteId, availableId);
+}
+
 void NotesWorkspaceFoldersTest::opensDurableDraftWithoutTargetStorage()
 {
     QTemporaryDir directory;
@@ -588,16 +703,16 @@ void NotesWorkspaceFoldersTest::opensDurableDraftWithoutTargetStorage()
     DraftManager         drafts(makeDraftStore(directory));
     QVERIFY(catalog.initialize());
 
-    auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("offline-draft-target"));
-    auto note    = storage->makeNote(QStringLiteral("remote-note"), QStringLiteral("Original"));
-    auto *raw    = storage.get();
+    auto  storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("offline-draft-target"));
+    auto  note    = storage->makeNote(QStringLiteral("remote-note"), QStringLiteral("Original"));
+    auto *raw     = storage.get();
     auto *manager = NoteManager::instance();
     manager->registerStorage(std::move(storage));
 
     const auto draftId = drafts.acquireEditingSession(note);
     QVERIFY(!draftId.isNull());
-    const auto saved = drafts.saveEditing(draftId, note, QStringLiteral("Recovered"),
-                                          QStringLiteral("Durable body"), Note::Markdown);
+    const auto saved = drafts.saveEditing(draftId, note, QStringLiteral("Recovered"), QStringLiteral("Durable body"),
+                                          Note::Markdown);
     QVERIFY2(!saved, qPrintable(saved.message));
     QVERIFY(drafts.releaseEditingSession(draftId));
 

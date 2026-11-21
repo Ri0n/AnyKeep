@@ -30,7 +30,12 @@ Item {
         property bool loading: false
         property bool busy: false
         property int noteCount: 1
-        property var storages: []
+        property var storages: [
+            { storageId: "storage-a", writable: true, configurable: true },
+            { storageId: "storage-b", writable: true, configurable: true }
+        ]
+        property bool metadataBatchBusy: false
+        property string createdNoteStorage: ""
         property int movedNotes: 0
         property string noteDestination: ""
         property string noteAnchor: ""
@@ -48,7 +53,14 @@ Item {
         function closeCurrentNote() { return true }
         function reloadCurrentNote() { return true }
         function openNote(storageId, noteId) { return true }
-        function createNote(storageId) { return true }
+        function createNote(storageId) {
+            createdNoteStorage = storageId
+            return true
+        }
+        function storageNoteDescriptors(storageId) {
+            return [{ storageId: storageId, noteId: "note-b", title: "Note B", favorite: true },
+                    { storageId: storageId, noteId: "offscreen", title: "Offscreen", favorite: false }]
+        }
         function folderIdForNote(storageId, noteId) {
             return noteId === "note-a2" ? "folder-b" : "folder-a"
         }
@@ -82,6 +94,13 @@ Item {
             noteAnchor = anchorNoteId
             noteInsertAfter = insertAfter
             return true
+        }
+        signal noteMovesPrepared(var preparedNotes)
+        function moveSelectedNotes(notes, destinationStorageId) {
+            const started = moveNotes(notes, destinationStorageId, "", false)
+            if (started)
+                noteMovesPrepared(notes)
+            return started
         }
         function moveStorage(sourceStorageId, destinationStorageId) {
             ++movedStorages

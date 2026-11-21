@@ -13,6 +13,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <functional>
+
 namespace AnyKeep {
 
 class DraftManager;
@@ -43,6 +45,7 @@ class ANYKEEP_EXPORT NotesWorkspaceController final : public QObject {
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool metadataBatchBusy READ metadataBatchBusy NOTIFY metadataBatchBusyChanged)
+    Q_PROPERTY(bool movePreparationBusy READ movePreparationBusy NOTIFY movePreparationBusyChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorStringChanged)
     Q_PROPERTY(int noteCount READ noteCount NOTIFY noteCountChanged)
     Q_PROPERTY(QString searchText READ searchText WRITE setSearchText NOTIFY searchTextChanged)
@@ -77,6 +80,7 @@ public:
     bool                loading() const { return loading_; }
     bool                busy() const;
     bool                metadataBatchBusy() const { return metadataBatchBusy_; }
+    bool                movePreparationBusy() const { return movePreparationBusy_; }
     QString             errorString() const { return errorString_; }
     int                 noteCount() const;
     QString             searchText() const;
@@ -89,28 +93,30 @@ public:
     bool                canUndoFolderTrash() const;
     QString             lastTrashedFolderName() const;
 
-    Q_INVOKABLE bool openNote(const QString &storageId, const QString &noteId);
-    Q_INVOKABLE bool noteMatchesBodySearch(const QString &storageId, const QString &noteId) const;
-    Q_INVOKABLE bool fetchMoreGroupedNotes(const QString &storageId, const QString &lastVisibleNoteId);
-    bool             openNote(const Note &note, const QUuid &draftId = {});
-    Q_INVOKABLE bool createNote(const QString &storageId = {});
-    Q_INVOKABLE bool saveCurrentNote();
-    Q_INVOKABLE bool closeCurrentNote();
-    Q_INVOKABLE bool reloadCurrentNote();
-    Q_INVOKABLE bool deleteNote(const QString &storageId, const QString &noteId);
-    Q_INVOKABLE bool trashNote(const QString &storageId, const QString &noteId);
-    Q_INVOKABLE bool restoreRecycledNote(const QString &storageId, const QString &noteId);
-    Q_INVOKABLE bool emptyRecycleBin();
-    Q_INVOKABLE bool isRecycledNote(const QString &storageId, const QString &noteId) const;
-    Q_INVOKABLE bool askBeforePermanentDelete() const;
-    Q_INVOKABLE void setAskBeforePermanentDelete(bool enabled);
-    Q_INVOKABLE bool moveNote(const QString &sourceStorageId, const QString &noteId,
-                              const QString &destinationStorageId);
-    Q_INVOKABLE bool moveCurrentNote(const QString &destinationStorageId);
-    Q_INVOKABLE bool copyNote(const QString &sourceStorageId, const QString &noteId,
-                              const QString &destinationStorageId);
-    Q_INVOKABLE bool moveNotes(const QVariantList &notes, const QString &destinationStorageId,
-                               const QString &anchorNoteId = {}, bool insertAfter = false);
+    Q_INVOKABLE bool         openNote(const QString &storageId, const QString &noteId);
+    Q_INVOKABLE bool         noteMatchesBodySearch(const QString &storageId, const QString &noteId) const;
+    Q_INVOKABLE bool         fetchMoreGroupedNotes(const QString &storageId, const QString &lastVisibleNoteId);
+    Q_INVOKABLE QVariantList storageNoteDescriptors(const QString &storageId) const;
+    bool                     openNote(const Note &note, const QUuid &draftId = {});
+    Q_INVOKABLE bool         createNote(const QString &storageId = {});
+    Q_INVOKABLE bool         saveCurrentNote();
+    Q_INVOKABLE bool         closeCurrentNote();
+    Q_INVOKABLE bool         reloadCurrentNote();
+    Q_INVOKABLE bool         deleteNote(const QString &storageId, const QString &noteId);
+    Q_INVOKABLE bool         trashNote(const QString &storageId, const QString &noteId);
+    Q_INVOKABLE bool         restoreRecycledNote(const QString &storageId, const QString &noteId);
+    Q_INVOKABLE bool         emptyRecycleBin();
+    Q_INVOKABLE bool         isRecycledNote(const QString &storageId, const QString &noteId) const;
+    Q_INVOKABLE bool         askBeforePermanentDelete() const;
+    Q_INVOKABLE void         setAskBeforePermanentDelete(bool enabled);
+    Q_INVOKABLE bool         moveNote(const QString &sourceStorageId, const QString &noteId,
+                                      const QString &destinationStorageId);
+    Q_INVOKABLE bool         moveCurrentNote(const QString &destinationStorageId);
+    Q_INVOKABLE bool         copyNote(const QString &sourceStorageId, const QString &noteId,
+                                      const QString &destinationStorageId);
+    Q_INVOKABLE bool         moveNotes(const QVariantList &notes, const QString &destinationStorageId,
+                                       const QString &anchorNoteId = {}, bool insertAfter = false);
+    Q_INVOKABLE bool         moveSelectedNotes(const QVariantList &notes, const QString &destinationStorageId);
     /**
      * Reorder the time-based Recent projection without turning a drop into a
      * cross-storage move.  A native storage owns timestamp ordering, so both
@@ -125,8 +131,8 @@ public:
     Q_INVOKABLE bool    openStandalone(const QString &storageId, const QString &noteId);
     Q_INVOKABLE bool    openCurrentStandalone();
     Q_INVOKABLE QString createFolder(const QString &name, const QString &parentFolderId = {});
-    Q_INVOKABLE QString createFolderWithFlags(const QString &name, const QString &parentFolderId,
-                                              bool favorite, bool archived);
+    Q_INVOKABLE QString createFolderWithFlags(const QString &name, const QString &parentFolderId, bool favorite,
+                                              bool archived);
     Q_INVOKABLE bool    renameFolder(const QString &folderId, const QString &name);
     Q_INVOKABLE bool    moveFolder(const QString &folderId, const QString &parentFolderId, qint64 sortOrder);
     Q_INVOKABLE bool    moveFolderBefore(const QString &folderId, const QString &parentFolderId,
@@ -160,6 +166,10 @@ signals:
     void busyChanged();
     void metadataBatchBusyChanged();
     void metadataBatchFinished(const QVariantList &failedNotes, const QString &errorSummary);
+    void movePreparationBusyChanged();
+    // The selected transfers have been prepared locally. Remote publication
+    // and source cleanup continue through DraftManager.
+    void noteMovesPrepared(const QVariantList &preparedNotes);
     void errorStringChanged();
     void noteCountChanged();
     void searchTextChanged();
@@ -212,8 +222,11 @@ private:
                             int reorderIndex = -1);
     bool    beginMove(const Note &source, const QString &destinationStorageId, const QUuid &reorderBatchId = {},
                       int reorderIndex = -1);
+    bool    startNoteMoves(const QVariantList &notes, const QString &destinationStorageId, const QString &anchorNoteId,
+                           bool insertAfter, bool reportPreparation);
     bool    moveNoteAt(const QString &sourceStorageId, const QString &noteId, const QString &destinationStorageId,
-                       const QUuid &reorderBatchId = {}, int reorderIndex = -1);
+                       const QUuid &reorderBatchId = {}, int reorderIndex = -1,
+                       std::function<void(bool, const QString &)> prepared = {});
     bool    startStorageReorder(NoteStorage *storage, const QStringList &noteIds, const QString &afterNoteId);
     void    completePendingReorderMove(const QUuid &batchId, int index, const QString &destinationNoteId);
     void    connectEditorSignals(NoteEditor *editor);
@@ -244,6 +257,7 @@ private:
     QList<TrashUndoEntry>                 trashUndoEntries_;
     bool                                  loading_ { false };
     bool                                  metadataBatchBusy_ { false };
+    bool                                  movePreparationBusy_ { false };
     int                                   pendingOperations_ { 0 };
     QString                               errorString_;
 };

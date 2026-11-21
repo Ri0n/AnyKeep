@@ -26,6 +26,14 @@ QtObject {
         }
     }
 
+    function replaceSelection(notes) {
+        const next = ({})
+        for (const note of notes)
+            next[key(note.storageId, note.noteId)] = note
+        selectedNotes = next
+        anchorKey = ""
+    }
+
     function isSelected(storageId, noteId) {
         return selectedNotes[key(storageId, noteId)] !== undefined
     }
@@ -43,7 +51,7 @@ QtObject {
     }
 
     // Remove successful batch items while preserving failures and any notes
-    // selected later during an asynchronous metadata operation.
+    // selected while the operation was in progress.
     function completeBatch(startedNotes, failedNotes) {
         const next = Object.assign({}, selectedNotes)
         const failed = ({})
