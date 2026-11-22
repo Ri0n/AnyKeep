@@ -20,7 +20,7 @@ file(GLOB libanykeep_HDRS CONFIGURE_DEPENDS "./*.h")
 file(GLOB libanykeep_UIS CONFIGURE_DEPENDS "./*.ui")
 set(libanykeep_PRIVATE_HDRS
     "${CMAKE_CURRENT_SOURCE_DIR}/notedocumenthistory.h" "${CMAKE_CURRENT_SOURCE_DIR}/ptffolderindex.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/localkeyrecoverypolicy.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/localkeyrecoverypolicy.h" "${CMAKE_CURRENT_SOURCE_DIR}/keychainservice.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/storeupdatebackend_win.h" "${CMAKE_CURRENT_SOURCE_DIR}/updatecontroller.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/updatesessionmanager.h")
 list(APPEND libanykeep_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/iconutils.cpp")
@@ -29,6 +29,7 @@ list(REMOVE_DUPLICATES libanykeep_SRCS)
 list(REMOVE_DUPLICATES libanykeep_HDRS)
 list(FILTER libanykeep_HDRS EXCLUDE REGEX "/notedocumenthistory\\.h$")
 list(FILTER libanykeep_HDRS EXCLUDE REGEX "/localkeyrecoverypolicy\\.h$")
+list(FILTER libanykeep_HDRS EXCLUDE REGEX "/keychainservice\\.h$")
 list(FILTER libanykeep_HDRS EXCLUDE REGEX "/ptffolderindex\\.h$")
 list(FILTER libanykeep_HDRS EXCLUDE REGEX "/storeupdatebackend_win\\.h$")
 list(FILTER libanykeep_HDRS EXCLUDE REGEX "/updatecontroller\\.h$")
@@ -119,6 +120,7 @@ set(anykeep_CORE_SRCS
     folderoperationscontroller.cpp
     iconutils.cpp
     localdatakeystore.cpp
+    keychainservice.cpp
     localmediaimageprovider.cpp
     localmediastore.cpp
     mediareference.cpp
@@ -352,7 +354,6 @@ endif()
 target_link_libraries(anykeep PUBLIC anykeep_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::PrintSupport)
 target_link_libraries(anykeep PRIVATE Qt6::Network Qt6::Quick Qt6::QuickWidgets Qt6::Qml Qt6::QuickControls2)
 target_link_libraries(anykeep PRIVATE ${ANYKEEP_QCA_TARGET})
-target_link_libraries(anykeep PRIVATE Qt6Keychain::Qt6Keychain)
 if(TARGET Qt6::DBus)
   target_link_libraries(anykeep PUBLIC Qt6::DBus)
   target_compile_definitions(anykeep PUBLIC ANYKEEP_DBUS_AVAILABLE)
