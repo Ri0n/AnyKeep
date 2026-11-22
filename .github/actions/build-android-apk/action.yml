@@ -154,6 +154,18 @@ runs:
         path: ~/.gradle/wrapper/dists
         key: anykeep-gradle-wrapper-${{ runner.os }}-qt-${{ inputs.qt-version }}
 
+    # The Gradle wrapper cache only avoids downloading Gradle itself.
+    # Cache resolved Maven artifacts too: fresh GitHub runners otherwise fetch
+    # the entire Android Gradle Plugin graph on every APK build and can hit
+    # Maven Central's HTTP 429 rate limit.
+    - name: Cache Android Gradle dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.gradle/caches/modules-2
+        key: anykeep-gradle-maven-${{ runner.os }}-qt-${{ inputs.qt-version }}-v1-${{ hashFiles('dependencies.lock.json') }}
+        restore-keys: |
+          anykeep-gradle-maven-${{ runner.os }}-qt-${{ inputs.qt-version }}-v1-
+
     - name: Configure and build APK
       shell: bash
       env:
