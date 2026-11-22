@@ -281,9 +281,24 @@ Item {
         return true
     }
 
-    function expandGroups(depth) {
-        if (nativeModelHierarchy && treeView.model)
-            treeView.expandRecursively(-1, depth === undefined ? 1 : Number(depth))
+    function expandInsertedGroups(parentIndex, first, last) {
+        if (!nativeModelHierarchy || !treeView.model)
+            return
+        if (parentIndex.valid) {
+            // Opening a storage when its first page arrives is the default.
+            // Later insertions must respect the user's expansion state.
+            if (treeView.model.rowCount(parentIndex) === last - first + 1) {
+                const row = treeView.rowAtIndex(parentIndex)
+                if (row >= 0)
+                    treeView.expand(row)
+            }
+            return
+        }
+        for (let modelRow = first; modelRow <= last; ++modelRow) {
+            const row = treeView.rowAtIndex(treeView.model.index(modelRow, 0))
+            if (row >= 0)
+                treeView.expand(row)
+        }
     }
 
     function visibleItems() {

@@ -1430,8 +1430,8 @@ Item {
 
     Connections {
         target: root.workspace.groupedNotesModel
-        function onRowsInserted() {
-            Qt.callLater(function() { groupedNotes.expandGroups(1) })
+        function onRowsInserted(parent, first, last) {
+            groupedNotes.expandInsertedGroups(parent, first, last)
         }
     }
 

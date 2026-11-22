@@ -8,6 +8,7 @@ class NotesManagerQmlTest : public QObject {
 private slots:
     void loadsNotesManagerQmlShell();
     void notesManagerFoldersTabInstantiatesInOwnerContext();
+    void noteUpdatesKeepVisibleRowsAndCollapsedStorages();
     void notesManagerContextMenusAndSelectionWork();
     void mobileStorageLongPressOpensContextActions();
     void notesManagerInternalDragsWork();

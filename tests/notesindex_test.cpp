@@ -7,6 +7,7 @@
 #include "notessearchmodel.h"
 #include "recentnotesmodel.h"
 
+#include <QAbstractItemModelTester>
 #include <QPointer>
 #include <QScopeGuard>
 #include <QSettings>
@@ -480,6 +481,117 @@ private slots:
         QCOMPARE(firstNote.data(NotesModel::NoteIdRole).toString(), QStringLiteral("first-note"));
     }
 
+    void noteChangesKeepGroupedAndRecentIdentities()
+    {
+        auto  storage = std::make_unique<FakeStorage>(QStringLiteral("incremental-notes"));
+        auto *raw     = storage.get();
+        auto  first   = raw->makeNote(QStringLiteral("first"), QStringLiteral("First"));
+        auto  second  = raw->makeNote(QStringLiteral("second"), QStringLiteral("Second"));
+        auto  third   = raw->makeNote(QStringLiteral("third"), QStringLiteral("Third"));
+        second.setLastChangeUTC(first.lastChangeUTC().addSecs(-1));
+        third.setLastChangeUTC(first.lastChangeUTC().addSecs(-2));
+        raw->sourceNotes = { first, second, third };
+
+        auto *manager = NoteManager::instance();
+        manager->registerStorage(std::move(storage));
+        const auto unregister = qScopeGuard([manager, raw] { manager->unregisterStorage(raw); });
+        QTRY_COMPARE(manager->notesIndex()->noteCount(raw->systemName()), 3);
+        NotesModel       grouped;
+        NotesSearchModel filter;
+        filter.setSourceModel(&grouped);
+        RecentNotesModel         recent(&filter);
+        QAbstractItemModelTester groupedTester(&grouped, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        QAbstractItemModelTester filterTester(&filter, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        QAbstractItemModelTester recentTester(&recent, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        const auto               parent = grouped.index(0, 0);
+        QCOMPARE(parent.data(NotesModel::StorageIdRole).toString(), raw->systemName());
+        QCOMPARE(grouped.rowCount(parent), 3);
+        QCOMPARE(recent.rowCount(), 3);
+
+        const QPersistentModelIndex groupedFirst(grouped.index(0, 0, parent));
+        const QPersistentModelIndex groupedThird(grouped.index(2, 0, parent));
+        const QPersistentModelIndex recentFirst(recent.index(0, 0));
+        const QPersistentModelIndex recentThird(recent.index(2, 0));
+        const auto                 *thirdItem = groupedThird.internalPointer();
+        QSignalSpy                  groupedChanges(&grouped, &QAbstractItemModel::dataChanged);
+        QSignalSpy                  groupedMoves(&grouped, &QAbstractItemModel::rowsMoved);
+        QSignalSpy                  groupedInserted(&grouped, &QAbstractItemModel::rowsInserted);
+        QSignalSpy                  groupedRemoved(&grouped, &QAbstractItemModel::rowsRemoved);
+        QSignalSpy                  groupedReset(&grouped, &QAbstractItemModel::modelReset);
+        QSignalSpy                  recentChanges(&recent, &QAbstractItemModel::dataChanged);
+        QSignalSpy                  recentMoves(&recent, &QAbstractItemModel::rowsMoved);
+        QSignalSpy                  recentInserted(&recent, &QAbstractItemModel::rowsInserted);
+        QSignalSpy                  recentRemoved(&recent, &QAbstractItemModel::rowsRemoved);
+        QSignalSpy                  recentReset(&recent, &QAbstractItemModel::modelReset);
+        QSignalSpy                  recentCount(&recent, &RecentNotesModel::noteCountChanged);
+
+        first.setText(QStringLiteral("Changed preview"), Note::Markdown);
+        raw->announceModified(first);
+        QCOMPARE(groupedChanges.size(), 1);
+        QCOMPARE(recentChanges.size(), 1);
+        QCOMPARE(groupedChanges.first().at(0).value<QModelIndex>(), QModelIndex(groupedFirst));
+        QCOMPARE(groupedChanges.first().at(2).value<QList<int>>(), QList<int> { NotesModel::PreviewRole });
+        QCOMPARE(recentChanges.first().at(0).value<QModelIndex>(), QModelIndex(recentFirst));
+        QCOMPARE(recentChanges.first().at(2).value<QList<int>>(), QList<int> { NotesModel::PreviewRole });
+        QCOMPARE(recentFirst.data(NotesModel::PreviewRole).toString(), QStringLiteral("Changed preview"));
+
+        raw->announceModified(first);
+        recent.rebuild();
+        QCOMPARE(groupedChanges.size(), 1);
+        QCOMPARE(recentChanges.size(), 1);
+        QCOMPARE(groupedMoves.size(), 0);
+        QCOMPARE(recentMoves.size(), 0);
+
+        first.setLastChangeUTC(third.lastChangeUTC().addSecs(-1));
+        raw->announceModified(first);
+        QCOMPARE(groupedMoves.size(), 1);
+        QCOMPARE(recentMoves.size(), 1);
+        QCOMPARE(groupedMoves.first().at(0).value<QModelIndex>(), parent);
+        QCOMPARE(groupedMoves.first().at(1).toInt(), 0);
+        QCOMPARE(groupedMoves.first().at(4).toInt(), 3);
+        QCOMPARE(groupedFirst.row(), 2);
+        QCOMPARE(recentFirst.row(), 2);
+        QCOMPARE(groupedThird.row(), 1);
+        QCOMPARE(recentThird.row(), 1);
+        QCOMPARE(groupedThird.internalPointer(), thirdItem);
+        QCOMPARE(groupedInserted.size(), 0);
+        QCOMPARE(groupedRemoved.size(), 0);
+        QCOMPARE(recentInserted.size(), 0);
+        QCOMPARE(recentRemoved.size(), 0);
+        QCOMPARE(recentCount.size(), 0);
+
+        raw->announceRemoved(second);
+        QCOMPARE(groupedRemoved.size(), 1);
+        QCOMPARE(recentRemoved.size(), 1);
+        QCOMPARE(groupedThird.row(), 0);
+        QCOMPARE(recentThird.row(), 0);
+        QCOMPARE(recentCount.size(), 1);
+        raw->announceAdded(second);
+        QCOMPARE(groupedInserted.size(), 1);
+        QCOMPARE(recentInserted.size(), 1);
+        QCOMPARE(groupedThird.row(), 1);
+        QCOMPARE(recentThird.row(), 1);
+        QCOMPARE(recentCount.size(), 2);
+
+        recent.setMaximumCount(2);
+        QCOMPARE(recent.rowCount(), 2);
+        QVERIFY(!recentFirst.isValid());
+        QVERIFY(recentThird.isValid());
+        recentCount.clear();
+        recentInserted.clear();
+        recentRemoved.clear();
+        first.setLastChangeUTC(second.lastChangeUTC().addSecs(1));
+        raw->announceModified(first);
+        QCOMPARE(recent.rowCount(), 2);
+        QCOMPARE(recent.index(0, 0).data(NotesModel::NoteIdRole).toString(), first.id());
+        QCOMPARE(recentInserted.size(), 1);
+        QCOMPARE(recentRemoved.size(), 1);
+        QCOMPARE(recentCount.size(), 0);
+        QVERIFY(!recentThird.isValid());
+        QCOMPARE(groupedReset.size(), 0);
+        QCOMPARE(recentReset.size(), 0);
+    }
+
     void visiblePageKeepsItsTailWhenAnInsertedNoteIncreasesTheCount()
     {
         auto       storage  = std::make_unique<FakeStorage>(QStringLiteral("fake-visible-page"));
@@ -513,6 +625,27 @@ private slots:
         QCOMPARE(model.index(29, 0, storageIndex).data(NotesModel::NoteIdRole).toString(), QStringLiteral("note-29"));
         QVERIFY(!model.fetchMoreNear(raw->systemName(), QStringLiteral("note-0")));
         QCOMPARE(model.rowCount(storageIndex), model.pageSize());
+        const QPersistentModelIndex loadedTail(model.index(29, 0, storageIndex));
+        NotesSearchModel            filter;
+        filter.setSourceModel(&model);
+        QSignalSpy insertedRows(&model, &QAbstractItemModel::rowsInserted);
+        QSignalSpy removedRows(&model, &QAbstractItemModel::rowsRemoved);
+        filter.setSearchText(QStringLiteral("Note 34"));
+        QCOMPARE(model.rowCount(storageIndex), 35);
+        QCOMPARE(insertedRows.size(), 1);
+        QCOMPARE(insertedRows.first().at(1).toInt(), model.pageSize());
+        QCOMPARE(removedRows.size(), 0);
+        QCOMPARE(loadedTail.row(), 29);
+        const auto matching = model.storageNoteDescriptors(raw->systemName(), &filter);
+        QCOMPARE(matching.size(), 1);
+        QCOMPARE(matching.first().toMap().value(QStringLiteral("noteId")).toString(), QStringLiteral("note-34"));
+        filter.setSearchText({});
+        QCOMPARE(model.rowCount(storageIndex), model.pageSize());
+        QCOMPARE(removedRows.size(), 1);
+        QCOMPARE(removedRows.first().at(1).toInt(), model.pageSize());
+        QCOMPARE(loadedTail.row(), 29);
+        insertedRows.clear();
+        removedRows.clear();
 
         {
             QSignalSpy                  inserted(&model, &QAbstractItemModel::rowsInserted);
@@ -536,17 +669,18 @@ private slots:
         QTRY_COMPARE(manager->notesIndex()->noteCount(raw->systemName()), 36);
         QTRY_COMPARE(model.rowCount(storageIndex), model.pageSize() + 1);
         QCOMPARE(model.index(29, 0, storageIndex).data(NotesModel::NoteIdRole).toString(), QStringLiteral("inserted"));
-        QCOMPARE(model.index(30, 0, storageIndex).data(NotesModel::NoteIdRole).toString(), QStringLiteral("note-29"));
+        QCOMPARE(loadedTail.row(), 30);
+        QCOMPARE(loadedTail.data(NotesModel::NoteIdRole).toString(), QStringLiteral("note-29"));
+        QCOMPARE(insertedRows.size(), 1);
+        QCOMPARE(insertedRows.first().at(1).toInt(), 29);
+        QCOMPARE(insertedRows.first().at(2).toInt(), 29);
+        QCOMPARE(removedRows.size(), 0);
         QVERIFY(model.fetchMoreNear(raw->systemName(), QStringLiteral("note-29")));
         QCOMPARE(model.rowCount(storageIndex), 36);
+        QCOMPARE(insertedRows.size(), 2);
+        QCOMPARE(insertedRows.last().at(1).toInt(), 31);
+        QCOMPARE(removedRows.size(), 0);
         QVERIFY(!model.fetchMoreNear(raw->systemName(), QStringLiteral("note-34")));
-
-        NotesSearchModel filter;
-        filter.setSourceModel(&model);
-        filter.setSearchText(QStringLiteral("Note 34"));
-        const auto matching = model.storageNoteDescriptors(raw->systemName(), &filter);
-        QCOMPARE(matching.size(), 1);
-        QCOMPARE(matching.first().toMap().value(QStringLiteral("noteId")).toString(), QStringLiteral("note-34"));
     }
 };
 

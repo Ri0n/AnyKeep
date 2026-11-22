@@ -116,6 +116,7 @@ private slots:
     void createsFoldersWithInitialFlagsAtomically();
     void exposesFoldersAndMovesCleanEditorMetadata();
     void recycleBinHidesNotesUntilRestored();
+    void draftAndRecycleChangesKeepAnUnrelatedEditorAndRows();
     void recyclesLiveSnapshotWithOneStorageWriter();
     void pendingRecycledSnapshotAppearsInRecycleBinNotDrafts();
     void deletesFolderBranchesWithSessionUndo();
@@ -260,6 +261,85 @@ void NotesWorkspaceFoldersTest::exposesFoldersAndMovesCleanEditorMetadata()
     QCOMPARE(workspace.folderNotesModel()->index(unsortedRow, 0).data(FolderNotesModel::RowKindRole).toInt(),
              int(FolderNotesModel::UnsortedRow));
     QVERIFY(workspace.folderNotesModel()->index(unsortedRow, 0).data(FolderNotesModel::CollapsedRole).toBool());
+}
+
+void NotesWorkspaceFoldersTest::draftAndRecycleChangesKeepAnUnrelatedEditorAndRows()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
+    QVERIFY(catalog.initialize());
+
+    auto  storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("incremental-workspace-notes"));
+    auto *raw     = storage.get();
+    auto  editing = raw->makeNote(QStringLiteral("editing"), QStringLiteral("Editing"));
+    editing.setText(QStringLiteral("Active document"), Note::Markdown);
+    auto other = raw->makeNote(QStringLiteral("other"), QStringLiteral("Other"));
+    other.setLastChangeUTC(editing.lastChangeUTC().addSecs(-60));
+    raw->notes    = { editing, other };
+    auto *manager = NoteManager::instance();
+    manager->registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([manager, raw] { manager->unregisterStorage(raw); });
+    QTRY_COMPARE(manager->notesIndex()->noteCount(raw->systemName()), 2);
+
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
+    QVERIFY(workspace.openNote(raw->systemName(), editing.id()));
+    QTRY_VERIFY(workspace.editor());
+    const QPointer<NoteEditor>  editor(workspace.editor());
+    auto                       *document = editor->model();
+    const auto                  contents = document->contents();
+    auto                       *grouped  = workspace.sourceModel();
+    auto                       *recent   = workspace.recentNotesModel();
+    const auto                  parent   = grouped->index(0, 0);
+    const QPersistentModelIndex groupedEditing(grouped->index(0, 0, parent));
+    const QPersistentModelIndex groupedOther(grouped->index(1, 0, parent));
+    const QPersistentModelIndex recentEditing(recent->index(0, 0));
+    const QPersistentModelIndex recentOther(recent->index(1, 0));
+    QCOMPARE(groupedEditing.data(NotesModel::NoteIdRole).toString(), editing.id());
+    QCOMPARE(recentEditing.data(NotesModel::NoteIdRole).toString(), editing.id());
+    QSignalSpy groupedReset(grouped, &QAbstractItemModel::modelReset);
+    QSignalSpy recentReset(recent, &QAbstractItemModel::modelReset);
+    QSignalSpy groupedRemoved(grouped, &QAbstractItemModel::rowsRemoved);
+    QSignalSpy recentRemoved(recent, &QAbstractItemModel::rowsRemoved);
+    QSignalSpy groupedInserted(grouped, &QAbstractItemModel::rowsInserted);
+    QSignalSpy recentInserted(recent, &QAbstractItemModel::rowsInserted);
+
+    const auto draft = drafts.acquireEditingSession(other);
+    QVERIFY(!drafts.saveEditing(draft, other, QStringLiteral("Pending title"), QStringLiteral("Pending body"),
+                                Note::Markdown));
+    QCOMPARE(groupedOther.row(), 0);
+    QCOMPARE(recentOther.row(), 0);
+    QCOMPARE(groupedOther.data(NotesModel::TitleRole).toString(), QStringLiteral("Pending title"));
+    QVERIFY(recentOther.data(NotesModel::PendingDraftRole).toBool());
+    QVERIFY(!drafts.saveEditing(draft, other, QStringLiteral("Updated title"), QStringLiteral("Updated body"),
+                                Note::Markdown));
+    QCOMPARE(recentOther.data(NotesModel::TitleRole).toString(), QStringLiteral("Updated title"));
+    QVERIFY(!drafts.discard(draft));
+    drafts.releaseEditingSession(draft);
+    QCOMPARE(groupedEditing.row(), 0);
+    QCOMPARE(recentEditing.row(), 0);
+    QCOMPARE(groupedRemoved.size(), 0);
+    QCOMPARE(recentRemoved.size(), 0);
+    QCOMPARE(groupedInserted.size(), 0);
+    QCOMPARE(recentInserted.size(), 0);
+
+    QVERIFY(workspace.trashNote(raw->systemName(), other.id()));
+    QCOMPARE(groupedRemoved.size(), 1);
+    QCOMPARE(recentRemoved.size(), 1);
+    QVERIFY(!groupedOther.isValid());
+    QVERIFY(!recentOther.isValid());
+    QVERIFY(workspace.undoTrash());
+    QCOMPARE(groupedInserted.size(), 1);
+    QCOMPARE(recentInserted.size(), 1);
+    QCOMPARE(groupedEditing.row(), 0);
+    QCOMPARE(recentEditing.row(), 0);
+    QVERIFY(editor);
+    QCOMPARE(workspace.editor(), editor.data());
+    QCOMPARE(editor->model(), document);
+    QCOMPARE(document->contents(), contents);
+    QCOMPARE(groupedReset.size(), 0);
+    QCOMPARE(recentReset.size(), 0);
 }
 
 void NotesWorkspaceFoldersTest::recycleBinHidesNotesUntilRestored()
