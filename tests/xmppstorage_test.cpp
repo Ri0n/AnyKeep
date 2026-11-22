@@ -205,6 +205,7 @@ private slots:
     void backgroundRefreshRespectsLocalEdits();
     void lateBackgroundReplyDoesNotReplaceNewerSnapshot();
     void authenticationStartsWithoutEncryptionKeys();
+    void reorderPublishesOnlyTheIndex_data();
     void reorderPublishesOnlyTheIndex();
     void restorePublishesIndexWithoutRecycleMarker_data();
     void restorePublishesIndexWithoutRecycleMarker();
@@ -567,8 +568,16 @@ void XmppStorageTest::saveWithForeignKeyRequiresRecovery()
     QCOMPARE(backend->shutdownCalls, 0);
 }
 
+void XmppStorageTest::reorderPublishesOnlyTheIndex_data()
+{
+    QTest::addColumn<bool>("externalBounds");
+    QTest::newRow("storage-order") << false;
+    QTest::newRow("recent-order") << true;
+}
+
 void XmppStorageTest::reorderPublishesOnlyTheIndex()
 {
+    QFETCH(bool, externalBounds);
     FolderCatalogManager catalog;
     auto                *backend = new FakeXmppBackend;
     XmppStorage          storage(nullptr, backend, &catalog);
@@ -580,14 +589,20 @@ void XmppStorageTest::reorderPublishesOnlyTheIndex()
     recycled.systemFolderId = FolderCatalog::recycleBinId();
     backend->seed(recycled);
 
-    auto *job = storage.reorderNotesAsync({ QStringLiteral("older") }, {});
+    const auto        boundaryFromAnotherStorage = newer.addSecs(-20);
+    const QStringList moved { QStringLiteral("older") };
+    auto             *job = externalBounds ? storage.reorderNotesBetweenAsync(moved, newer, boundaryFromAnotherStorage)
+                                           : storage.reorderNotesAsync(moved, {});
     QTRY_VERIFY(job->isFinished());
     QCOMPARE(job->state(), StorageJob::Succeeded);
     QCOMPARE(backend->fullSaveCount, 0);
     QCOMPARE(backend->indexUpdateCount, 1);
     QCOMPARE(backend->indexRequests.size(), 1);
     QVERIFY(backend->indexRequests.constFirst().preserveModified);
-    QVERIFY(backend->indexRequests.constFirst().modified > newer);
+    if (externalBounds)
+        QCOMPARE(backend->indexRequests.constFirst().modified, newer.addSecs(-10));
+    else
+        QVERIFY(backend->indexRequests.constFirst().modified > newer);
 
     const auto reordered = backend->remote_.value(QStringLiteral("older"));
     QCOMPARE(reordered.content, QStringLiteral("older body"));

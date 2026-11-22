@@ -406,20 +406,85 @@ bool NotesWorkspaceController::reorderRecentNotes(const QVariantList &notes, con
         return false;
     }
 
+    const auto    sourceStorageId = notes.first().toMap().value(QStringLiteral("storageId")).toString();
+    QSet<QString> selected;
     for (const QVariant &value : notes) {
         const auto note = value.toMap();
-        if (note.value(QStringLiteral("storageId")).toString() != anchorStorageId) {
-            setError(tr("Recent notes can only be reordered within the same storage"));
+        if (note.value(QStringLiteral("storageId")).toString() != sourceStorageId) {
+            setError(tr("Select notes from one storage to reorder them together"));
             return false;
         }
+        selected.insert(note.value(QStringLiteral("noteId")).toString());
     }
 
-    const auto storage = NoteManager::instance()->storage(anchorStorageId);
+    const auto storage = NoteManager::instance()->storage(sourceStorageId);
     if (!storage || !storage->supportsNoteReordering()) {
         setError(tr("This storage does not support manual note ordering"));
         return false;
     }
-    return moveNotes(notes, anchorStorageId, anchorNoteId, insertAfter);
+    if (!storage->canAcceptWrites()) {
+        setError(tr("The note storage is unavailable"));
+        return false;
+    }
+
+    // Drafts and favorites sort ahead of ordinary notes regardless of time.
+    const auto orderGroup = [](const QModelIndex &index) {
+        if (index.data(NotesModel::PendingDraftRole).toBool())
+            return 2;
+        return int(index.data(NotesModel::FavoriteRole).toBool());
+    };
+    QStringList        noteIds;
+    QList<QModelIndex> remaining;
+    int                insertion      = -1;
+    int                sourceGroup    = -1;
+    int                firstSourceRow = -1;
+    bool               contiguous     = true;
+    for (int row = 0; row < recentNotesModel_->rowCount(); ++row) {
+        const auto index     = recentNotesModel_->index(row, 0);
+        const auto storageId = index.data(NotesModel::StorageIdRole).toString();
+        const auto noteId    = index.data(NotesModel::NoteIdRole).toString();
+        if (storageId == sourceStorageId && selected.contains(noteId)) {
+            const int group = orderGroup(index);
+            if (group == 2 || (sourceGroup != -1 && group != sourceGroup)) {
+                setError(tr("Only saved notes with the same favorite status can be reordered together"));
+                return false;
+            }
+            if (firstSourceRow == -1)
+                firstSourceRow = row;
+            contiguous  = contiguous && row == firstSourceRow + noteIds.size();
+            sourceGroup = group;
+            noteIds.append(noteId);
+            continue;
+        }
+        if (storageId == anchorStorageId && noteId == anchorNoteId)
+            insertion = remaining.size() + (insertAfter ? 1 : 0);
+        remaining.append(index);
+    }
+    if (insertion < 0 || noteIds.size() != selected.size()) {
+        setError(tr("The notes used for reordering are no longer available"));
+        return false;
+    }
+    if (contiguous && firstSourceRow == insertion) {
+        setError({});
+        return true;
+    }
+
+    const auto newer = insertion > 0 ? remaining.at(insertion - 1) : QModelIndex {};
+    const auto older = insertion < remaining.size() ? remaining.at(insertion) : QModelIndex {};
+    if ((newer.isValid() && orderGroup(newer) < sourceGroup) || (older.isValid() && orderGroup(older) > sourceGroup)) {
+        setError(tr("Notes can only be reordered within their favorite group"));
+        return false;
+    }
+    const auto timeInGroup = [&](const QModelIndex &index) {
+        return orderGroup(index) == sourceGroup ? index.data(NotesModel::ModifiedTimeRole).toDateTime() : QDateTime {};
+    };
+
+    const auto newerTime = timeInGroup(newer);
+    const auto olderTime = timeInGroup(older);
+    setError({});
+    beginOperation();
+    trackReorderJob(storage->reorderNotesBetweenAsync(noteIds, newerTime, olderTime, this));
+    return true;
 }
 
 bool NotesWorkspaceController::startStorageReorder(NoteStorage *storage, const QStringList &noteIds,
@@ -430,7 +495,12 @@ bool NotesWorkspaceController::startStorageReorder(NoteStorage *storage, const Q
     if (!storage->supportsNoteReordering())
         return true;
     beginOperation();
-    auto      *job      = storage->reorderNotesAsync(noteIds, afterNoteId, this);
+    trackReorderJob(storage->reorderNotesAsync(noteIds, afterNoteId, this));
+    return true;
+}
+
+void NotesWorkspaceController::trackReorderJob(NoteReorderJob *job)
+{
     const auto finished = [this, job]() {
         if (job->state() != StorageJob::Succeeded && job->state() != StorageJob::Cancelled) {
             setError(job->error().message.isEmpty() ? tr("Failed to reorder the note") : job->error().message);
@@ -441,7 +511,6 @@ bool NotesWorkspaceController::startStorageReorder(NoteStorage *storage, const Q
     connect(job, &StorageJob::finished, this, finished);
     if (job->isFinished())
         QTimer::singleShot(0, this, finished);
-    return true;
 }
 
 void NotesWorkspaceController::completePendingReorderMove(const QUuid &batchId, int index,

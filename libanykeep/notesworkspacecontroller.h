@@ -20,6 +20,7 @@ namespace AnyKeep {
 class DraftManager;
 class NoteEditor;
 class NoteLoadJob;
+class NoteReorderJob;
 class NoteStorage;
 class FolderCatalogManager;
 class FolderNotesModel;
@@ -118,9 +119,8 @@ public:
                                        const QString &anchorNoteId = {}, bool insertAfter = false);
     Q_INVOKABLE bool         moveSelectedNotes(const QVariantList &notes, const QString &destinationStorageId);
     /**
-     * Reorder the time-based Recent projection without turning a drop into a
-     * cross-storage move.  A native storage owns timestamp ordering, so both
-     * the dragged notes and their boundary must belong to it.
+     * Reorder notes within their source storage using the time bounds of a
+     * drop in the Recent projection. The boundary can belong to any storage.
      */
     Q_INVOKABLE bool    reorderRecentNotes(const QVariantList &notes, const QString &anchorStorageId,
                                            const QString &anchorNoteId, bool insertAfter = false);
@@ -228,6 +228,7 @@ private:
                        const QUuid &reorderBatchId = {}, int reorderIndex = -1,
                        std::function<void(bool, const QString &)> prepared = {});
     bool    startStorageReorder(NoteStorage *storage, const QStringList &noteIds, const QString &afterNoteId);
+    void    trackReorderJob(NoteReorderJob *job);
     void    completePendingReorderMove(const QUuid &batchId, int index, const QString &destinationNoteId);
     void    connectEditorSignals(NoteEditor *editor);
     bool    ensureFolderCatalogAvailable();

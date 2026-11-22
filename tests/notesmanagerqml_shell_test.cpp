@@ -13,11 +13,17 @@
 #include "desktopnoteeditorhost.h"
 #include "draftmanager.h"
 #include "noteeditor.h"
+#include "notemanager.h"
 #include "notesmanagerwindow.h"
+#include "notesmodel.h"
+#include "notesworkspacecontroller.h"
+#include "ptfstorage.h"
+#include "recentnotesmodel.h"
 #include "themediconimageprovider.h"
 
 #include "desktopqmltestsupport.h"
 #include "editortestsupport.h"
+#include "managerinteractionfixture.h"
 #include "notesmanagerqml_test.h"
 #include "quicktestsupport.h"
 
@@ -29,6 +35,187 @@ void NotesManagerQmlTest::loadsNotesManagerQmlShell()
     DraftManager       drafts(std::make_unique<MemoryDraftStore>());
     NotesManagerWindow manager;
     QVERIFY(manager.isReady());
+}
+
+void NotesManagerQmlTest::recentDragChangesTheNoteTimestamp_data()
+{
+    QTest::addColumn<bool>("mixedStorages");
+    QTest::newRow("one-storage") << false;
+    QTest::newRow("mixed-storages") << true;
+}
+
+void NotesManagerQmlTest::recentDragChangesTheNoteTimestamp()
+{
+    QFETCH(bool, mixedStorages);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    class TestStorage final : public PTFStorage {
+    public:
+        TestStorage(const QString &id, const QString &path) : id_(id) { notesDir.setPath(path); }
+        bool          init() override { return isAccessible(); }
+        const QString systemName() const override { return id_; }
+
+    private:
+        QString id_;
+    };
+
+    QVERIFY(QDir(directory.path()).mkdir(QStringLiteral("other")));
+    const auto            otherPath = directory.filePath(QStringLiteral("other"));
+    auto                  storage   = std::make_unique<TestStorage>(QStringLiteral("recent-source"), directory.path());
+    auto                 *raw       = storage.get();
+    auto                  other     = std::make_unique<TestStorage>(QStringLiteral("recent-neighbor"), otherPath);
+    QPointer<TestStorage> otherRaw(mixedStorages ? other.get() : nullptr);
+
+    const auto newestTime = QDateTime::currentDateTimeUtc().addSecs(-60);
+    for (int row = 0; row < 3; ++row) {
+        const auto name = QStringLiteral("recent-%1.md").arg(row);
+        const auto path = mixedStorages && row < 2 ? QDir(otherPath).filePath(name) : directory.filePath(name);
+        QFile      file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.write("# Test note\n\nBody\n") > 0);
+        QVERIFY(file.flush());
+        QVERIFY(file.setFileTime(newestTime.addSecs(-row * 10), QFileDevice::FileModificationTime));
+    }
+
+    auto *manager = NoteManager::instance();
+    manager->registerStorage(std::move(storage));
+    if (mixedStorages)
+        manager->registerStorage(std::move(other));
+    const auto               cleanup = qScopeGuard([manager, raw, otherRaw] {
+        manager->unregisterStorage(raw);
+        if (otherRaw)
+            manager->unregisterStorage(otherRaw);
+    });
+    DraftManager             drafts(std::make_unique<MemoryDraftStore>());
+    NotesWorkspaceController workspace(nullptr, &drafts, nullptr);
+    auto                    *recent = workspace.recentNotesModel();
+    QTRY_COMPARE(recent->rowCount(), 3);
+
+    ManagerInteractionFixture fixture(workspace.groupedNotesModel(), recent);
+    QVERIFY2(fixture.isReady(), qPrintable(fixture.errorString()));
+    QVERIFY(fixture.page->setProperty("workspace", QVariant::fromValue(static_cast<QObject *>(&workspace))));
+    QVERIFY(fixture.page->setProperty("viewMode", fixture.page->property("recentMode")));
+    auto *tree = fixture.root->findChild<QQuickItem *>(QStringLiteral("recentNotes"));
+    QVERIFY(tree);
+    auto *collection = tree->property("collectionOwner").value<QObject *>();
+    QVERIFY(collection);
+
+    const auto    rowId   = [recent](int row) { return recent->index(row, 0).data(NotesModel::NoteIdRole).toString(); };
+    const QString movedId = rowId(2);
+    const QString anchorId = rowId(1);
+    const QPersistentModelIndex moved(recent->index(2, 0));
+    QSignalSpy                  resets(recent, &QAbstractItemModel::modelReset);
+    const auto                  anchorStorageId = recent->index(1, 0).data(NotesModel::StorageIdRole).toString();
+    const auto                  delegateFor     = [tree](const QString &storageId, const QString &id) {
+        return quickVisibleItemByName(tree, QStringLiteral("recentDelegate-note:%1-%2").arg(storageId, id));
+    };
+    QQuickItem *source = nullptr;
+    QQuickItem *target = nullptr;
+    QTRY_VERIFY((source = delegateFor(raw->systemName(), movedId))
+                && (target = delegateFor(anchorStorageId, anchorId)));
+    const QPointF from = fixture.center(source);
+    const QPointF to   = fixture.center(target) - QPointF(0, target->height() / 2 - 2);
+    QTest::mousePress(&fixture.quick, Qt::LeftButton, Qt::NoModifier, from.toPoint());
+    for (int step = 1; step <= 8; ++step)
+        QTest::mouseMove(&fixture.quick, (from + (to - from) * (qreal(step) / 8)).toPoint(), 15);
+    QTRY_VERIFY(collection->property("dragging").toBool());
+    QTest::mouseRelease(&fixture.quick, Qt::LeftButton, Qt::NoModifier, to.toPoint());
+
+    QTRY_COMPARE(rowId(1), movedId);
+    QCOMPARE(moved.row(), 1);
+    QCOMPARE(resets.size(), 0);
+    QCOMPARE(recent->index(1, 0).data(NotesModel::StorageIdRole).toString(), raw->systemName());
+    QCOMPARE(raw->note(movedId).lastChangeUTC(), newestTime.addSecs(-5));
+    QTRY_VERIFY((source = delegateFor(raw->systemName(), movedId)) && source->property("rowIndex").toInt() == 1);
+    if (otherRaw)
+        QCOMPARE(otherRaw->note(anchorId).lastChangeUTC(), newestTime.addSecs(-10));
+}
+
+void NotesManagerQmlTest::noteUpdatesKeepVisibleRowsAndCollapsedStorages()
+{
+    QStandardItemModel source;
+    source.setItemRoleNames({ { NotesModel::StorageIdRole, "storageId" },
+                              { NotesModel::NoteIdRole, "noteId" },
+                              { NotesModel::ItemTypeRole, "itemType" },
+                              { NotesModel::TitleRole, "title" },
+                              { NotesModel::PreviewRole, "preview" },
+                              { NotesModel::ModifiedTimeRole, "modifiedTime" } });
+    const auto makeRow = [](const QString &storageId, const QString &noteId, const QString &title) {
+        auto *row = new QStandardItem;
+        row->setData(storageId, NotesModel::StorageIdRole);
+        row->setData(noteId, NotesModel::NoteIdRole);
+        row->setData(noteId.isEmpty() ? NotesModel::ItemStorage : NotesModel::ItemNote, NotesModel::ItemTypeRole);
+        row->setData(title, NotesModel::TitleRole);
+        return row;
+    };
+    auto *firstStorage  = makeRow(QStringLiteral("storage-a"), {}, QStringLiteral("Storage A"));
+    auto *secondStorage = makeRow(QStringLiteral("storage-b"), {}, QStringLiteral("Storage B"));
+    secondStorage->appendRow(makeRow(QStringLiteral("storage-b"), QStringLiteral("other"), QStringLiteral("Other")));
+    source.appendRow(secondStorage);
+    source.appendRow(firstStorage);
+    const auto timestamp = QDateTime::currentDateTimeUtc();
+    for (int row = 0; row < 22; ++row) {
+        auto *note = makeRow(QStringLiteral("storage-a"), QStringLiteral("note-%1").arg(row),
+                             QStringLiteral("Note %1").arg(row));
+        note->setData(timestamp.addSecs(-row), NotesModel::ModifiedTimeRole);
+        firstStorage->appendRow(note);
+    }
+    RecentNotesModel          recent(&source);
+    ManagerInteractionFixture fixture(&source, &recent);
+    QVERIFY2(fixture.isReady(), qPrintable(fixture.errorString()));
+    QTRY_COMPARE(fixture.tree->property("rows").toInt(), 25);
+    bool expanded = false;
+    QVERIFY(QMetaObject::invokeMethod(fixture.tree, "isExpanded", Q_RETURN_ARG(bool, expanded), Q_ARG(int, 0)));
+    QVERIFY(expanded);
+    QVERIFY(QMetaObject::invokeMethod(fixture.tree, "collapse", Q_ARG(int, 0)));
+    QTRY_COMPARE(fixture.tree->property("rows").toInt(), 24);
+
+    QVERIFY(fixture.tree->setProperty("contentY", 155.0));
+    QVERIFY(QMetaObject::invokeMethod(fixture.tree, "forceLayout"));
+    QQuickItem *selected = nullptr;
+    QTRY_VERIFY((selected = fixture.delegateForNote(QStringLiteral("note-8"))));
+    auto *selection = fixture.root->findChild<QObject *>(QStringLiteral("notesManagerSelectionController"));
+    QVERIFY(selection);
+    QVERIFY(QMetaObject::invokeMethod(selection, "setSelected",
+                                      Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(selected))),
+                                      Q_ARG(QVariant, true)));
+    QVERIFY(selected->property("noteSelected").toBool());
+    const QPointer<QQuickItem> selectedDelegate(selected);
+    const auto                 scroll = fixture.tree->property("contentY").toDouble();
+    firstStorage->child(9)->setData(QStringLiteral("Grouped preview"), NotesModel::PreviewRole);
+    QCOMPARE(fixture.delegateForNote(QStringLiteral("note-8")), selectedDelegate.data());
+    firstStorage->appendRow(makeRow(QStringLiteral("storage-a"), QStringLiteral("new"), QStringLiteral("New")));
+    QTRY_COMPARE(fixture.tree->property("rows").toInt(), 25);
+    secondStorage->appendRow(makeRow(QStringLiteral("storage-b"), QStringLiteral("hidden"), QStringLiteral("Hidden")));
+    QTRY_COMPARE(fixture.tree->property("rows").toInt(), 25);
+    QTRY_VERIFY((selected = fixture.delegateForNote(QStringLiteral("note-8"))));
+    QVERIFY(selected->property("noteSelected").toBool());
+    QCOMPARE(fixture.tree->property("contentY").toDouble(), scroll);
+
+    QVERIFY(fixture.page->setProperty("viewMode", fixture.page->property("recentMode")));
+    auto *recentTree = fixture.root->findChild<QQuickItem *>(QStringLiteral("recentNotes"));
+    QVERIFY(recentTree);
+    QTRY_COMPARE(recentTree->property("rows").toInt(), 25);
+    QVERIFY(recentTree->setProperty("contentY", 155.0));
+    QVERIFY(QMetaObject::invokeMethod(recentTree, "forceLayout"));
+    const QString selectedName   = QStringLiteral("recentDelegate-note:storage-a-note-8");
+    QQuickItem   *recentSelected = nullptr;
+    QTRY_VERIFY((recentSelected = quickVisibleItemByName(recentTree, selectedName)));
+    const QPointer<QQuickItem> recentDelegate(recentSelected);
+    recentSelected->forceActiveFocus();
+    QTRY_VERIFY(recentSelected->hasActiveFocus());
+    const auto    recentScroll = recentTree->property("contentY").toDouble();
+    const QString changedName  = QStringLiteral("recentDelegate-note:storage-a-note-9");
+    firstStorage->child(9)->setData(QStringLiteral("Changed preview"), NotesModel::PreviewRole);
+    QQuickItem *changed = nullptr;
+    QTRY_VERIFY((changed = quickVisibleItemByName(recentTree, changedName)));
+    QTRY_COMPARE(changed->property("preview").toString(), QStringLiteral("Changed preview"));
+    QCOMPARE(quickVisibleItemByName(recentTree, selectedName), recentDelegate.data());
+    QVERIFY(recentDelegate);
+    QVERIFY(recentDelegate->hasActiveFocus());
+    QVERIFY(recentDelegate->property("noteSelected").toBool());
+    QCOMPARE(recentTree->property("contentY").toDouble(), recentScroll);
 }
 
 void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()

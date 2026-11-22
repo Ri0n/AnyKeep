@@ -15,6 +15,7 @@ class QAbstractProxyModel;
 namespace AnyKeep {
 
 class NMMItem;
+struct NMMNote;
 class Note;
 class DraftManager;
 class FolderCatalogManager;
@@ -102,14 +103,13 @@ private slots:
     void storageIndexStateChanged(const QString &storageId);
 
 private:
-    void             replaceVisibleNotes(NMMItem *storageItem, int desiredCount = -1);
-    QList<NMMItem *> projectStorageNotes(NMMItem *storageItem) const;
-    void             draftsChanged();
-    QModelIndex      storageIndex(const QString &storageId) const;
-    QModelIndex      noteIndex(const QString &storageId, const QString &noteId) const;
-    NMMItem         *storageItem(const QString &storageId) const;
-    QList<Note>      indexedNotes(const QString &storageId) const;
-    int              projectedNoteCount(const NMMItem *storageItem) const;
+    void           reconcileVisibleNotes(NMMItem *storageItem, int desiredCount);
+    QList<NMMNote> projectStorageNotes(const NMMItem *storageItem) const;
+    void           draftsChanged();
+    QModelIndex    storageIndex(const QString &storageId) const;
+    QModelIndex    noteIndex(const QString &storageId, const QString &noteId) const;
+    NMMItem       *storageItem(const QString &storageId) const;
+    QList<Note>    indexedNotes(const QString &storageId) const;
 
     QList<NMMItem *>      storages_;
     int                   pageSize_ { 30 };

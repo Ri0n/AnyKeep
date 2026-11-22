@@ -17,7 +17,7 @@ Item {
         id: workspace
         objectName: "managerWorkspace"
         property var groupedNotesModel: testNotesModel
-        property var recentNotesModel: testNotesModel
+        property var recentNotesModel: testRecentNotesModel
         property var folderNotesModel: null
         property bool folderCatalogAvailable: false
         property var currentEditor: null

@@ -68,8 +68,6 @@ public:
     void                observeNote(const Note &note, QObject *subscriber) override;
     bool                saveNote(const Note &note) override;
     NoteSaveJob        *saveNoteAsync(const Note &note, QObject *owner = nullptr) override;
-    NoteReorderJob     *reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId,
-                                          QObject *owner = nullptr) override;
     void                removeNote(const QString &noteId) override;
     NoteRemoveJob      *removeNoteAsync(const QString &noteId, QObject *owner = nullptr) override;
 
@@ -95,6 +93,7 @@ private slots:
     void onApplicationResumed();
 
 private:
+    void applyNoteReorderChanges(QList<NoteReorderChange> changes, NoteReorderJob *job) override;
     class ReorderOperation;
 
     struct RefreshWaiter {

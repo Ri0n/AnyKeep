@@ -71,14 +71,13 @@ public:
 
     QList<Note::Format> availableFormats() const override;
     qint64              requestedModificationTimeResolutionMs() const override { return 1; }
-    NoteReorderJob     *reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId,
-                                          QObject *owner = nullptr) override;
     bool                supportsMedia() const override { return true; }
     QString             findStorageDir() const override;
 
     static QString storageId;
 
 private:
+    void               applyNoteReorderChanges(QList<NoteReorderChange> changes, NoteReorderJob *job) override;
     void               loadFolderCatalog();
     QUuid              folderIdForNote(const QString &noteId) const;
     FolderCatalogError replaceFolderCatalog(const FolderCatalogSnapshot &snapshot);

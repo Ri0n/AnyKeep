@@ -6,6 +6,7 @@
 #include <QTimer>
 
 #include <algorithm>
+#include <numeric>
 #include <utility>
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
@@ -357,14 +358,70 @@ NoteReorderJob *NoteStorage::reorderNotesAsync(const QStringList &noteIds, const
     auto *job = new NoteReorderJob(owner ? owner : this);
     job->start();
     StorageError error;
-    const auto   changes = noteReorderChanges(noteIds, afterNoteId, &error);
+    auto         changes = noteReorderChanges(noteIds, afterNoteId, &error);
     if (error) {
         job->fail(error);
         return job;
     }
-    if (changes.isEmpty()) {
+    applyNoteReorderChanges(std::move(changes), job);
+    return job;
+}
+
+NoteReorderJob *NoteStorage::reorderNotesBetweenAsync(const QStringList &noteIds, const QDateTime &newer,
+                                                      const QDateTime &older, QObject *owner)
+{
+    auto *job = new NoteReorderJob(owner ? owner : this);
+    job->start();
+    const qint64 timeStep = requestedModificationTimeResolutionMs();
+    if (!supportsNoteReordering() || timeStep <= 0) {
+        job->fail({ StorageError::Other, tr("This storage does not support manual note ordering"), false });
+        return job;
+    }
+    if (noteIds.isEmpty()) {
         job->complete();
         return job;
+    }
+
+    const qint64 nowTick = QDateTime::currentMSecsSinceEpoch() / timeStep;
+    const qint64 maxTick = newer.isValid() ? qMin(nowTick, (newer.toMSecsSinceEpoch() - 1) / timeStep) : nowTick;
+    const qint64 minTick = older.isValid() ? older.toMSecsSinceEpoch() / timeStep + 1 : maxTick - noteIds.size() + 1;
+    const qint64 availableTicks = maxTick - minTick + 1;
+    if (availableTicks < noteIds.size()) {
+        job->fail({ StorageError::Other, tr("The neighboring notes are too close in time for this storage"), false });
+        return job;
+    }
+
+    const QSet<QString>  requested(noteIds.cbegin(), noteIds.cend());
+    QHash<QString, Note> sourceNotes;
+    for (const auto &note : noteList()) {
+        if (requested.contains(note.id()))
+            sourceNotes.insert(note.id(), note);
+    }
+
+    QList<NoteReorderChange> changes;
+    changes.reserve(noteIds.size());
+    const qint64 spacing = qMax<qint64>(1, (availableTicks + 1) / (noteIds.size() + 1));
+    qint64       tick    = noteIds.size() == 1 ? std::midpoint(minTick, maxTick) : maxTick + 1 - spacing;
+    for (const auto &id : noteIds) {
+        const auto note = sourceNotes.value(id);
+        if (note.isNull()) {
+            job->fail({ StorageError::NotFound, tr("A note selected for reordering is no longer available"), false });
+            return job;
+        }
+        const auto modified = QDateTime::fromMSecsSinceEpoch(tick * timeStep, TimeZoneUTC);
+        if (modified != note.lastChangeUTC())
+            changes.append({ note, modified });
+        tick -= spacing;
+    }
+    applyNoteReorderChanges(std::move(changes), job);
+    return job;
+}
+
+void NoteStorage::applyNoteReorderChanges(QList<NoteReorderChange> changes, NoteReorderJob *job)
+{
+    if (changes.isEmpty()) {
+        job->complete();
+        return;
     }
 
     QList<GenericReorderStep> steps;
@@ -373,7 +430,6 @@ NoteReorderJob *NoteStorage::reorderNotesAsync(const QStringList &noteIds, const
         steps.append({ change.note.id(), change.modified });
     auto *operation = new GenericReorderOperation(this, job, std::move(steps));
     QTimer::singleShot(0, operation, [operation]() { operation->startNext(); });
-    return job;
 }
 
 } // namespace AnyKeep

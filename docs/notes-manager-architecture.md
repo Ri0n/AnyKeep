@@ -68,6 +68,14 @@ the same snapshot through `NoteManager::noteList()`. The shared QML collection
 requests the next storage page when its currently exposed tail approaches the
 visible viewport.
 
+The grouped model keeps visible rows by storage and note ID. It publishes
+role changes and row insertions, removals, or moves as the index, draft
+overlays, and visible pages change. The recent model projects persistent
+indexes from the filtered grouped model and applies the same incremental
+notifications within its result limit. The recent model resets when its
+source is replaced, reset, or destroyed, because its source indexes can no
+longer identify the same rows.
+
 Local `FileStorage` implementations do not cache note objects. Their
 `noteList()` scans the selected directory and returns a fresh list whenever the
 central index explicitly refreshes. Successful local writes update the index

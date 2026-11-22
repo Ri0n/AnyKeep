@@ -37,6 +37,9 @@ signals:
     void noteCountChanged();
 
 private:
+    QList<QPersistentModelIndex> projectedEntries() const;
+    void                         resetProjection();
+    void sourceDataChanged(const QModelIndex &first, const QModelIndex &last, const QList<int> &roles);
     void disconnectSource();
     void connectSource();
 

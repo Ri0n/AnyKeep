@@ -66,8 +66,8 @@ namespace {
         // Old files can begin with empty title lines. The first actual
         // Markdown heading (or text line) owns the title, not those lines.
         while (!contents.isEmpty()) {
-            const qsizetype end = contents.indexOf(QLatin1Char('\n'));
-            const QString  line = end < 0 ? contents : contents.left(end);
+            const qsizetype end  = contents.indexOf(QLatin1Char('\n'));
+            const QString   line = end < 0 ? contents : contents.left(end);
             if (!line.trimmed().isEmpty())
                 break;
             if (end < 0)
@@ -75,7 +75,7 @@ namespace {
             contents.remove(0, end + 1);
         }
         const qsizetype separator = contents.indexOf(QLatin1Char('\n'));
-        const QString firstLine = separator < 0 ? contents : contents.left(separator);
+        const QString   firstLine = separator < 0 ? contents : contents.left(separator);
         if (format == Note::Markdown) {
             // Reuse the editor's canonical Markdown block parser. Code,
             // media, lists and other structural first blocks do not occupy
@@ -528,7 +528,7 @@ bool PTFStorage::loadNote(Note &note)
     const Note::Format format = QFileInfo(fileName).suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0
         ? Note::Markdown
         : Note::PlainText;
-    auto [title, body] = splitPtfContents(contents, format);
+    auto [title, body]        = splitPtfContents(contents, format);
     note.setTitle(title);
     note.setText(body, format);
     note.setLastChangeUTC(QFileInfo(file).lastModified());
@@ -554,7 +554,7 @@ bool PTFStorage::saveNote(const Note &note)
         return true;
     }
 
-    const auto [title, body]   = splitPtfContents(note.title() + QLatin1Char('\n') + note.text(), note.format());
+    const auto [title, body]     = splitPtfContents(note.title() + QLatin1Char('\n') + note.text(), note.format());
     QString    oldNoteId         = note.id();
     const bool existedBeforeSave = noteFileExists(oldNoteId);
     QString    newNoteId         = oldNoteId;
@@ -701,19 +701,11 @@ bool PTFStorage::saveNote(const Note &note)
     return true;
 }
 
-NoteReorderJob *PTFStorage::reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId, QObject *owner)
+void PTFStorage::applyNoteReorderChanges(QList<NoteReorderChange> changes, NoteReorderJob *job)
 {
-    auto *job = new NoteReorderJob(owner ? owner : this);
-    job->start();
-    StorageError error;
-    const auto   changes = noteReorderChanges(noteIds, afterNoteId, &error);
-    if (error) {
-        job->fail(error);
-        return job;
-    }
     if (changes.isEmpty()) {
         job->complete();
-        return job;
+        return;
     }
 
     struct AppliedChange {
@@ -754,7 +746,7 @@ NoteReorderJob *PTFStorage::reorderNotesAsync(const QStringList &noteIds, const 
             file.close();
             rollBack();
             job->fail({ StorageError::Io, message, false });
-            return job;
+            return;
         }
         file.close();
         applied.append({ fileName, previousModified });
@@ -764,7 +756,6 @@ NoteReorderJob *PTFStorage::reorderNotesAsync(const QStringList &noteIds, const 
     // rebuilding an intermediate order once per changed timestamp.
     emit invalidated();
     job->complete();
-    return job;
 }
 
 void PTFStorage::removeNote(const QString &noteId)

@@ -610,30 +610,20 @@ NoteSaveJob *XmppStorage::saveNoteAsync(const Note &note, QObject *owner)
     return job;
 }
 
-NoteReorderJob *XmppStorage::reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId, QObject *owner)
+void XmppStorage::applyNoteReorderChanges(QList<NoteReorderChange> changes, NoteReorderJob *job)
 {
-    auto *job = new NoteReorderJob(owner ? owner : this);
-    job->start();
     if (shuttingDown_ || errorState_ || !backend_) {
         job->fail({ StorageError::Unavailable, errorState_ ? errorStateMessage_ : tr("The XMPP storage is unavailable"),
                     false });
-        return job;
-    }
-
-    StorageError error;
-    auto         changes = noteReorderChanges(noteIds, afterNoteId, &error);
-    if (error) {
-        job->fail(error);
-        return job;
+        return;
     }
     if (changes.isEmpty()) {
         job->complete();
-        return job;
+        return;
     }
 
     auto *operation = new ReorderOperation(this, job, std::move(changes));
     QTimer::singleShot(0, operation, [operation]() { operation->startNext(); });
-    return job;
 }
 
 NoteFolderChangeJob *XmppStorage::changeNoteFolderAsync(const Note &note, QObject *owner)

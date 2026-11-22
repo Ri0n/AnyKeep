@@ -9,7 +9,7 @@ class QQuickItem;
 
 class ManagerInteractionFixture {
 public:
-    ManagerInteractionFixture();
+    explicit ManagerInteractionFixture(QAbstractItemModel *grouped = nullptr, QAbstractItemModel *recent = nullptr);
 
     bool    isReady() const { return root && page && tree && preview; }
     QString errorString() const { return errorString_; }

@@ -142,6 +142,8 @@ public:
                                                   QObject *owner = nullptr);
     virtual NoteReorderJob      *reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId,
                                                    QObject *owner = nullptr);
+    NoteReorderJob *reorderNotesBetweenAsync(const QStringList &noteIds, const QDateTime &newer, const QDateTime &older,
+                                             QObject *owner = nullptr);
 
     // Stops accepting work and synchronously drains implementation-owned workers.
     // Called before the storage object or its plugin code can be unloaded.
@@ -155,6 +157,7 @@ protected:
 
     QList<NoteReorderChange> noteReorderChanges(const QStringList &noteIds, const QString &afterNoteId,
                                                 StorageError *error = nullptr);
+    virtual void             applyNoteReorderChanges(QList<NoteReorderChange> changes, NoteReorderJob *job);
 
 signals:
     void noteAdded(const Note &);

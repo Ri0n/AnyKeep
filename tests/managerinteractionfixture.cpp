@@ -6,11 +6,12 @@
 #include <QQuickItem>
 #include <QtTest>
 
+#include "storageiconimageprovider.h"
 #include "themediconimageprovider.h"
 
 using namespace AnyKeep;
 
-ManagerInteractionFixture::ManagerInteractionFixture()
+ManagerInteractionFixture::ManagerInteractionFixture(QAbstractItemModel *grouped, QAbstractItemModel *recent)
 {
     quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
     quick.resize(620, 480);
@@ -36,8 +37,10 @@ ManagerInteractionFixture::ManagerInteractionFixture()
     appendItem(QStringLiteral("storage-b"), {}, 0, QStringLiteral("Storage B"));
     appendItem(QStringLiteral("storage-b"), QStringLiteral("note-b"), 1, QStringLiteral("Note B"));
 
+    installStorageIconImageProvider(quick.engine());
     installThemedIconImageProvider(quick.engine());
-    quick.rootContext()->setContextProperty(QStringLiteral("testNotesModel"), &notesModel);
+    quick.rootContext()->setContextProperty(QStringLiteral("testNotesModel"), grouped ? grouped : &notesModel);
+    quick.rootContext()->setContextProperty(QStringLiteral("testRecentNotesModel"), recent ? recent : &notesModel);
     const QUrl    harnessUrl(QStringLiteral("qrc:/qml/ManagerInteractionHarness.qml"));
     QQmlComponent component(quick.engine(), harnessUrl);
     if (!component.isReady()) {
