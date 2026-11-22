@@ -177,7 +177,7 @@ Item {
     }
 
     component SelectionMenuItem: MenuItem {
-        implicitHeight: Math.max(48, implicitContentHeight + topPadding + bottomPadding)
+        implicitHeight: visible ? Math.max(48, implicitContentHeight + topPadding + bottomPadding) : 0
     }
 
     Manager.NotesManagerActionController {
@@ -779,6 +779,18 @@ Item {
                                    ? 0 : selectionMoreButton.width - width
                                 y: -height - 4
 
+                                SelectionMenuItem {
+                                    objectName: "mobileSelectionRestore"
+                                    icon.source: "qrc:/svg/edit-undo-symbolic.svg"
+                                    visible: root.contextNotesAllRecycled()
+                                    enabled: root.workspace.folderCatalogAvailable && root.selectionActionsAvailable
+                                    text: root.contextNoteCount() > 1 ? qsTr("Restore notes from Recycle Bin")
+                                                                    : qsTr("Restore from Recycle Bin")
+                                    onTriggered: {
+                                        if (root.prepareMobileSelectedNotes() && root.contextNotesAllRecycled())
+                                            root.restoreContextNotes()
+                                    }
+                                }
                                 SelectionMenuItem {
                                     objectName: "mobileSelectionMenuTag"
                                     action: tagSelectionAction

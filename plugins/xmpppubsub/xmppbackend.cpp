@@ -40,6 +40,7 @@ XmppRemoteNote XmppBackend::makeIndexUpdate(XmppRemoteNote current, const XmppRe
                                             QString newRevision, QString originId)
 {
     current.folderPath     = requested.folderPath;
+    current.systemFolderId = requested.systemFolderId;
     current.parentRevision = current.revision;
     current.revision       = std::move(newRevision);
     current.originId       = std::move(originId);

@@ -168,6 +168,10 @@ FolderCatalogError FolderCatalog::reconcileProviderFolderPaths(const QString    
             }
         }
 
+        if (!isRecycleBinId(folderId)) {
+            current.previousFolderId = {};
+            current.recycledAt       = {};
+        }
         current.folderId   = folderId;
         current.tombstone  = tombstone;
         current.revision   = std::max<quint64>(current.revision + 1, 1);

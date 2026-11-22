@@ -119,7 +119,7 @@ private:
     void                 applyRemote(Note &note, const XmppRemoteNote &remote);
     bool                 toRemote(const Note &note, XmppRemoteNote *remote, QString *error) const;
     bool                 folderPathForFolder(const QUuid &folderId, QStringList *path, QString *error) const;
-    bool                 folderPathForNote(const Note &note, QStringList *path, QString *error) const;
+    bool                 resolveNoteFolder(const Note &note, QStringList &path, QUuid &systemId, QString *error) const;
     void                 reconcileRemoteFolders(const QList<XmppRemoteNote> &notes);
     void                 reconcileCachedFolders();
     void                 scheduleFolderPathSynchronization();

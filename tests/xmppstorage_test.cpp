@@ -1,7 +1,10 @@
 #include "draftmanager.h"
 #include "editortestsupport.h"
+#include "filefoldercatalogstore.h"
+#include "foldercatalogmanager.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
+#include "secureenvelope.h"
 #include "xmppbackend.h"
 #include "xmppnotecodec.h"
 #include "xmppsettingscontroller.h"
@@ -11,6 +14,7 @@
 #include <QScopeGuard>
 #include <QSettings>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QtTest>
 
 #include <utility>
@@ -202,6 +206,8 @@ private slots:
     void lateBackgroundReplyDoesNotReplaceNewerSnapshot();
     void authenticationStartsWithoutEncryptionKeys();
     void reorderPublishesOnlyTheIndex();
+    void restorePublishesIndexWithoutRecycleMarker_data();
+    void restorePublishesIndexWithoutRecycleMarker();
     void syncActivityReportsIndexStages();
     void sharedRefreshStaysBusyUntilTheLastCallerCancels();
     void destroyedRefreshCallerClearsActivity();
@@ -563,12 +569,16 @@ void XmppStorageTest::saveWithForeignKeyRequiresRecovery()
 
 void XmppStorageTest::reorderPublishesOnlyTheIndex()
 {
-    auto       *backend = new FakeXmppBackend;
-    XmppStorage storage(nullptr, backend);
-    const auto  newer = QDateTime::currentDateTimeUtc().addSecs(-120);
-    const auto  older = newer.addSecs(-60);
+    FolderCatalogManager catalog;
+    auto                *backend = new FakeXmppBackend;
+    XmppStorage          storage(nullptr, backend, &catalog);
+    const auto           newer = QDateTime::currentDateTimeUtc().addSecs(-120);
+    const auto           older = newer.addSecs(-60);
     backend->seed(remoteNote(QStringLiteral("newer"), newer));
-    backend->seed(remoteNote(QStringLiteral("older"), older));
+    auto recycled           = remoteNote(QStringLiteral("older"), older);
+    recycled.folderPath     = { QStringLiteral("Recycle Bin") };
+    recycled.systemFolderId = FolderCatalog::recycleBinId();
+    backend->seed(recycled);
 
     auto *job = storage.reorderNotesAsync({ QStringLiteral("older") }, {});
     QTRY_VERIFY(job->isFinished());
@@ -582,8 +592,92 @@ void XmppStorageTest::reorderPublishesOnlyTheIndex()
     const auto reordered = backend->remote_.value(QStringLiteral("older"));
     QCOMPARE(reordered.content, QStringLiteral("older body"));
     QCOMPARE(reordered.contentRevision, QStringLiteral("older-content-1"));
+    QCOMPARE(reordered.folderPath, recycled.folderPath);
+    QCOMPARE(reordered.systemFolderId, recycled.systemFolderId);
     QCOMPARE(reordered.modified, backend->indexRequests.constFirst().modified);
     QVERIFY(!reordered.contentPresent);
+}
+
+void XmppStorageTest::restorePublishesIndexWithoutRecycleMarker_data()
+{
+    QTest::addColumn<QStringList>("originalPath");
+    QTest::newRow("unsorted") << QStringList();
+    QTest::newRow("original-folder") << QStringList { QStringLiteral("Inbox") };
+}
+
+void XmppStorageTest::restorePublishesIndexWithoutRecycleMarker()
+{
+    QFETCH(QStringList, originalPath);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(std::make_unique<FileFolderCatalogStore>(
+        directory.filePath(QStringLiteral("folders.bin")), SecureEnvelope::generateMasterKey()));
+    QVERIFY(catalog.initialize());
+    auto       *backend = new FakeXmppBackend;
+    XmppStorage storage(nullptr, backend, &catalog);
+    const auto  storageId = storage.systemName();
+
+    auto  recycled = remoteNote(QStringLiteral("recycled"), QDateTime::currentDateTimeUtc().addSecs(-60));
+    QUuid originalFolder;
+    if (!originalPath.isEmpty()) {
+        FolderRecord folder;
+        folder.name        = originalPath.constFirst();
+        const auto created = catalog.addFolder(folder);
+        QVERIFY(created);
+        originalFolder = created.value;
+    }
+    QVERIFY(!catalog.recycleNote(storageId, recycled.id, originalFolder));
+    recycled.folderPath     = { QStringLiteral("Recycle Bin") };
+    recycled.systemFolderId = FolderCatalog::recycleBinId();
+    backend->seed(recycled);
+
+    // The deleting device already stored the original folder and recycle time
+    // before the server announced the recycle. Keep those fields in the peer.
+    auto peerSnapshot = catalog.snapshot();
+    QCOMPARE(peerSnapshot.assignments.size(), 1);
+    peerSnapshot.assignments.first().modifiedAt = recycled.modified;
+    peerSnapshot.assignments.first().recycledAt = recycled.modified;
+    FolderCatalog peer;
+    QVERIFY(!peer.replaceSnapshot(std::move(peerSnapshot)));
+
+    const auto restored = catalog.restoreRecycledNote(storageId, recycled.id);
+    QVERIFY(restored);
+    QCOMPARE(restored.value, originalFolder);
+    auto note = storage.note(recycled.id);
+    QVERIFY(!note.isNull());
+    note.setFolderId(restored.value);
+
+    auto *job = storage.changeNoteFolderAsync(note);
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->state(), StorageJob::Succeeded);
+    QCOMPARE(backend->fullSaveCount, 0);
+    const auto published = backend->remote_.value(recycled.id);
+    QCOMPARE(published.folderPath, originalPath);
+    QVERIFY(published.systemFolderId.isNull());
+    QCOMPARE(backend->indexUpdateCount, 1);
+    QCOMPARE(published.contentRevision, recycled.contentRevision);
+    QCOMPARE(published.content, recycled.content);
+    QVERIFY(!published.contentPresent);
+    QCOMPARE(catalog.catalog().folderForNote(storageId, recycled.id), originalFolder);
+
+    QVERIFY(!peer.reconcileProviderFolderPaths(
+        storageId, { { recycled.id, recycled.folderPath, recycled.systemFolderId, recycled.modified } }));
+    const auto *before = peer.assignment(storageId, recycled.id);
+    QVERIFY(before);
+    QCOMPARE(before->previousFolderId, originalFolder);
+    QCOMPARE(before->recycledAt, recycled.modified);
+    QVERIFY(peer.isRecycled(storageId, recycled.id));
+
+    const auto received = peer.reconcileProviderFolderPaths(
+        storageId, { { published.id, published.folderPath, published.systemFolderId, published.modified } });
+    QVERIFY2(!received, qPrintable(received.message));
+    QVERIFY(!peer.isRecycled(storageId, recycled.id));
+    QCOMPARE(peer.folderForNote(storageId, recycled.id), originalFolder);
+    const auto *after = peer.assignment(storageId, recycled.id);
+    QVERIFY(after);
+    QCOMPARE(after->tombstone, originalFolder.isNull());
+    QVERIFY(after->previousFolderId.isNull());
+    QVERIFY(!after->recycledAt.isValid());
 }
 
 void XmppStorageTest::syncActivityReportsIndexStages()

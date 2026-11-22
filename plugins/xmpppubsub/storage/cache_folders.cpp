@@ -111,26 +111,23 @@ bool XmppStorage::folderPathForFolder(const QUuid &folderId, QStringList *path, 
     return true;
 }
 
-bool XmppStorage::folderPathForNote(const Note &note, QStringList *path, QString *error) const
+bool XmppStorage::resolveNoteFolder(const Note &note, QStringList &path, QUuid &systemFolderId, QString *error) const
 {
-    if (path)
-        path->clear();
     if (error)
         error->clear();
 
     // Catalog assignments are committed authority. A Note may still refer
     // to a legacy folder UUID after an imported bin has been canonicalized.
-    if (!note.id().isEmpty() && folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
-        if (const auto *assignment = folderCatalogManager_->catalog().assignment(systemName(), note.id())) {
-            if (assignment->tombstone)
-                return true;
-            return folderPathForFolder(assignment->folderId, path, error);
-        }
+    const auto *assignment = !note.id().isEmpty() && folderCatalogManager_ && folderCatalogManager_->isAvailable()
+        ? folderCatalogManager_->catalog().assignment(systemName(), note.id())
+        : nullptr;
+    const auto  folderId   = assignment ? (assignment->tombstone ? QUuid {} : assignment->folderId) : note.folderId();
+    if (assignment || !folderId.isNull()) {
+        systemFolderId = FolderCatalog::isRecycleBinId(folderId) ? folderId : QUuid {};
+        return folderPathForFolder(folderId, &path, error);
     }
-    if (!note.folderId().isNull())
-        return folderPathForFolder(note.folderId(), path, error);
-    if (path)
-        *path = note.backendValue(FolderPathBackendKey).toStringList();
+    path           = note.backendValue(FolderPathBackendKey).toStringList();
+    systemFolderId = QUuid(note.backendValue(SystemFolderBackendKey).toString());
     return true;
 }
 
@@ -165,15 +162,8 @@ bool XmppStorage::toRemote(const Note &note, XmppRemoteNote *remote, QString *er
     result.contentPresent        = note.isLoaded();
     result.indexRecordTemplate   = note.backendValue(IndexRecordTemplateKey).toByteArray();
     result.contentRecordTemplate = note.backendValue(ContentRecordTemplateKey).toByteArray();
-    if (!folderPathForNote(note, &result.folderPath, error))
+    if (!resolveNoteFolder(note, result.folderPath, result.systemFolderId, error))
         return false;
-    QUuid folderId = note.folderId();
-    if (folderCatalogManager_ && folderCatalogManager_->isAvailable() && !note.id().isEmpty()) {
-        if (const auto *assignment = folderCatalogManager_->catalog().assignment(systemName(), note.id()))
-            folderId = assignment->tombstone ? QUuid {} : assignment->folderId;
-    }
-    if (FolderCatalog::isRecycleBinId(folderId))
-        result.systemFolderId = FolderCatalog::recycleBinId();
     *remote = std::move(result);
     return true;
 }
@@ -277,16 +267,14 @@ void XmppStorage::enqueueFolderPathUpdates()
             desired.setFolderId({});
 
         QStringList path;
+        QUuid       systemFolderId;
         QString     error;
-        if (!folderPathForNote(desired, &path, &error)) {
+        if (!resolveNoteFolder(desired, path, systemFolderId, &error)) {
             reportError(tr("Could not resolve the XMPP folder path for a note: %1").arg(error));
             continue;
         }
-        const bool samePath = path == cached.backendValue(FolderPathBackendKey).toStringList();
-        const auto expectedSystemFolder
-            = FolderCatalog::isRecycleBinId(desired.folderId()) ? FolderCatalog::recycleBinId() : QUuid {};
-        const bool sameSystemFolder
-            = expectedSystemFolder == QUuid(cached.backendValue(SystemFolderBackendKey).toString());
+        const bool samePath         = path == cached.backendValue(FolderPathBackendKey).toStringList();
+        const bool sameSystemFolder = systemFolderId == QUuid(cached.backendValue(SystemFolderBackendKey).toString());
         if (samePath && sameSystemFolder)
             continue;
         if (!folderPathUpdateQueued_.contains(cached.id())) {
@@ -325,28 +313,19 @@ void XmppStorage::publishNextFolderPathUpdate()
                 desired.setFolderId({});
         }
 
-        QStringList path;
-        QString     error;
-        if (!folderPathForNote(desired, &path, &error)) {
-            reportError(tr("Could not resolve the XMPP folder path for a note: %1").arg(error));
-            continue;
-        }
-        const bool samePath = path == cached.backendValue(FolderPathBackendKey).toStringList();
-        const auto expectedSystemFolder
-            = FolderCatalog::isRecycleBinId(desired.folderId()) ? FolderCatalog::recycleBinId() : QUuid {};
-        const bool sameSystemFolder
-            = expectedSystemFolder == QUuid(cached.backendValue(SystemFolderBackendKey).toString());
-        if (samePath && sameSystemFolder)
-            continue;
-
         XmppRemoteNote local;
+        QString        error;
         if (!toRemote(desired, &local, &error)) {
             reportError(tr("Could not prepare an XMPP folder update: %1").arg(error));
             continue;
         }
+        const bool samePath = local.folderPath == cached.backendValue(FolderPathBackendKey).toStringList();
+        const bool sameSystemFolder
+            = local.systemFolderId == QUuid(cached.backendValue(SystemFolderBackendKey).toString());
+        if (samePath && sameSystemFolder)
+            continue;
         if (local.revision.isEmpty())
             continue;
-        local.folderPath = std::move(path);
 
         folderPathUpdateRunning_ = true;
         folderPathUpdateInFlight_.insert(noteId);

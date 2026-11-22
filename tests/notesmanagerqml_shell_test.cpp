@@ -68,6 +68,8 @@ void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()
                 property bool movePreparationBusy: false
                 signal noteMovesPrepared(var preparedNotes)
                 property int trashCount: 0
+                property string recycledNoteId: ""
+                property string restoredNoteId: ""
                 property int noteCount: 3
                 property var storages: [
                     { storageId: "store", name: "Source storage", writable: true },
@@ -103,8 +105,14 @@ void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()
                 function openStandalone(storageId, noteId) { return true }
                 function deleteNote(storageId, noteId) { return true }
                 function trashNote(storageId, noteId) { ++trashCount; return true }
-                function restoreRecycledNote(storageId, noteId) { return true }
-                function isRecycledNote(storageId, noteId) { return false }
+                function restoreRecycledNote(storageId, noteId) {
+                    restoredNoteId = noteId
+                    recycledNoteId = ""
+                    return true
+                }
+                function isRecycledNote(storageId, noteId) {
+                    return recycledNoteId.length > 0 && recycledNoteId === noteId
+                }
                 function copyNote(sourceStorageId, noteId, destinationStorageId) { return true }
                 function moveNote(sourceStorageId, noteId, destinationStorageId) { return true }
                 function moveSelectedNotes(notes, destinationStorageId) {
@@ -238,6 +246,7 @@ void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()
         QCOMPARE(workspace->property("trashCount").toInt(), 0);
         auto *menuContent = menu->property("contentItem").value<QQuickItem *>();
         QVERIFY(menuContent);
+        QVERIFY(!quickVisibleItemByName(menuContent, QStringLiteral("mobileSelectionRestore")));
         auto *move = quickVisibleItemByName(menuContent, QStringLiteral("mobileSelectionMoveStorage"));
         QVERIFY(move);
         QTRY_VERIFY(move->mapToItem(menuContent, QPointF()).y() > 0);
@@ -347,5 +356,23 @@ void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()
     click(deselect);
     QTRY_VERIFY(!actions->isVisible());
     QVERIFY(!page->property("selectionMode").toBool());
+    QCOMPARE(workspace->property("trashCount").toInt(), 0);
+
+    workspace->setProperty("recycledNoteId", QStringLiteral("note"));
+    selection->setProperty("selectedNotes", selectedNotes);
+    QTRY_VERIFY(more->isVisible());
+    click(more);
+    QTRY_VERIFY(menu->property("opened").toBool());
+    // Polish the newly visible menu row before sending pointer input.
+    QVERIFY(!quick.grabFramebuffer().isNull());
+    auto       *menuContent = menu->property("contentItem").value<QQuickItem *>();
+    QQuickItem *restore     = nullptr;
+    QTRY_VERIFY((restore = quickVisibleItemByName(menuContent, QStringLiteral("mobileSelectionRestore"))));
+    QVERIFY(restore->isEnabled());
+    QTRY_VERIFY(QRectF(0, 0, menuContent->width(), menuContent->height())
+                    .contains(restore->mapRectToItem(menuContent, QRectF(0, 0, restore->width(), restore->height()))));
+    click(restore);
+    QTRY_COMPARE(workspace->property("restoredNoteId").toString(), QStringLiteral("note"));
+    QTRY_VERIFY(!page->property("selectionMode").toBool());
     QCOMPARE(workspace->property("trashCount").toInt(), 0);
 }

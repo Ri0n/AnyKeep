@@ -670,7 +670,8 @@ NoteFolderChangeJob *XmppStorage::changeNoteFolderAsync(const Note &note, QObjec
         job->fail({ StorageError::Other, remoteError, false });
         return job;
     }
-    local.folderPath = std::move(folderPath);
+    local.folderPath     = std::move(folderPath);
+    local.systemFolderId = FolderCatalog::isRecycleBinId(note.folderId()) ? note.folderId() : QUuid {};
 
     const auto                    config   = config_;
     const auto                    epoch    = configEpoch_;
