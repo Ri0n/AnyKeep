@@ -22,6 +22,7 @@
 #include <QQuickView>
 #include <QQuickWidget>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -272,6 +273,7 @@ private slots:
         };
         drag(from, target);
         QTRY_VERIFY(root->property("selectionSpansEditors").toBool());
+        QTRY_VERIFY(quickVisibleItemByName(root, QStringLiteral("blockRangeReorderHandle")));
         QVERIFY(!root->property("touchSelectionCanCut").toBool());
         QCOMPARE(paragraph->property("selectedText").toString(), QStringLiteral("bravo charlie"));
         QCOMPARE(nested->property("selectedText").toString(), QStringLiteral("nested"));
@@ -324,9 +326,203 @@ private slots:
         drag(handle->mapToScene(QPointF(handle->width() / 2, 14)).toPoint(),
              paragraph->mapToScene(rect.center() + QPointF(0, 8)).toPoint());
         QTRY_VERIFY(!root->property("selectionSpansEditors").toBool());
+        QVERIFY(!quickVisibleItemByName(root, QStringLiteral("blockRangeReorderHandle")));
         QVERIFY(root->property("touchSelectionCanCut").toBool());
         QCOMPARE(paragraph->property("selectedText").toString(), QStringLiteral("bravo"));
         QCOMPARE(nested->property("selectedText").toString(), QString());
+    }
+
+    void touchBlockHandleFollowsFocus_data()
+    {
+        QTest::addColumn<bool>("rightToLeft");
+        QTest::newRow("ltr") << false;
+        QTest::newRow("rtl") << true;
+    }
+
+    void touchBlockHandleFollowsFocus()
+    {
+        QFETCH(bool, rightToLeft);
+        const auto direction        = QGuiApplication::layoutDirection();
+        const auto restoreDirection = qScopeGuard([direction] { QGuiApplication::setLayoutDirection(direction); });
+        QGuiApplication::setLayoutDirection(rightToLeft ? Qt::RightToLeft : Qt::LeftToRight);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("Tap here\n\n## Heading\n\n- Parent\n    - Child"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        editor.model()->insertMedia(4, QStringLiteral("qrc:/svg/anykeep"), QStringLiteral("Picture"),
+                                    QStringLiteral("image/*"));
+        editor.model()->setMediaDisplayWidth(4, 80);
+        editor.model()->insertAttachment(5, QStringLiteral("anykeep-media:/missing/file"), QStringLiteral("File"),
+                                         QStringLiteral("application/pdf"), 0);
+        QQuickView view;
+        view.setResizeMode(QQuickView::SizeRootObjectToView);
+        view.resize(480, 580);
+        installThemedIconImageProvider(view.engine());
+        QString error;
+        QVERIFY2(loadQuickFixture(&view, QUrl(QStringLiteral("qrc:/qml/NoteBlockEditor.qml")),
+                                  { { QStringLiteral("blockModel"), QVariant::fromValue(editor.model()) },
+                                    { QStringLiteral("editorBackend"), QVariant::fromValue(&editor) },
+                                    { QStringLiteral("touchMode"), true } },
+                                  &error),
+                 qPrintable(error));
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        auto      *root   = view.rootObject();
+        auto      *device = QTest::createTouchDevice();
+        const auto tap    = [&view, device](QQuickItem *item) {
+            const QPoint point = item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
+            QTest::touchEvent(&view, device).press(0, point);
+            QTest::touchEvent(&view, device).release(0, point);
+        };
+        QQuickItem *paragraph = nullptr;
+        QQuickItem *heading   = nullptr;
+        QTRY_VERIFY((paragraph = textEditorForBlock(root, 1)));
+        QTRY_VERIFY((heading = textEditorForBlock(root, 2)));
+        QVERIFY(!quickVisibleItemByName(root, QStringLiteral("blockReorderHandle-1")));
+        tap(paragraph);
+        QTRY_VERIFY(paragraph->hasActiveFocus());
+        QQuickItem *handle = nullptr;
+        QTRY_VERIFY((handle = quickVisibleItemByName(root, QStringLiteral("blockReorderHandle-1"))));
+        const QRectF gutter = handle->mapRectToItem(root, QRectF(0, 0, handle->width(), handle->height()));
+        const QRectF text   = paragraph->mapRectToItem(root, QRectF(0, 0, paragraph->width(), paragraph->height()));
+        QVERIFY(rightToLeft ? gutter.left() >= text.right() : gutter.right() <= text.left());
+
+        QTest::keyClick(&view, Qt::Key_Down);
+        QTRY_VERIFY(heading->hasActiveFocus());
+        QVERIFY(!quickVisibleItemByName(root, QStringLiteral("blockReorderHandle-1")));
+        QVERIFY(quickVisibleItemByName(root, QStringLiteral("blockReorderHandle-2")));
+
+        QQuickItem *nested = nullptr;
+        QTRY_VERIFY(
+            (nested = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 1)));
+        tap(nested);
+        QTRY_VERIFY(nested->hasActiveFocus());
+        QTRY_VERIFY(quickVisibleItemByName(root, QStringLiteral("listLevelReorderHandle-3-1-1")));
+        QVERIFY(!quickVisibleItemByName(root, QStringLiteral("blockReorderHandle-3")));
+
+        QQuickItem *media = nullptr;
+        QTRY_VERIFY((media = quickVisibleItemByName(root, QStringLiteral("mediaVisualHitLayer-4"))));
+        tap(media);
+        auto *menu = media->parentItem()->findChild<QObject *>(QStringLiteral("mediaContextMenu-4"));
+        QVERIFY(menu);
+        QVERIFY(!menu->property("visible").toBool());
+        QTRY_COMPARE(root->property("selectedMediaIndex").toInt(), 4);
+        QTRY_VERIFY(quickVisibleItemByName(root, QStringLiteral("blockReorderHandle-4")));
+        QVERIFY(!quickVisibleItemByName(root, QStringLiteral("listLevelReorderHandle-3-1-1")));
+
+        QQuickItem *attachment = nullptr;
+        QTRY_VERIFY((attachment = quickVisibleItemByName(root, QStringLiteral("attachmentBlockEditor-5"))));
+        tap(attachment);
+        QTRY_COMPARE(root->property("selectedAttachmentIndex").toInt(), 5);
+        QTRY_VERIFY(quickVisibleItemByName(root, QStringLiteral("blockReorderHandle-5")));
+        QVERIFY(!quickVisibleItemByName(root, QStringLiteral("blockReorderHandle-4")));
+
+        tap(media);
+        QTRY_VERIFY((handle = quickVisibleItemByName(root, QStringLiteral("blockReorderHandle-4"))));
+        const QPoint from = handle->mapToScene(QPointF(handle->width() / 2, handle->height() / 2)).toPoint();
+        const QPoint to(from.x(), paragraph->mapToScene(QPointF(0, handle->height() / 2)).toPoint().y());
+        QTest::touchEvent(&view, device).press(0, from);
+        for (int step = 1; step <= 8; ++step)
+            QTest::touchEvent(&view, device).move(0, from + (to - from) * step / 8);
+        QTest::touchEvent(&view, device).release(0, to);
+        QTRY_COMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::Media));
+    }
+
+    void blockRangeHandleMovesSelectedBlocks_data()
+    {
+        QTest::addColumn<bool>("touchMode");
+        QTest::newRow("desktop") << false;
+        QTest::newRow("touch") << true;
+    }
+
+    void blockRangeHandleMovesSelectedBlocks()
+    {
+        QFETCH(bool, touchMode);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("## Moving\n\n- [x] Parent\n    - Child\n\n## Stay\n\n## Target"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        QQuickView   view;
+        view.setResizeMode(QQuickView::SizeRootObjectToView);
+        view.resize(480, 500);
+        installThemedIconImageProvider(view.engine());
+        QString error;
+        QVERIFY2(loadQuickFixture(&view, QUrl(QStringLiteral("qrc:/qml/NoteBlockEditor.qml")),
+                                  { { QStringLiteral("blockModel"), QVariant::fromValue(editor.model()) },
+                                    { QStringLiteral("editorBackend"), QVariant::fromValue(&editor) },
+                                    { QStringLiteral("touchMode"), touchMode } },
+                                  &error),
+                 qPrintable(error));
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        auto       *root   = view.rootObject();
+        QQuickItem *first  = nullptr;
+        QQuickItem *last   = nullptr;
+        QQuickItem *target = nullptr;
+        QTRY_VERIFY((first = textEditorForBlock(root, 1)));
+        QTRY_VERIFY((last = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 1)));
+        QTRY_VERIFY((target = textEditorForBlock(root, 4)));
+        const QPointer<QQuickItem> targetIdentity(target);
+        const auto                 before    = editor.model()->contents();
+        const auto                 listItems = editor.model()->index(2).data(NoteBlockModel::ItemsRole);
+        QVERIFY(QMetaObject::invokeMethod(
+            root, "applyDocumentSelection", Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(first))),
+            Q_ARG(QVariant, 1), Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(last))), Q_ARG(QVariant, 2),
+            Q_ARG(QVariant, false)));
+        QQuickItem *handle = nullptr;
+        QTRY_VERIFY((handle = quickVisibleItemByName(root, QStringLiteral("blockRangeReorderHandle"))));
+        QVERIFY(!quickVisibleItemByName(root, QStringLiteral("blockReorderHandle-1")));
+        const auto *firstBlock = ancestorWithProperty(first, "reorderSourceActive");
+        const auto *lastBlock  = ancestorWithProperty(last, "reorderSourceActive");
+        QVERIFY(firstBlock);
+        QVERIFY(lastBlock);
+        const auto rangeTop = firstBlock->mapToItem(root, QPointF()).y();
+        const auto rangeEnd = lastBlock->mapToItem(root, QPointF(0, lastBlock->height())).y();
+        QCOMPARE(handle->y(), rangeTop);
+        QCOMPARE(handle->y() + handle->height(), rangeEnd);
+
+        // The same handle clips to the viewport with its lower end offscreen.
+        const auto windowSize = view.size();
+        view.resize(windowSize.width(), qRound(rangeEnd) - 8);
+        QTRY_COMPARE(handle->y() + handle->height(), root->height());
+        view.resize(windowSize);
+        QTRY_COMPARE(handle->y() + handle->height(), rangeEnd);
+
+        const QPoint from = handle->mapToScene(QPointF(handle->width() / 2, handle->height() - 6)).toPoint();
+        const QPoint to(from.x(), target->mapToScene(QPointF(0, target->height() + 16)).toPoint().y());
+        QSignalSpy   moved(editor.model(), &NoteBlockModel::rowsMoved);
+        QSignalSpy   reset(editor.model(), &NoteBlockModel::modelReset);
+        auto        *device = touchMode ? QTest::createTouchDevice() : nullptr;
+        const auto   drag   = [&view, device, from](const QPoint &end) {
+            if (device) {
+                QTest::touchEvent(&view, device).press(0, from);
+                for (int step = 1; step <= 8; ++step)
+                    QTest::touchEvent(&view, device).move(0, from + (end - from) * step / 8);
+                QTest::touchEvent(&view, device).release(0, end);
+            } else {
+                QTest::mousePress(&view, Qt::LeftButton, Qt::NoModifier, from);
+                for (int step = 1; step <= 8; ++step)
+                    QTest::mouseMove(&view, from + (end - from) * step / 8);
+                QTest::mouseRelease(&view, Qt::LeftButton, Qt::NoModifier, end);
+            }
+        };
+        drag(QPoint(-64, to.y()));
+        QCOMPARE(moved.count(), 0);
+        QCOMPARE(editor.model()->contents(), before);
+        QVERIFY(quickVisibleItemByName(root, QStringLiteral("blockRangeReorderHandle")));
+        drag(to);
+        QTRY_COMPARE(moved.count(), 1);
+        QCOMPARE(reset.count(), 0);
+        QCOMPARE(editor.model()->blockTextAt(1), QStringLiteral("Stay"));
+        QCOMPARE(editor.model()->blockTextAt(2), QStringLiteral("Target"));
+        QCOMPARE(editor.model()->blockTextAt(3), QStringLiteral("Moving"));
+        QCOMPARE(editor.model()->index(4).data(NoteBlockModel::ItemsRole), listItems);
+        QVERIFY(targetIdentity);
+        QCOMPARE(textEditorForBlock(root, 2), targetIdentity.data());
+        QVERIFY(editor.undo());
+        QCOMPARE(editor.model()->contents(), before);
     }
 
     void touchSelectionSurvivesUnloadedDelegates()

@@ -79,7 +79,7 @@ QtObject {
     function selectionAddress(editor, position) {
         return { blockIndex: editor.blockIndex, listItemIndex: editor.listItemIndex,
                  tableCellIndex: editor.tableCellIndex, field: editor.editorField,
-                 cursorPosition: position, edge: 0 }
+                 cursorPosition: position, length: editor.length, edge: 0 }
     }
 
     function selectionBoundary(row, edge) {
@@ -1059,6 +1059,50 @@ QtObject {
                 : documentSelectionBlankDirection > 0
                   && blockIndex >= documentSelectionBlankBoundary && blockIndex < firstRow
         return crossedBoundary && blockRequiresWholeSelection(blockModel.blockTypeAt(blockIndex))
+    }
+
+    function atEndOfBlock(field, position) {
+        const row = field.blockIndex
+        const index = Math.max(field.listItemIndex, field.tableCellIndex, 0)
+        const count = Math.max(blockModel.listItemCountAt(row), blockModel.tableCellCountAt(row), 1)
+        return position === field.length && index === count - 1
+    }
+
+    function blockReorderRange() {
+        if (wholeDocumentSelected || !blockModel)
+            return null
+        const selection = orderedAddressSelection()
+        let first
+        let last
+        if (selection) {
+            first = selection.first.blockIndex + (selection.first.edge > 0 ? 1 : 0)
+            last = selection.last.blockIndex - (selection.last.edge < 0 ? 1 : 0)
+            if (selection.first.edge === 0 && atEndOfBlock(selection.first, selection.first.cursorPosition))
+                ++first
+            // A caret at the beginning of the next block contributes no text.
+            if (selection.last.edge === 0 && selection.last.cursorPosition === 0
+                    && selection.last.listItemIndex <= 0 && selection.last.tableCellIndex <= 0)
+                --last
+        } else {
+            const start = documentSelectionStartEditor
+            const end = documentSelectionEndEditor
+            if (!selectionSpansEditors || !start || !end)
+                return null
+            first = start.blockIndex
+            last = end.blockIndex
+            if (atEndOfBlock(start, documentSelectionStartPosition))
+                ++first
+            if (documentSelectionEndPosition === 0 && end.listItemIndex <= 0 && end.tableCellIndex <= 0)
+                --last
+            if (documentSelectionBlankBoundary >= 0) {
+                if (documentSelectionBlankDirection < 0)
+                    last = Math.max(last, documentSelectionBlankBoundary - 1)
+                else if (documentSelectionBlankDirection > 0)
+                    first = Math.min(first, documentSelectionBlankBoundary)
+            }
+        }
+        return first >= 0 && last < editorView.count && first < last && last - first + 1 < editorView.count
+                ? { first: first, last: last } : null
     }
 
     function selectedDocumentText() {

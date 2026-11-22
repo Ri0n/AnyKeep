@@ -320,6 +320,45 @@ void NoteBlockModelTest::movingStructuredBlockAwayRecombinesTextNeighbors()
     QCOMPARE(model.contents(), QStringLiteral("Title\n\nA\n\nB\n\n- item\n\n![image](media://image)"));
 }
 
+void NoteBlockModelTest::movesBlockRangesWithStableIndexes()
+{
+    NoteBlockModel model;
+    model.load(QStringLiteral("Title\n\nA\n\n## Moving\n\n- [x] Parent\n    - Child\n\nB\n\n## Target\n\n## Tail"),
+               true);
+    QCOMPARE(model.rowCount(), 7);
+    const QPersistentModelIndex moving(model.index(2));
+    const QPersistentModelIndex list(model.index(3));
+    const QPersistentModelIndex target(model.index(5));
+    const QPersistentModelIndex tail(model.index(6));
+    const auto                  items   = list.data(NoteBlockModel::ItemsRole);
+    const auto                  indents = list.data(NoteBlockModel::IndentsRole);
+    QSignalSpy                  moved(&model, &NoteBlockModel::rowsMoved);
+    QSignalSpy                  reset(&model, &NoteBlockModel::modelReset);
+    QSignalSpy                  changed(&model, &NoteBlockModel::contentsChanged);
+    QCOMPARE(model.moveBlockRangeResolved(2, 3, 5), 4);
+    QCOMPARE(moved.count(), 1);
+    QCOMPARE(reset.count(), 0);
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(model.rowCount(), 6);
+    QCOMPARE(model.blockTextAt(1), QStringLiteral("A\n\nB"));
+    QCOMPARE(moving.row(), 4);
+    QCOMPARE(list.row(), 5);
+    QCOMPARE(list.data(NoteBlockModel::ItemsRole), items);
+    QCOMPARE(list.data(NoteBlockModel::IndentsRole), indents);
+    QCOMPARE(target.row(), 2);
+    QCOMPARE(tail.row(), 3);
+
+    QCOMPARE(model.moveBlockRangeResolved(4, 5, 2), 2);
+    QCOMPARE(moved.count(), 2);
+    QCOMPARE(reset.count(), 0);
+    QCOMPARE(moving.row(), 2);
+    QCOMPARE(list.row(), 3);
+    QCOMPARE(target.row(), 4);
+    QCOMPARE(tail.row(), 5);
+    QCOMPARE(model.moveBlockRangeResolved(2, 3, 2), -1);
+    QCOMPARE(changed.count(), 2);
+}
+
 void NoteBlockModelTest::movingListBlockNextToListMergesAndAdoptsResidentType()
 {
     NoteBlockModel afterTarget;

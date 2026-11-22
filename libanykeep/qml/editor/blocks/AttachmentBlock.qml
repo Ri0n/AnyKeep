@@ -46,6 +46,11 @@ FocusScope {
         attachmentRoot.forceActiveFocus()
     }
 
+    function openContextMenu() {
+        selectAndFocus()
+        attachmentMenu.popup()
+    }
+
     function formatSize(bytes) {
         const value = Math.max(0, Number(bytes))
         if (value < 1024)
@@ -235,10 +240,13 @@ FocusScope {
         }
         TapHandler {
             acceptedButtons: Qt.RightButton
-            onTapped: {
-                attachmentRoot.selectAndFocus()
-                attachmentMenu.popup()
-            }
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad | PointerDevice.Stylus
+            onTapped: attachmentRoot.openContextMenu()
+        }
+        TapHandler {
+            enabled: attachmentRoot.editorView.touchMode
+            acceptedDevices: PointerDevice.TouchScreen
+            onLongPressed: attachmentRoot.openContextMenu()
         }
     }
 

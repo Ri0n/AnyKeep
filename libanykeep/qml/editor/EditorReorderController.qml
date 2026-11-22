@@ -18,6 +18,7 @@ Item {
     property bool sourceRemovesWholeBlock: false
     property string sourceKind: ""
     property int sourceBlockRow: -1
+    property int sourceBlockCount: 0
     property int sourceBlockType: -1
     property var sourceFocusAddress: null
     readonly property real startPointerX: reorderCore.startPointerX
@@ -71,6 +72,34 @@ Item {
     visible: dragging
     enabled: false
     z: 100000
+
+    Connections {
+        target: controller.blockModel
+        enabled: controller.dragging && !controller.committingDrop
+        function onModelAboutToBeReset() { controller.cancelDrag() }
+        function onRowsAboutToBeInserted() { controller.cancelDrag() }
+        function onRowsAboutToBeRemoved() { controller.cancelDrag() }
+        function onRowsAboutToBeMoved() { controller.cancelDrag() }
+    }
+
+    onBlockModelChanged: if (dragging) cancelDrag()
+
+    Timer {
+        interval: 16
+        repeat: true
+        readonly property real pointerY: controller.editorView
+                                         ? reorderCore.currentPointerY - controller.editorView.contentY : 0
+        running: controller.dragging && controller.sourceKind === "block"
+                 && (controller.editorView.touchMode || controller.sourceBlockCount > 1)
+                 && (pointerY < 24 || pointerY > controller.editorView.height - 24)
+        onTriggered: {
+            const view = controller.editorView
+            const minimum = view.originY - view.topMargin
+            const maximum = Math.max(minimum, view.originY + view.contentHeight + view.bottomMargin - view.height)
+            const step = pointerY < 24 ? -9 : 9
+            view.contentY = Math.max(minimum, Math.min(maximum, view.contentY + step))
+        }
+    }
 
     Reorder.LinearReorderLayout {
         id: blockLayout
@@ -272,39 +301,57 @@ Item {
         reorderCore.moveDrag(dx, dy)
     }
 
-    function startBlockDrag(blockItem, previewItem) {
-        if (!editorView || !blockModel || !blockItem || dragging)
+    function startBlockDrag(blockItem, previewItem, pointerItem) {
+        if (!blockItem)
             return false
         const row = Number(blockItem.index)
-        if (row < 0 || row >= editorView.count)
+        const preview = previewItem || blockItem
+        return startBlockRangeDrag(row, row, pointerItem || preview, null, preview)
+    }
+
+    function startBlockRangeDrag(first, last, pointerItem, pressScenePosition, singlePreview) {
+        if (!editorView || !blockModel || !pointerItem || dragging
+                || first < 0 || first > last || last >= editorView.count)
             return false
 
-        sourceKind = "block"
-        sourceBlockRow = row
-        sourceBlockType = Number(blockItem.blockType)
-        sourceFocusAddress = editorView.activeEditor
-                && Number(editorView.activeEditor.blockIndex) === row
-                ? Object.assign({}, editorView.editorAddress(editorView.activeEditor)) : null
-        const pointerSource = previewItem || blockItem
-        const pointer = pointerSource.mapToItem(
-                    editorView.contentItem, pointerSource.width / 2,
-                    pointerSource.height / 2)
-        const started = reorderCore.beginDrag({
-            sources: [{
-                item: blockItem,
+        const count = last - first + 1
+        if (count > 1 && count === editorView.count)
+            return false
+        const sources = []
+        const previews = []
+        for (let row = first; row <= last; ++row) {
+            const block = editorView.itemAtIndex(row)
+            const preview = block ? block.item || block : null
+            // Keep unloaded rows in the compact document order. They have no
+            // visible extent to collapse or preview during this gesture.
+            sources.push({
+                item: block || pointerItem,
                 key: row,
                 order: row,
-                previewItem: pointerSource,
-                geometryItem: blockItem,
-                naturalExtent: Number(blockItem.height) + Number(editorView.spacing)
-            }],
-            payload: {
-                kind: "block",
-                sourceRow: row
-            },
-            pointerX: pointer.x,
-            pointerY: pointer.y,
-            targetByDraggedTop: true
+                geometryItem: block || pointerItem,
+                previewItem: count === 1 ? singlePreview : preview,
+                naturalExtent: block ? block.height + editorView.spacing : 0
+            })
+            if (count > 1 && preview && block.y + block.height > editorView.contentY
+                    && block.y < editorView.contentY + editorView.height)
+                previews.push(preview)
+        }
+
+        sourceKind = "block"
+        sourceBlockRow = first
+        sourceBlockCount = count
+        sourceBlockType = blockModel.blockTypeAt(first)
+        sourceFocusAddress = count === 1 && editorView.activeEditor
+                && Number(editorView.activeEditor.blockIndex) === first
+                ? Object.assign({}, editorView.editorAddress(editorView.activeEditor)) : null
+        const press = pressScenePosition ? editorView.contentItem.mapFromItem(null, pressScenePosition) : null
+        const started = reorderCore.beginDrag({
+            sources: sources,
+            previewItems: count > 1 ? previews : undefined,
+            payload: { kind: "block" },
+            pointerItem: pointerItem,
+            pointerX: press ? press.x : undefined,
+            pointerY: press ? press.y : undefined
         })
         if (!started)
             resetAdapterState()
@@ -417,10 +464,25 @@ Item {
 
         const viewportX = core.currentPointerX - editorView.contentX
         const viewportY = core.currentPointerY - editorView.contentY
-        const droppedOutside = !editorView.touchMode
-                && (viewportX < 0 || viewportY < 0
+        const droppedOutside = (viewportX < 0 || viewportY < 0
                     || viewportX > editorView.width || viewportY > editorView.height)
+        if (sourceBlockCount > 1) {
+            if (droppedOutside || !boundary || boundary.kind !== "block"
+                    || boundary.finalIndex === sourceBlockRow)
+                return false
+            return editorView.runEditTransaction("move-block-range", function() {
+                editorView.prepareForStructuralMutation()
+                const movedRow = blockModel.moveBlockRangeResolved(
+                    sourceBlockRow, sourceBlockRow + sourceBlockCount - 1, Number(boundary.finalIndex))
+                if (movedRow < 0)
+                    return false
+                editorView.focusBlock(movedRow)
+                return true
+            })
+        }
         if (droppedOutside) {
+            if (editorView.touchMode)
+                return false
             editorView.runEditTransaction("delete-block", function() {
                 editorView.prepareForStructuralMutation()
                 const oldCount = editorView.count
@@ -720,6 +782,7 @@ Item {
         sourceRows = []
         sourceRemovesWholeBlock = false
         sourceBlockRow = -1
+        sourceBlockCount = 0
         sourceBlockType = -1
         sourceFocusAddress = null
         targetKind = ""

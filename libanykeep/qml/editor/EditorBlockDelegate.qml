@@ -68,21 +68,27 @@ FocusScope {
         id: structuralBlockHandle
 
         objectName: "blockReorderHandle-" + blockDelegate.index
-        visible: !editorView.touchMode
+        visible: dragging || (!editorView.blockInReorderRange(blockDelegate.index)
                  && blockDelegate.blockType !== NoteBlockType.BulletList
                  && blockDelegate.blockType !== NoteBlockType.CheckList
-                 && blockDelegate.blockType !== NoteBlockType.Media
                  && blockDelegate.blockType !== NoteBlockType.NumberedList
                  && blockDelegate.blockType !== NoteBlockType.TagLine
-        x: Math.max(0, blockLoader.x - width)
-        y: 0
-        width: editorView.listLevelHandleGutter
-        height: Math.max(editorView.editorFontMetricsHeight, blockDelegate.height)
+                 && (editorView.touchMode ? blockDelegate.activeFocus && editorView.count > 1
+                                           : blockDelegate.blockType !== NoteBlockType.Media))
+        forceVisible: editorView.touchMode
+        x: editorView.rightToLeft ? blockLoader.x + blockLoader.width
+                                  : Math.max(0, blockLoader.x - width)
+        y: editorView.touchMode
+           ? Math.max(0, Math.min(blockDelegate.height - height, editorView.contentY - blockDelegate.y))
+           : 0
+        width: editorView.reorderHandleWidth
+        height: editorView.touchMode ? 44 : Math.max(editorView.editorFontMetricsHeight, blockDelegate.height)
         z: 20
-        fullHeight: true
+        fullHeight: !editorView.touchMode
         dragEnabled: !reorderController.dragging || dragging
         onDragStarted: reorderController.startBlockDrag(
-                           blockDelegate, blockLoader.item || blockLoader)
+                           blockDelegate, blockLoader.item || blockLoader,
+                           editorView.touchMode ? structuralBlockHandle : undefined)
         onDragMoved: function(dx, dy) {
             reorderController.moveBlockDrag(dx, dy)
         }
@@ -114,8 +120,8 @@ FocusScope {
         property string mediaTranscript: blockDelegate.mediaTranscript
         property string attachmentMediaType: blockDelegate.attachmentMediaType
         property real attachmentSize: blockDelegate.attachmentSize
-        x: editorView.editorInset
-        width: Math.max(0, blockDelegate.width - 2 * editorView.editorInset)
+        x: editorView.rightToLeft ? editorView.editorInset : editorView.leadingEditorInset
+        width: Math.max(0, blockDelegate.width - editorView.editorInset - editorView.leadingEditorInset)
         height: item ? item.implicitHeight : 0
         onLoaded: {
             // Keep the editor address tied to the delegate's current model row.

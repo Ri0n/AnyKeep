@@ -389,6 +389,7 @@ FocusScope {
         Reorder.ReorderDragHandle {
             anchors.fill: parent
             dragEnabled: !mediaRoot.editorView.touchMode && mediaRoot.transientWidth < 0
+                         && !mediaRoot.editorView.blockInReorderRange(mediaRoot.block.index)
             hoverCursorShape: Qt.OpenHandCursor
             dragCursorShape: Qt.ClosedHandCursor
             onTapped: mediaRoot.selectAndFocus()
@@ -409,6 +410,7 @@ FocusScope {
             onDoubleClicked: mediaRoot.openVideoFullScreen()
         }
         TapHandler {
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad | PointerDevice.Stylus
             acceptedButtons: Qt.RightButton
             gesturePolicy: TapHandler.DragThreshold
             onTapped: mediaRoot.openMediaContextMenu()

@@ -157,6 +157,7 @@ public:
     Q_INVOKABLE bool        splitStructuredBlockToText(int row, const QString &before, const QString &after);
     Q_INVOKABLE bool        moveBlock(int row, int targetRow);
     Q_INVOKABLE int         moveBlockResolved(int row, int targetRow);
+    Q_INVOKABLE int         moveBlockRangeResolved(int firstRow, int lastRow, int targetRow);
     Q_INVOKABLE void        removeBlock(int row);
     void                    setPreviewUrls(const QHash<QString, QString> &urls);
 

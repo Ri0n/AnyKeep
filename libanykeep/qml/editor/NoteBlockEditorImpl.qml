@@ -1,6 +1,7 @@
 import QtQuick
 import AnyKeep.Editor 1.0
 import QtQuick.Controls
+import "../reorder" as Reorder
 import "support/EditorMarkdownRendering.js" as MarkdownRendering
 import "controllers" as Controllers
 
@@ -84,6 +85,10 @@ ListView {
                                                     Math.round(editorFontMetrics.height * (touchMode ? 0.9 : 0.67)))
     readonly property int listLevelHandleGutter: touchMode ? 18 : 14
     readonly property int editorInset: baseEditorInset + Math.max(0, listLevelHandleGutter - 5)
+    readonly property bool rightToLeft: Qt.application.layoutDirection === Qt.RightToLeft
+    readonly property int reorderHandleWidth: touchMode ? 36 : listLevelHandleGutter
+    readonly property int leadingEditorInset: touchMode ? Math.max(editorInset, reorderHandleWidth + 4) : editorInset
+    readonly property var blockReorderRange: selectionController.blockReorderRange()
     readonly property int listIndent: Math.max(touchMode ? 24 : 20,
                                                Math.round(editorFontMetrics.averageCharacterWidth * 4))
     readonly property int listMarkerWidth: Math.max(touchMode ? 44 : 24,
@@ -357,6 +362,63 @@ ListView {
                     onActiveTranslationChanged: if (active) updateSelection()
                 }
             }
+        }
+    }
+
+    function blockInReorderRange(row) {
+        const range = blockReorderRange
+        return range !== null && row >= range.first && row <= range.last
+    }
+
+    Reorder.BlockReorderHandle {
+        id: rangeReorderHandle
+        objectName: "blockRangeReorderHandle"
+        parent: root
+        readonly property var viewportSpan: {
+            const range = root.blockReorderRange
+            if (!range)
+                return null
+            const scrollY = root.contentY
+            root.contentHeight
+            const first = root.itemAtIndex(range.first)
+            const last = root.itemAtIndex(range.last)
+            if (!first) {
+                let row = root.indexAt(1, scrollY + 1)
+                if (row < 0)
+                    row = root.indexAt(1, scrollY + root.spacing + 1)
+                if (!root.blockInReorderRange(row))
+                    return null
+            }
+            const top = first ? Math.max(0, first.y - scrollY) : 0
+            const bottom = last ? Math.min(root.height, last.y + last.height - scrollY) : root.height
+            return top < bottom ? { top: top, bottom: bottom } : null
+        }
+        property var dragStartSpan: null
+        readonly property var handleSpan: dragging && dragStartSpan ? dragStartSpan : viewportSpan
+        visible: dragging || (viewportSpan !== null && !root.mouseSelectionActive
+                              && selectionHandles.draggingHandle < 0 && !editorReorderController.dragging)
+        fullHeight: true
+        fadeDuration: 0
+        opacity: editorReorderController.dragging ? 0 : 1
+        Accessible.name: qsTr("Move selected blocks")
+        handleColor: root.palette.highlight
+        x: root.rightToLeft ? root.width - root.scrollBarInset - root.leadingEditorInset
+                            : root.leadingEditorInset - width
+        y: handleSpan ? handleSpan.top : 0
+        width: root.reorderHandleWidth
+        height: handleSpan ? handleSpan.bottom - handleSpan.top : 0
+        z: 25
+        onDragStarted: {
+            dragStartSpan = viewportSpan
+            const range = root.blockReorderRange
+            if (range)
+                editorReorderController.startBlockRangeDrag(range.first, range.last, rangeReorderHandle,
+                                                           pressScenePosition)
+        }
+        onDragMoved: function(dx, dy) { editorReorderController.moveBlockDrag(dx, dy) }
+        onDragFinished: {
+            editorReorderController.finishBlockDrag()
+            dragStartSpan = null
         }
     }
 

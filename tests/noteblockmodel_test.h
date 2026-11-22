@@ -76,6 +76,7 @@ private slots:
     void reattachesStandaloneListsAcrossInterveningBlocks();
     void movesWholeListsThroughStandaloneBoundaries();
     void movesWholeBlocks();
+    void movesBlockRangesWithStableIndexes();
     void movingMultilineTextToTitleSplitsAndRecombinesBody();
     void movingBlockBeforeFormerTitleRecombinesText();
     void movingStructuredBlockAwayRecombinesTextNeighbors();

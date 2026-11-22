@@ -3,6 +3,7 @@
 #include "private.h"
 
 #include <algorithm>
+#include <array>
 #include <utility>
 
 namespace AnyKeep {
@@ -401,8 +402,8 @@ bool NoteBlockModel::addTagsToDocument(const QStringList &names)
     for (int row = 0; row < blocks_.size(); ++row) {
         if (blocks_.at(row).type != TagLine)
             continue;
-        auto &current = blocks_[row].tags;
-        bool changedTags = false;
+        auto &current     = blocks_[row].tags;
+        bool  changedTags = false;
         for (const auto &name : additions) {
             if (current.contains(name))
                 continue;
@@ -415,8 +416,8 @@ bool NoteBlockModel::addTagsToDocument(const QStringList &names)
     }
 
     Block tagLine;
-    tagLine.type = TagLine;
-    tagLine.tags = additions;
+    tagLine.type  = TagLine;
+    tagLine.tags  = additions;
     const int row = qMin(1, int(blocks_.size()));
     beginInsertRows({}, row, row);
     blocks_.insert(row, tagLine);
@@ -998,6 +999,62 @@ int NoteBlockModel::moveBlockResolved(int row, int targetRow)
 
     normalizeTagLinePositions(&updated, markdown_);
     replaceBlocks(std::move(updated));
+    emit contentsChanged();
+    return movedRow;
+}
+
+int NoteBlockModel::moveBlockRangeResolved(int firstRow, int lastRow, int targetRow)
+{
+    if (firstRow < 0 || lastRow < firstRow || lastRow >= blocks_.size())
+        return -1;
+    const int count = lastRow - firstRow + 1;
+    if (targetRow < 0 || targetRow > blocks_.size() - count || targetRow == firstRow)
+        return -1;
+    if (count == 1)
+        return moveBlockResolved(firstRow, targetRow);
+    const bool movesUp = targetRow < firstRow;
+    if (!beginMoveRows({}, firstRow, lastRow, {}, movesUp ? targetRow : targetRow + count))
+        return -1;
+    auto begin = blocks_.begin();
+    if (movesUp)
+        std::rotate(begin + targetRow, begin + firstRow, begin + lastRow + 1);
+    else
+        std::rotate(begin + firstRow, begin + lastRow + 1, begin + targetRow + count);
+    endMoveRows();
+
+    // Normalize only the joins made by the move. Starting at the bottom
+    // keeps the original boundary numbers above each join usable.
+    int        movedRow       = targetRow;
+    int        destinationEnd = targetRow + count;
+    std::array joins { movesUp ? firstRow + count : firstRow, targetRow, destinationEnd };
+    auto       updated = blocks_;
+    if (normalizeTitleBlock(&updated, markdown_)) {
+        for (auto &join : joins)
+            if (join > 0)
+                ++join;
+        ++destinationEnd;
+        if (movedRow > 0)
+            ++movedRow;
+        replaceBlocks(std::move(updated));
+    }
+    updated = blocks_;
+    if (normalizeTagLinePositions(&updated, markdown_))
+        replaceBlocks(std::move(updated));
+    std::sort(joins.rbegin(), joins.rend());
+    for (const int join : joins) {
+        updated = blocks_;
+        // At the end of the moved range the resident list is on the right.
+        if (join == destinationEnd)
+            mergeListPair(&updated, join - 1, false, &movedRow);
+        else
+            coalesceListAtBoundary(&updated, join, &movedRow);
+        coalesceTextNear(&updated, join, markdown_, &movedRow);
+        if (updated != blocks_)
+            replaceBlocks(std::move(updated));
+    }
+    updated = blocks_;
+    if (normalizeTagLinePositions(&updated, markdown_))
+        replaceBlocks(std::move(updated));
     emit contentsChanged();
     return movedRow;
 }

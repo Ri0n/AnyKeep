@@ -8,6 +8,7 @@ Item {
     property bool overrideCursorApplied: false
     readonly property bool dragging: dragHandler.active
     readonly property bool hovered: cursorArea.containsMouse
+    readonly property point pressScenePosition: dragHandler.centroid.scenePressPosition
     signal dragStarted()
     signal dragMoved(real dx, real dy)
     signal dragFinished()

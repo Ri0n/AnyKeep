@@ -66,6 +66,9 @@ TextArea {
     wrapMode: TextEdit.Wrap
     verticalAlignment: TextEdit.AlignTop
     selectByMouse: !editorView.touchMode
+    // The editor's selection handles can cross block boundaries. Keep the
+    // platform handles and menu out of this TextArea's touch gestures.
+    inputMethodHints: editorView.touchMode ? Qt.ImhNoTextHandles | Qt.ImhNoEditMenu : Qt.ImhNone
     persistentSelection: true
     background: null
     leftPadding: editorView.touchMode ? 2 : 4
@@ -1023,18 +1026,29 @@ TextArea {
         anchors.fill: parent
         z: 20
         enabled: editorView.touchMode
-        // The containing Flickable can take the grab for a vertical drag.
-        // A press-and-hold consumes the click that would collapse the word.
         acceptedButtons: Qt.LeftButton
         onClicked: function(mouse) {
+            if (holdHandler.selectedOnHold)
+                return
             editorView.clearDocumentSelection()
             blockArea.forceActiveFocus()
             blockArea.cursorPosition = blockArea.positionAt(mouse.x, mouse.y)
             Qt.inputMethod.show()
         }
-        onPressAndHold: function(mouse) {
-            if (!editorView.beginTouchSelection(blockArea, mouse.x, mouse.y) && !blockArea.inputMethodComposing)
-                editorView.openEditorContextMenu(blockArea, mouse.x, mouse.y)
+
+        TapHandler {
+            id: holdHandler
+            enabled: editorView.touchMode
+            gesturePolicy: TapHandler.DragThreshold
+            acceptedButtons: Qt.LeftButton
+            property bool selectedOnHold: false
+            onPressedChanged: if (pressed) selectedOnHold = false
+            onLongPressed: {
+                const position = point.pressPosition
+                selectedOnHold = true
+                if (!editorView.beginTouchSelection(blockArea, position.x, position.y) && !blockArea.inputMethodComposing)
+                    editorView.openEditorContextMenu(blockArea, position.x, position.y)
+            }
         }
     }
 

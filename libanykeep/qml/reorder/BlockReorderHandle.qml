@@ -10,6 +10,7 @@ Item {
     property int fadeDuration: 480
     readonly property bool hovered: hoverHandler.hovered
     readonly property bool dragging: dragHandle.dragging
+    readonly property point pressScenePosition: dragHandle.pressScenePosition
 
     signal dragStarted()
     signal dragMoved(real dx, real dy)

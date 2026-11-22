@@ -529,6 +529,7 @@ Column {
                     Reorder.ReorderDragHandle {
                         objectName: "listReorderHandle-" + listRoot.blockIndex + "-" + rowWrapper.index
                         anchors.fill: parent
+                        dragEnabled: dragging || !editorView.blockInReorderRange(listRoot.blockIndex)
                         hoverCursorShape: rowWrapper.itemType === 2 ? Qt.PointingHandCursor : Qt.OpenHandCursor
                         onDragStarted: reorderController.startListDrag(listRoot, rowWrapper)
                         onDragMoved: function(dx, dy) { reorderController.moveListDrag(dx, dy) }
@@ -625,7 +626,8 @@ Column {
 
                 objectName: "listLevelReorderHandle-" + listRoot.blockIndex + "-"
                             + handleLevel + "-" + rowWrapper.index
-                visible: active && (!reorderController.dragging || dragging)
+                visible: dragging || (active && !reorderController.dragging
+                                      && !editorView.blockInReorderRange(listRoot.blockIndex))
                 forceVisible: editorView.touchMode
                 fullHeight: true
                 x: listRoot.rightToLeft
