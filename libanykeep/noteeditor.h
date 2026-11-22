@@ -108,7 +108,7 @@ public:
     void             setFolderId(const QUuid &folderId);
     void             setFavorite(bool favorite);
     /** Add a canonical tag line without replacing an active Markdown document. */
-    bool             addTag(const QString &name);
+    bool addTag(const QString &name);
     /** Preserves a direct user folder choice against automatic routing rules. */
     void setFolderUserOverride(bool enabled = true) { folderUserOverride_ = enabled; }
     /** Marks the current folder metadata as durably stored without touching document content. */
@@ -181,6 +181,9 @@ public:
     Q_INVOKABLE QString      markdownText(QQuickTextDocument *document) const;
     Q_INVOKABLE QString      markdownTableCellText(QQuickTextDocument *document) const;
     Q_INVOKABLE QString      markdownSelection(QQuickTextDocument *document, int start, int end) const;
+    Q_INVOKABLE QVariantMap  renderedSelection(const QString &markdown, int start, int end) const;
+    Q_INVOKABLE QString      formatRenderedSelection(const QString &markdown, int start, int end, const QString &style,
+                                                     bool tableCell);
     void                     breakHistoryMerge();
 
 public slots:

@@ -66,6 +66,7 @@ public:
         AttachmentMediaTypeRole,
         AttachmentSizeRole
     };
+    Q_ENUM(Role)
 
     explicit NoteBlockModel(QObject *parent = nullptr);
 
@@ -131,12 +132,14 @@ public:
     Q_INVOKABLE QVariantMap setTagLineTag(int row, int tagIndex, const QString &value, int cursorPosition = -1);
     Q_INVOKABLE QVariantMap appendTagLineTag(int row, const QString &value, int cursorPosition = -1);
     /** Merge tags into the canonical Markdown TagLine, creating it if necessary. */
-    bool addTagsToDocument(const QStringList &tags);
+    bool                    addTagsToDocument(const QStringList &tags);
     Q_INVOKABLE QVariantMap removeTagLineTag(int row, int tagIndex);
     Q_INVOKABLE bool        moveTagLineTag(int row, int from, int to);
     Q_INVOKABLE QVariantMap convertTagLineToText(int row, const QString &text = QString(), int cursorPosition = -1);
     Q_INVOKABLE int         blockTypeAt(int row) const;
     Q_INVOKABLE QString     blockTextAt(int row) const;
+    Q_INVOKABLE QString     selectionFieldText(int row, int listItem, int tableCell) const;
+    Q_INVOKABLE int         tableColumnCountAt(int row) const;
     Q_INVOKABLE int         listItemCountAt(int row) const;
     Q_INVOKABLE int         tableCellCountAt(int row) const;
     Q_INVOKABLE bool        isExplicitEmptyTextBlock(int row) const;

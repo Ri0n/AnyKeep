@@ -176,6 +176,7 @@ TextArea {
         if (event.text.length === 0 || /[\u0000-\u001f\u007f\r\n\u2028\u2029]/.test(event.text))
             return false
         return editorView.replaceStructuredSelectionWithText(event.text, blockArea)
+                || editorView.touchSelectionSpansEditors
     }
 
     function markdownRange(start, end) {
@@ -532,10 +533,13 @@ TextArea {
     onWidthChanged: inlineElementLayer.invalidateGeometry()
     onHeightChanged: inlineElementLayer.invalidateGeometry()
     onFontChanged: {
+        // A quote can apply its italic font before the editor view is assigned.
+        if (!editorView)
+            return
         // Inline code keeps the size it was imported with otherwise.
-        if (renderedMarkdown && !codeDocument && editorView.editorBackend
-                && typeof editorView.editorBackend.refreshInlineCodeSize === "function")
-            editorView.editorBackend.refreshInlineCodeSize(textDocument)
+        const backend = editorView.editorBackend
+        if (renderedMarkdown && !codeDocument && backend && typeof backend.refreshInlineCodeSize === "function")
+            backend.refreshInlineCodeSize(textDocument)
         inlineElementLayer.invalidateGeometry()
     }
     Component.onCompleted: {
@@ -593,7 +597,9 @@ TextArea {
             plainLinkHoverCanvas.requestPaint()
         }
         function onSelectedTextChanged() {
-            if (!editorView.mouseSelectionActive)
+            if (editorView.addressSelection)
+                editorView.projectAddressSelection(blockArea)
+            else if (!editorView.mouseSelectionActive)
                 editorView.scheduleSelectionStateRefresh()
         }
     }
@@ -1013,13 +1019,22 @@ TextArea {
         }
     }
 
-    TapHandler {
-        id: touchContextHandler
+    MouseArea {
+        anchors.fill: parent
+        z: 20
         enabled: editorView.touchMode
+        // The containing Flickable can take the grab for a vertical drag.
+        // A press-and-hold consumes the click that would collapse the word.
         acceptedButtons: Qt.LeftButton
-        gesturePolicy: TapHandler.DragThreshold
-        onLongPressed: {
-            editorView.openEditorContextMenu(blockArea, point.position.x, point.position.y)
+        onClicked: function(mouse) {
+            editorView.clearDocumentSelection()
+            blockArea.forceActiveFocus()
+            blockArea.cursorPosition = blockArea.positionAt(mouse.x, mouse.y)
+            Qt.inputMethod.show()
+        }
+        onPressAndHold: function(mouse) {
+            if (!editorView.beginTouchSelection(blockArea, mouse.x, mouse.y) && !blockArea.inputMethodComposing)
+                editorView.openEditorContextMenu(blockArea, mouse.x, mouse.y)
         }
     }
 

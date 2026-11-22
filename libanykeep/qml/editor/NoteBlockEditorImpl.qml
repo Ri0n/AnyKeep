@@ -39,6 +39,10 @@ ListView {
     property alias documentSelectionEndPosition: selectionController.documentSelectionEndPosition
     property alias documentSelectionAvailable: selectionController.documentSelectionAvailable
     property alias selectionRevision: selectionController.selectionRevision
+    readonly property alias addressSelection: selectionController.addressSelection
+    readonly property bool touchSelectionActive: touchMode && selectionController.addressSelectionAvailable
+    readonly property bool touchSelectionSpansEditors: touchSelectionActive && selectionSpansEditors
+    readonly property bool touchSelectionCanCut: touchSelectionActive && selectionController.canCutAddressSelection()
     property alias contextEditor: selectionController.contextEditor
     property alias mouseSelectionActive: selectionController.mouseSelectionActive
     property alias blankSelectionBoundary: selectionController.blankSelectionBoundary
@@ -60,7 +64,7 @@ ListView {
     property string currentFindText: ""
     signal findRequested()
     readonly property alias linkEditorPopup: linkEditor
-    readonly property bool touchMode: Qt.platform.os === "android" || Qt.platform.os === "ios"
+    property bool touchMode: Qt.platform.os === "android" || Qt.platform.os === "ios"
     readonly property font editorFont: typeof mobileApp !== "undefined"
                                        ? Qt.font({ family: Application.font.family,
                                                    pointSize: mobileApp.editorFontSize })
@@ -269,6 +273,93 @@ ListView {
         focusCoordinator: focusController
     }
 
+    Item {
+        id: selectionHandles
+        parent: root
+        anchors.fill: parent
+        z: 30
+        visible: root.touchMode && root.addressSelection !== null
+        property int draggingHandle: -1
+        property point dragPosition: Qt.point(0, 0)
+
+        function moveHandle(index, position) {
+            dragPosition = position
+            selectionController.updateTouchSelection(index,
+                Math.max(0, Math.min(root.width - 1, position.x)),
+                Math.max(1, Math.min(root.height - 1, position.y)))
+        }
+
+        Timer {
+            interval: 16
+            repeat: true
+            running: selectionHandles.draggingHandle >= 0
+                     && (selectionHandles.dragPosition.y < 24 || selectionHandles.dragPosition.y > root.height - 24)
+            onTriggered: {
+                const minimum = root.originY - root.topMargin
+                const maximum = Math.max(minimum, root.originY + root.contentHeight + root.bottomMargin - root.height)
+                const direction = selectionHandles.dragPosition.y < 24 ? -1 : 1
+                const next = Math.max(minimum, Math.min(maximum, root.contentY + direction * 9))
+                if (next !== root.contentY)
+                    root.contentY = next
+                selectionHandles.moveHandle(selectionHandles.draggingHandle, selectionHandles.dragPosition)
+            }
+        }
+
+        Repeater {
+            model: 2
+            delegate: Item {
+                id: handle
+                required property int index
+                readonly property var endpoint: selectionController.addressSelectionHandle(index)
+                objectName: index === 0 ? "selectionStartHandle" : "selectionEndHandle"
+                width: 36
+                height: 36
+                x: endpoint ? endpoint.x - width / 2 : 0
+                y: endpoint ? endpoint.y - 7 : 0
+                visible: drag.active || (endpoint !== null && endpoint.y >= 0 && endpoint.y < root.height)
+
+                Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.top
+                    anchors.topMargin: 5
+                    width: 16
+                    height: 16
+                    radius: 8
+                    color: root.palette.highlight
+                }
+
+                DragHandler {
+                    id: drag
+                    target: null
+                    acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Stylus
+                    grabPermissions: PointerHandler.CanTakeOverFromAnything
+                    property point offset: Qt.point(0, 0)
+
+                    function updateSelection() {
+                        const point = root.mapFromItem(null, centroid.scenePosition)
+                        selectionHandles.moveHandle(handle.index,
+                            Qt.point(point.x - offset.x, point.y - offset.y - 1))
+                    }
+
+                    onActiveChanged: {
+                        if (active) {
+                            const press = root.mapFromItem(null, centroid.scenePressPosition)
+                            const end = handle.endpoint
+                            offset = end ? Qt.point(press.x - end.x, press.y - end.y) : Qt.point(0, 0)
+                            selectionHandles.draggingHandle = handle.index
+                            updateSelection()
+                        } else if (selectionHandles.draggingHandle === handle.index) {
+                            selectionHandles.draggingHandle = -1
+                            if (!root.touchSelectionActive)
+                                selectionController.clearDocumentSelection()
+                        }
+                    }
+                    onActiveTranslationChanged: if (active) updateSelection()
+                }
+            }
+        }
+    }
+
     Controllers.EditorMediaNavigationController {
         id: mediaNavigationController
         editorView: root
@@ -284,9 +375,20 @@ ListView {
         platformBackend: root.platformBackend
     }
 
-    function registerEditor(editor) { return focusController.registerEditor(editor) }
+    function registerEditor(editor) {
+        focusController.registerEditor(editor)
+        selectionController.projectAddressSelection(editor, true)
+    }
+    function projectAddressSelection(editor) { selectionController.projectAddressSelection(editor) }
+    function beginTouchSelection(editor, x, y) { return selectionController.beginTouchSelection(editor, x, y) }
+    function restoreAddressSelection(selection) {
+        selectionController.setAddressSelection(selection.anchor, selection.end)
+    }
     function unregisterEditor(editor) { return focusController.unregisterEditor(editor) }
-    function scheduleCursorVisibility(editor) { return focusController.scheduleCursorVisibility(editor) }
+    function scheduleCursorVisibility(editor) {
+        if (!selectionController.addressSelection)
+            focusController.scheduleCursorVisibility(editor)
+    }
     function ensureEditorCursorVisible(editor) { return focusController.ensureEditorCursorVisible(editor) }
     function orderedEditors() { return focusController.orderedEditors() }
     function editorAddress(editor, position) { return focusController.editorAddress(editor, position) }
@@ -880,6 +982,12 @@ ListView {
     function applyInlineFormattingStyle(style, editor) {
         if (!editorBackend)
             return false
+        if (selectionController.addressSelectionAvailable) {
+            if (style !== "link" && style !== "code")
+                return selectionController.formatAddressSelection(style)
+            if (selectionSpansEditors)
+                return false
+        }
         if (style === "link") {
             if (!editor || editor.textFormat !== TextEdit.MarkdownText
                     || hasMultiListItemSelection())

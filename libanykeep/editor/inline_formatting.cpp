@@ -799,26 +799,32 @@ namespace {
     }
 } // namespace
 
+namespace {
+    int applyDocumentInlineFormat(QTextDocument *document, int start, int end, const QString &style)
+    {
+        start = qBound(0, start, document->characterCount() - 1);
+        end   = qBound(start, end, document->characterCount() - 1);
+        if (start == end)
+            return start;
+
+        QTextCursor cursor(document);
+        cursor.setPosition(start);
+        cursor.setPosition(end, QTextCursor::KeepAnchor);
+
+        QTextCharFormat format;
+        const bool      enabled = !inlineFormatState(cursor.charFormat(), style);
+        if (!configureInlineFormat(format, document, style, enabled))
+            return -1;
+        cursor.mergeCharFormat(format);
+        return end;
+    }
+} // namespace
+
 int NoteEditor::applyInlineFormat(QQuickTextDocument *quickDocument, int start, int end, const QString &style)
 {
-    if (!quickDocument || !quickDocument->textDocument())
-        return -1;
-    auto *document = quickDocument->textDocument();
-    start          = qBound(0, start, document->characterCount() - 1);
-    end            = qBound(start, end, document->characterCount() - 1);
-    if (start == end)
-        return start;
-
-    QTextCursor cursor(document);
-    cursor.setPosition(start);
-    cursor.setPosition(end, QTextCursor::KeepAnchor);
-
-    QTextCharFormat format;
-    const bool      enabled = !inlineFormatState(cursor.charFormat(), style);
-    if (!configureInlineFormat(format, document, style, enabled))
-        return -1;
-    cursor.mergeCharFormat(format);
-    return end;
+    return quickDocument && quickDocument->textDocument()
+        ? applyDocumentInlineFormat(quickDocument->textDocument(), start, end, style)
+        : -1;
 }
 
 bool NoteEditor::inlineFormatEnabled(QQuickTextDocument *quickDocument, int position, const QString &style) const
@@ -976,62 +982,71 @@ QVariantList NoteEditor::markdownCellWidths(const QStringList &markdown, const Q
     return result;
 }
 
-QString NoteEditor::markdownText(QQuickTextDocument *quickDocument) const
-{
-    if (!quickDocument || !quickDocument->textDocument())
-        return {};
+namespace {
+    QString serializeEditorMarkdown(const QTextDocument *source, bool tableCell = false)
+    {
+        // Hide intentional line separators from the Markdown writer so that
+        // its line wrapping cannot turn them into ordinary spaces. A table
+        // cell also needs to keep paragraph separators on a single row.
+        std::unique_ptr<QTextDocument> document(source->clone());
+        const QString                  marker = unusedPrivateMarker(document.get(), tableCell ? 0xe200 : 0xe100);
+        for (int position = document->characterCount() - 2; position >= 0; --position) {
+            const QChar character = document->characterAt(position);
+            if (character != QChar::LineSeparator && !(tableCell && character == QChar::ParagraphSeparator))
+                continue;
+            QTextCursor cursor(document.get());
+            cursor.setPosition(position);
+            cursor.setPosition(position + 1, QTextCursor::KeepAnchor);
+            cursor.insertText(marker, QTextCharFormat());
+        }
 
-    // QTextDocument's Markdown writer serializes an intentional visual line
-    // separator like an ordinary soft wrap. Protect only LineSeparator here;
-    // ParagraphSeparator still represents a real Markdown paragraph.
-    std::unique_ptr<QTextDocument> document(quickDocument->textDocument()->clone());
-    // Use one Unicode scalar rather than a long ASCII token. Qt 6.4 may wrap
-    // the Markdown writer output in the middle of a word; an indivisible
-    // marker cannot be torn apart and accidentally exposed to the user.
-    const QString marker = unusedPrivateMarker(document.get(), 0xe100);
-    for (int position = document->characterCount() - 2; position >= 0; --position) {
-        if (document->characterAt(position) != QChar::LineSeparator)
-            continue;
-        QTextCursor cursor(document.get());
-        cursor.setPosition(position);
-        cursor.setPosition(position + 1, QTextCursor::KeepAnchor);
-        cursor.insertText(marker, QTextCharFormat());
+        QString markdown = unwrapMarkdownWriterLines(markdownWithSerializedInlineFormats(document.get()));
+        while (markdown.endsWith(QLatin1Char('\n')) || markdown.endsWith(QLatin1Char('\r')))
+            markdown.chop(1);
+        if (tableCell)
+            markdown.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+        markdown.replace(marker, QStringLiteral("<br>"));
+        return markdown;
     }
-
-    QString markdown = unwrapMarkdownWriterLines(markdownWithSerializedInlineFormats(document.get()));
-    while (markdown.endsWith(QLatin1Char('\n')) || markdown.endsWith(QLatin1Char('\r')))
-        markdown.chop(1);
-    markdown.replace(marker, QStringLiteral("<br>"));
-    return markdown;
-}
+} // namespace
 
 QString NoteEditor::markdownTableCellText(QQuickTextDocument *quickDocument) const
 {
-    if (!quickDocument || !quickDocument->textDocument())
+    return quickDocument && quickDocument->textDocument() ? serializeEditorMarkdown(quickDocument->textDocument(), true)
+                                                          : QString();
+}
+
+QString NoteEditor::markdownText(QQuickTextDocument *quickDocument) const
+{
+    return quickDocument && quickDocument->textDocument() ? serializeEditorMarkdown(quickDocument->textDocument())
+                                                          : QString();
+}
+
+QVariantMap NoteEditor::renderedSelection(const QString &markdown, int start, int end) const
+{
+    QTextDocument document;
+    document.setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
+    applyInlineRenderingFormats(&document);
+    const int length = document.characterCount() - 1;
+    start            = qBound(0, start, length);
+    end              = end < 0 ? length : qBound(start, end, length);
+    return { { QStringLiteral("length"), length },
+             { QStringLiteral("markdown"), markdownRange(&document, start, end) },
+             { QStringLiteral("before"), markdownRange(&document, 0, start) },
+             { QStringLiteral("after"), markdownRange(&document, end, length) } };
+}
+
+QString NoteEditor::formatRenderedSelection(const QString &markdown, int start, int end, const QString &style,
+                                            bool tableCell)
+{
+    QTextDocument document;
+    document.setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
+    applyInlineRenderingFormats(&document);
+    const int result
+        = applyDocumentInlineFormat(&document, start, end < 0 ? document.characterCount() - 1 : end, style);
+    if (result <= start)
         return {};
-
-    // QTextDocument serializes a visual line separator as an ordinary
-    // newline, indistinguishable from its own soft wrapping.  Protect every
-    // intentional separator before invoking the normal Markdown serializer,
-    // then restore it using the table-safe GFM spelling.
-    std::unique_ptr<QTextDocument> document(quickDocument->textDocument()->clone());
-    const QString                  marker = unusedPrivateMarker(document.get(), 0xe200);
-    for (int position = document->characterCount() - 2; position >= 0; --position) {
-        const QChar character = document->characterAt(position);
-        if (character != QChar::LineSeparator && character != QChar::ParagraphSeparator)
-            continue;
-        QTextCursor cursor(document.get());
-        cursor.setPosition(position);
-        cursor.setPosition(position + 1, QTextCursor::KeepAnchor);
-        cursor.insertText(marker, QTextCharFormat());
-    }
-
-    QString markdown = unwrapMarkdownWriterLines(markdownWithSerializedInlineFormats(document.get()));
-    while (markdown.endsWith(QLatin1Char('\n')) || markdown.endsWith(QLatin1Char('\r')))
-        markdown.chop(1);
-    markdown.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
-    markdown.replace(marker, QStringLiteral("<br>"));
-    return markdown;
+    return serializeEditorMarkdown(&document, tableCell);
 }
 
 QString NoteEditor::markdownSelection(QQuickTextDocument *quickDocument, int start, int end) const

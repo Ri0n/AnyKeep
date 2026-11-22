@@ -36,7 +36,8 @@ FocusScope {
     readonly property bool visual: block.mediaType.startsWith("image/") || block.mediaType.startsWith("video/")
     readonly property bool individuallySelected:
         mediaRoot.editorView.selectedMediaIndex === block.index
-    readonly property bool selected: individuallySelected || block.structurallySelected
+    readonly property bool selected:
+        individuallySelected || mediaRoot.editorView.structuralBlockSelected(block.index)
     readonly property color selectionColor: altEditor.palette.highlight
     property real transientWidth: -1
     property real transientX: -1

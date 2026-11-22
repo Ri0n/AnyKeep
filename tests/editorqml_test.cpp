@@ -207,6 +207,201 @@ private slots:
         QCOMPARE(host.model(), editor.model());
     }
 
+    void touchSelectionExtendsAcrossMediaAndListItems()
+    {
+        FavoriteEditorStorage storage;
+        Note                  note(new NoteData(&storage));
+        note.setTitle(QStringLiteral("Touch selection"));
+        QTemporaryDir assets;
+        QVERIFY(assets.isValid());
+        QImage image(16, 16, QImage::Format_RGB32);
+        image.fill(Qt::darkCyan);
+        const auto imagePath = assets.filePath(QStringLiteral("selection.png"));
+        QVERIFY(image.save(imagePath));
+        note.setText(QStringLiteral("alpha bravo charlie\n\n"
+                                    "![Picture](%1)\n\n"
+                                    "- first item\n  - nested item\n- last item\n\n"
+                                    "unrelated paragraph")
+                         .arg(QUrl::fromLocalFile(imagePath).toString()),
+                     Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        QQuickView   view;
+        view.setResizeMode(QQuickView::SizeRootObjectToView);
+        view.resize(450, 800);
+        installThemedIconImageProvider(view.engine());
+        QString error;
+        QVERIFY2(loadQuickFixture(&view, QUrl(QStringLiteral("qrc:/qml/NoteBlockEditor.qml")),
+                                  { { QStringLiteral("blockModel"), QVariant::fromValue(editor.model()) },
+                                    { QStringLiteral("editorBackend"), QVariant::fromValue(&editor) },
+                                    { QStringLiteral("touchMode"), true } },
+                                  &error),
+                 qPrintable(error));
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        auto       *root      = view.rootObject();
+        QQuickItem *paragraph = nullptr;
+        QTRY_VERIFY(
+            (paragraph = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "blockIndex", 1)));
+        QQuickItem *nested = nullptr;
+        QTRY_VERIFY(
+            (nested = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 1)));
+
+        QRectF rect;
+        QVERIFY(QMetaObject::invokeMethod(paragraph, "positionToRectangle", Q_RETURN_ARG(QRectF, rect), Q_ARG(int, 8)));
+        const QPoint press  = paragraph->mapToScene(rect.center()).toPoint();
+        auto        *device = QTest::createTouchDevice();
+        QTest::touchEvent(&view, device).press(0, press);
+        QTRY_VERIFY(root->property("touchSelectionActive").toBool());
+        QTest::touchEvent(&view, device).release(0, press);
+        QTRY_COMPARE(paragraph->property("selectedText").toString(), QStringLiteral("bravo"));
+
+        auto *handle = quickVisibleItemByName(root, QStringLiteral("selectionEndHandle"));
+        QVERIFY(handle);
+        QVERIFY(QMetaObject::invokeMethod(nested, "positionToRectangle", Q_RETURN_ARG(QRectF, rect), Q_ARG(int, 6)));
+        const QPoint from   = handle->mapToScene(QPointF(handle->width() / 2, 14)).toPoint();
+        const QPoint target = nested->mapToScene(rect.center() + QPointF(0, 8)).toPoint();
+        QVERIFY(target.y() < view.height() - 24);
+        const auto                  before = editor.model()->contents();
+        const QPersistentModelIndex stable(editor.model()->index(4));
+        const auto                  drag = [&](const QPoint &start, const QPoint &end) {
+            QTest::touchEvent(&view, device).press(0, start);
+            for (int step = 1; step <= 8; ++step)
+                QTest::touchEvent(&view, device).move(0, start + (end - start) * step / 8);
+            QTest::touchEvent(&view, device).release(0, end);
+        };
+        drag(from, target);
+        QTRY_VERIFY(root->property("selectionSpansEditors").toBool());
+        QVERIFY(!root->property("touchSelectionCanCut").toBool());
+        QCOMPARE(paragraph->property("selectedText").toString(), QStringLiteral("bravo charlie"));
+        QCOMPARE(nested->property("selectedText").toString(), QStringLiteral("nested"));
+        QCOMPARE(editor.model()->contents(), before);
+        QInputMethodEvent ime;
+        ime.setCommitString(QStringLiteral("accidental replacement"));
+        QCoreApplication::sendEvent(&view, &ime);
+        QCOMPARE(editor.model()->contents(), before);
+        QVERIFY(root->property("touchSelectionActive").toBool());
+        QVERIFY(QMetaObject::invokeMethod(root, "copyDocumentSelection"));
+        const auto *clipboard = QGuiApplication::clipboard()->mimeData();
+        QVERIFY(clipboard->text().contains(QStringLiteral("bravo charlie")));
+        QVERIFY(clipboard->text().contains(QStringLiteral("nested")));
+        QVERIFY(!clipboard->text().contains(QStringLiteral("last item")));
+        QVERIFY(clipboard->data(QStringLiteral("text/markdown")).contains("![Picture]"));
+        QVariant selectedRanges;
+        QVERIFY(QMetaObject::invokeMethod(root, "structuredSelectionRanges", Q_RETURN_ARG(QVariant, selectedRanges),
+                                          Q_ARG(QVariant, false)));
+        const auto ranges = selectedRanges.toList();
+        QVERIFY(std::any_of(ranges.begin(), ranges.end(), [](const QVariant &value) {
+            return value.toMap().value(QStringLiteral("structural")).toBool();
+        }));
+
+        editor.model()->setBlockText(4, QStringLiteral("unrelated edit"));
+        QVERIFY(root->property("touchSelectionActive").toBool());
+        QVERIFY(stable.isValid());
+        const auto unformatted = editor.model()->contents();
+        QVariant   formatted;
+        QVERIFY(QMetaObject::invokeMethod(root, "applyInlineFormattingStyle", Q_RETURN_ARG(QVariant, formatted),
+                                          Q_ARG(QVariant, QStringLiteral("bold")), Q_ARG(QVariant, QVariant())));
+        QVERIFY(formatted.toBool());
+        QVERIFY(editor.model()->contents().contains(QStringLiteral("alpha **bravo charlie**")));
+        QVERIFY(editor.model()->contents().contains(QStringLiteral("**nested** item")));
+        QVERIFY(editor.model()->contents().contains(QStringLiteral("unrelated edit")));
+        QVERIFY(root->property("touchSelectionActive").toBool());
+        QVERIFY(editor.undo());
+        QCOMPARE(editor.model()->contents(), unformatted);
+        QTRY_VERIFY(root->property("touchSelectionActive").toBool());
+
+        // Pull the same end back into the first editor. Neither the image
+        // nor anything in the list remains in the selection.
+        QTRY_VERIFY(
+            (paragraph = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "blockIndex", 1)));
+        QTRY_VERIFY(
+            (nested = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 1)));
+        handle = quickVisibleItemByName(root, QStringLiteral("selectionEndHandle"));
+        QVERIFY(handle);
+        QVERIFY(
+            QMetaObject::invokeMethod(paragraph, "positionToRectangle", Q_RETURN_ARG(QRectF, rect), Q_ARG(int, 11)));
+        drag(handle->mapToScene(QPointF(handle->width() / 2, 14)).toPoint(),
+             paragraph->mapToScene(rect.center() + QPointF(0, 8)).toPoint());
+        QTRY_VERIFY(!root->property("selectionSpansEditors").toBool());
+        QVERIFY(root->property("touchSelectionCanCut").toBool());
+        QCOMPARE(paragraph->property("selectedText").toString(), QStringLiteral("bravo"));
+        QCOMPARE(nested->property("selectedText").toString(), QString());
+    }
+
+    void touchSelectionSurvivesUnloadedDelegates()
+    {
+        FavoriteEditorStorage storage;
+        Note                  note(new NoteData(&storage));
+        note.setTitle(QStringLiteral("Long note"));
+        QStringList paragraphs { QStringLiteral("alpha bravo charlie") };
+        for (int index = 0; index < 100; ++index)
+            paragraphs.append(QStringLiteral("## Unrelated heading %1").arg(index));
+        note.setText(paragraphs.join(QStringLiteral("\n\n")), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        QQuickView   view;
+        view.setResizeMode(QQuickView::SizeRootObjectToView);
+        view.resize(360, 500);
+        installThemedIconImageProvider(view.engine());
+        QString error;
+        QVERIFY2(loadQuickFixture(&view, QUrl(QStringLiteral("qrc:/qml/NoteBlockEditor.qml")),
+                                  { { QStringLiteral("blockModel"), QVariant::fromValue(editor.model()) },
+                                    { QStringLiteral("editorBackend"), QVariant::fromValue(&editor) },
+                                    { QStringLiteral("touchMode"), true },
+                                    { QStringLiteral("cacheBuffer"), 0 } },
+                                  &error),
+                 qPrintable(error));
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        auto      *root          = view.rootObject();
+        const auto selectedBlock = [root]() {
+            return quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "blockIndex", 1);
+        };
+        QQuickItem *paragraph = nullptr;
+        QTRY_VERIFY((paragraph = selectedBlock()));
+        QRectF rect;
+        QVERIFY(QMetaObject::invokeMethod(paragraph, "positionToRectangle", Q_RETURN_ARG(QRectF, rect), Q_ARG(int, 8)));
+        const QPoint press  = paragraph->mapToScene(rect.center()).toPoint();
+        auto        *device = QTest::createTouchDevice();
+        QTest::touchEvent(&view, device).press(0, press);
+        QTRY_VERIFY(root->property("touchSelectionActive").toBool());
+        QTest::touchEvent(&view, device).release(0, press);
+
+        paragraph->setFocus(false);
+        QQuickItem *scrollSource = nullptr;
+        QTRY_VERIFY(
+            (scrollSource = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "blockIndex", 5)));
+        const auto scrollPoint = scrollSource->mapToScene(QPointF(30, scrollSource->height() / 2)).toPoint();
+        const auto initialY    = root->property("contentY").toReal();
+        QTest::touchEvent(&view, device).press(0, scrollPoint);
+        for (int distance = 15; distance <= 90; distance += 15)
+            QTest::touchEvent(&view, device).move(0, scrollPoint - QPoint(0, distance));
+        QTest::touchEvent(&view, device).release(0, scrollPoint - QPoint(0, 90));
+        QTRY_VERIFY(root->property("contentY").toReal() > initialY + 20);
+        QVERIFY(root->property("touchSelectionActive").toBool());
+
+        QVERIFY(editor.model()->rowCount() > 100);
+        QVERIFY(QMetaObject::invokeMethod(root, "positionViewAtEnd"));
+        QTRY_VERIFY(root->property("contentY").toReal() > 500);
+        QTRY_VERIFY(!selectedBlock());
+        QVERIFY(root->property("touchSelectionActive").toBool());
+        QVERIFY(QMetaObject::invokeMethod(root, "copyDocumentSelection"));
+        QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("bravo"));
+
+        QVariant formatted;
+        QVERIFY(QMetaObject::invokeMethod(root, "applyInlineFormattingStyle", Q_RETURN_ARG(QVariant, formatted),
+                                          Q_ARG(QVariant, QStringLiteral("bold")), Q_ARG(QVariant, QVariant())));
+        QVERIFY(formatted.toBool());
+        QCOMPARE(editor.model()->blockTextAt(1), QStringLiteral("alpha **bravo** charlie"));
+        QVERIFY(QMetaObject::invokeMethod(root, "positionViewAtBeginning"));
+        QTRY_VERIFY((paragraph = selectedBlock()));
+        QTRY_COMPARE(paragraph->property("selectedText").toString(), QStringLiteral("bravo"));
+        QVERIFY(root->property("touchSelectionActive").toBool());
+        editor.model()->setBlockText(1, QStringLiteral("The selected text changed in another view"));
+        QTRY_VERIFY(!root->property("touchSelectionActive").toBool());
+    }
+
     void existingFileAttachmentsRenderInDesktopNote()
     {
         FavoriteEditorStorage storage;
@@ -3043,9 +3238,11 @@ private slots:
 
     void inlineCodeFollowsEditorFontChanges()
     {
+        QTest::failOnWarning(QRegularExpression(QStringLiteral("NoteBlockTextArea\\.qml:\\d+: TypeError:")));
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("title"));
-        note.setText(QStringLiteral("Text with `code` here\n\n| A | B |\n| --- | --- |\n| x | `cell code` |"),
+        note.setText(QStringLiteral("Text with `code` here\n\n| A | B |\n| --- | --- |\n| x | `cell code` |\n\n"
+                                    "> Quote with `code` here"),
                      Note::Markdown);
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor            editor(note, drafts);
@@ -3057,13 +3254,15 @@ private slots:
         host.show();
         auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
         QVERIFY(root);
-        QQuickItem         *body = nullptr;
+        QQuickItem         *body  = nullptr;
+        QQuickItem         *quote = nullptr;
         QList<QQuickItem *> cells;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
         QTRY_VERIFY(([&]() {
             cells = tableCellEditors(root, 2);
             return cells.size() == 4;
         })());
+        QTRY_VERIFY((quote = textEditorForBlock(root, 3)));
 
         // The size inline code gets from a fresh import with the document's font.
         const auto importedCodeSize = [](QTextDocument *document) {
@@ -3089,12 +3288,14 @@ private slots:
         };
         QVERIFY(codeMatchesFont(body));
         QVERIFY(codeMatchesFont(cells.at(3)));
+        QVERIFY(codeMatchesFont(quote));
 
         QFont larger = font;
         larger.setPointSizeF(13.2);
         host.platformBackend()->setEditorFont(larger);
         QTRY_VERIFY(codeMatchesFont(body));
         QTRY_VERIFY(codeMatchesFont(cells.at(3)));
+        QTRY_VERIFY(codeMatchesFont(quote));
         // The text itself is unchanged: nothing to commit or to undo.
         QCOMPARE(editor.model()->blockTextAt(1), QStringLiteral("Text with `code` here"));
     }
@@ -4219,6 +4420,7 @@ private:
 
     void draggingTextSelectionAcrossTrailingAudioHighlightsPlayer()
     {
+        QTest::failOnWarning(QRegularExpression(QStringLiteral("Binding loop detected")));
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("Title"));
         note.setText(QStringLiteral("Select this text"), Note::Markdown);
@@ -4244,6 +4446,10 @@ private:
         const QPoint end   = audio->mapToScene(QPointF(audio->width() * 0.5, audio->height() + 10)).toPoint();
         QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start);
         QTest::mouseMove(quick, end, 50);
+        QTRY_VERIFY(audio->property("selected").toBool());
+        QTest::mouseMove(quick, start, 50);
+        QTRY_VERIFY(!audio->property("selected").toBool());
+        QTest::mouseMove(quick, end, 50);
         QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, end);
 
         QTRY_VERIFY(audio->property("selected").toBool());
@@ -4251,6 +4457,7 @@ private:
 
     void draggingUpFromTrailingAreaKeepsTemporarySelectionAnchor()
     {
+        QTest::failOnWarning(QRegularExpression(QStringLiteral("Binding loop detected")));
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("Title"));
         note.setText(QStringLiteral("Select this text"), Note::Markdown);
@@ -4329,6 +4536,7 @@ private:
 
     void draggingUpFromTrailingAreaVisuallySelectsFinalImage()
     {
+        QTest::failOnWarning(QRegularExpression(QStringLiteral("Binding loop detected")));
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("Title"));
         note.setText(QStringLiteral("Select this text"), Note::Markdown);

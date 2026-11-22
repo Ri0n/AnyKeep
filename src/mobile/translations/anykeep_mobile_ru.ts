@@ -263,6 +263,42 @@
         <source>Stop recording</source>
         <translation>Остановить запись</translation>
     </message>
+    <message>
+        <source>Bold</source>
+        <translation>Жирный</translation>
+    </message>
+    <message>
+        <source>Italic</source>
+        <translation>Курсив</translation>
+    </message>
+    <message>
+        <source>Strikethrough</source>
+        <translation>Зачёркнутый</translation>
+    </message>
+    <message>
+        <source>Copy</source>
+        <translation>Копировать</translation>
+    </message>
+    <message>
+        <source>Paste</source>
+        <translation>Вставить</translation>
+    </message>
+    <message>
+        <source>Cut</source>
+        <translation>Вырезать</translation>
+    </message>
+    <message>
+        <source>Selection actions</source>
+        <translation>Действия с выделением</translation>
+    </message>
+    <message>
+        <source>Select all</source>
+        <translation>Выделить всё</translation>
+    </message>
+    <message>
+        <source>Clear selection</source>
+        <translation>Снять выделение</translation>
+    </message>
 </context>
 <context>
     <name>SettingsHubPage</name>

@@ -9,14 +9,15 @@
 #include "mediasynccontroller.h"
 #include "noteblockmodel.h"
 #include "notedata.h"
-#include "notetagline.h"
 #include "notedocumenthistory.h"
 #include "notemanager.h"
 #include "notestorage.h"
+#include "notetagline.h"
 #include "videothumbnailgenerator.h"
 
 #include <QDebug>
 #include <QGuiApplication>
+#include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QLoggingCategory>
 #include <QMetaObject>
@@ -315,16 +316,15 @@ std::pair<QString, QString> NoteEditor::titleAndBody() const
     if (!model_ || model_->rowCount() == 0)
         return {};
 
-    const QString contents = model_->contents();
-    const int firstType = model_->blockTypeAt(0);
+    const QString contents  = model_->contents();
+    const int     firstType = model_->blockTypeAt(0);
     // The Markdown reader represents "# Heading" as a Heading block, not
     // Text. It is still the first visible title line of the document.
     if (firstType != NoteBlockModel::Text && !(format_ == Note::Markdown && firstType == NoteBlockModel::Heading))
         return { {}, contents };
 
     const QString title = firstType == NoteBlockModel::Heading
-        ? contents.left(contents.indexOf(QLatin1Char('\n')) < 0 ? contents.size()
-                                                                 : contents.indexOf(QLatin1Char('\n')))
+        ? contents.left(contents.indexOf(QLatin1Char('\n')) < 0 ? contents.size() : contents.indexOf(QLatin1Char('\n')))
         : model_->data(model_->index(0), NoteBlockModel::TextRole).toString();
     if (firstType == NoteBlockModel::Text && format_ == Note::PlainText && title.trimmed().isEmpty()) {
         // In plain-text mode the model has an explicit first Text row even
@@ -332,9 +332,9 @@ std::pair<QString, QString> NoteEditor::titleAndBody() const
         // the canonical title, not an empty placeholder.
         qsizetype lineStart = 0;
         while (lineStart < contents.size()) {
-            const auto end = contents.indexOf(QLatin1Char('\n'), lineStart);
-            const auto lineEnd = end < 0 ? contents.size() : end;
-            const QString line = contents.mid(lineStart, lineEnd - lineStart);
+            const auto    end     = contents.indexOf(QLatin1Char('\n'), lineStart);
+            const auto    lineEnd = end < 0 ? contents.size() : end;
+            const QString line    = contents.mid(lineStart, lineEnd - lineStart);
             if (!line.trimmed().isEmpty()) {
                 QString body = contents.mid(lineEnd);
                 while (body.startsWith(QLatin1Char('\n')) || body.startsWith(QLatin1Char('\r')))
@@ -716,14 +716,13 @@ bool NoteEditor::addTag(const QString &name)
     // Plain-text notes have no structural TagLine block. The first body
     // line is their canonical tag metadata, so preserve all following text.
     const auto [title, rawBody] = titleAndBody();
-    const QString body = NoteTagLine::normalizeLineBreaks(rawBody);
-    const int lineEnd = body.indexOf(QLatin1Char('\n'));
-    const QString firstLine = lineEnd < 0 ? body : body.left(lineEnd);
-    const QStringList existing = NoteTagLine::parseLine(firstLine);
-    const QString remainder = existing.isEmpty() ? body : (lineEnd < 0 ? QString() : body.mid(lineEnd + 1));
-    const QString prefix = NoteTagLine::serialize(allTags);
-    setText(title + QLatin1Char('\n') + prefix
-            + (remainder.isEmpty() ? QString() : QLatin1Char('\n') + remainder));
+    const QString     body      = NoteTagLine::normalizeLineBreaks(rawBody);
+    const int         lineEnd   = body.indexOf(QLatin1Char('\n'));
+    const QString     firstLine = lineEnd < 0 ? body : body.left(lineEnd);
+    const QStringList existing  = NoteTagLine::parseLine(firstLine);
+    const QString     remainder = existing.isEmpty() ? body : (lineEnd < 0 ? QString() : body.mid(lineEnd + 1));
+    const QString     prefix    = NoteTagLine::serialize(allTags);
+    setText(title + QLatin1Char('\n') + prefix + (remainder.isEmpty() ? QString() : QLatin1Char('\n') + remainder));
     return true;
 }
 
@@ -919,10 +918,30 @@ void NoteEditor::updateShortcutWindows()
 
 bool NoteEditor::eventFilter(QObject *watched, QEvent *event)
 {
-    if (event->type() != QEvent::ShortcutOverride && event->type() != QEvent::KeyPress)
+    if (event->type() != QEvent::ShortcutOverride && event->type() != QEvent::KeyPress
+        && event->type() != QEvent::InputMethod)
         return false;
     auto *window = qobject_cast<QQuickWindow *>(watched);
-    if (!window || !isMarkdown() || viewLeases_ <= 0)
+    if (!window || viewLeases_ <= 0)
+        return false;
+    if (event->type() == QEvent::InputMethod) {
+        const auto *input = static_cast<QInputMethodEvent *>(event);
+        if (input->commitString().isEmpty() && input->preeditString().isEmpty() && input->replacementLength() == 0)
+            return false;
+        auto *focus = window->activeFocusItem();
+        if (!focus)
+            return false;
+        auto *editorView = focus->property("editorView").value<QObject *>();
+        // IME commits replace the focused TextArea only. A document range
+        // can cross media/list/table fields and must be edited atomically.
+        if (editorView && editorViews_.contains(editorView)
+            && editorView->property("touchSelectionSpansEditors").toBool()) {
+            event->accept();
+            return true;
+        }
+        return false;
+    }
+    if (!isMarkdown())
         return false;
     const auto *key  = static_cast<QKeyEvent *>(event);
     const int   type = listShortcutType(*key);

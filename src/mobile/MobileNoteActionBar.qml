@@ -7,6 +7,8 @@ ToolBar {
 
     required property var editorBackend
     required property var actions
+    readonly property var blockEditor: actions.blockEditor
+    readonly property bool selectionActive: blockEditor && blockEditor.touchSelectionActive
     property bool voiceAvailable: false
     property bool voiceBusy: false
     property bool voiceRecording: false
@@ -74,7 +76,7 @@ ToolBar {
         anchors.leftMargin: 2
         anchors.rightMargin: 2
         spacing: 0
-        visible: !root.voiceRecording && !root.voiceBusy
+        visible: !root.voiceRecording && !root.voiceBusy && !root.selectionActive
 
         ActionButton {
             text: qsTr("File")
@@ -152,6 +154,86 @@ ToolBar {
                 MenuItem { text: qsTr("Block quote"); onTriggered: root.actions.insertBlockQuote() }
                 MenuItem { text: qsTr("Code block"); onTriggered: root.actions.insertCodeBlock() }
                 MenuItem { text: qsTr("Table"); onTriggered: root.actions.insertTable() }
+                MenuItem {
+                    text: qsTr("Paste")
+                    enabled: root.blockEditor.activeEditor && root.blockEditor.activeEditor.canPaste
+                    onTriggered: root.blockEditor.pasteClipboard()
+                }
+                MenuItem { text: qsTr("Select all"); onTriggered: root.blockEditor.selectAllDocument() }
+            }
+        }
+    }
+
+    RowLayout {
+        anchors.fill: parent
+        spacing: 2
+        visible: root.selectionActive && !root.voiceRecording && !root.voiceBusy
+
+        ToolButton {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            focusPolicy: Qt.NoFocus
+            text: "B"
+            font.bold: true
+            font.pixelSize: 20
+            Accessible.name: qsTr("Bold")
+            enabled: root.editorBackend.markdown
+            onClicked: root.blockEditor.applyInlineFormattingStyle("bold", root.blockEditor.activeEditor)
+        }
+        ToolButton {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            focusPolicy: Qt.NoFocus
+            text: "I"
+            font.italic: true
+            font.pixelSize: 20
+            Accessible.name: qsTr("Italic")
+            enabled: root.editorBackend.markdown
+            onClicked: root.blockEditor.applyInlineFormattingStyle("italic", root.blockEditor.activeEditor)
+        }
+        ToolButton {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            focusPolicy: Qt.NoFocus
+            text: "S"
+            font.strikeout: true
+            font.pixelSize: 20
+            Accessible.name: qsTr("Strikethrough")
+            enabled: root.editorBackend.markdown
+            onClicked: root.blockEditor.applyInlineFormattingStyle("strike", root.blockEditor.activeEditor)
+        }
+        ActionButton {
+            text: qsTr("Copy")
+            focusPolicy: Qt.NoFocus
+            themeName: "__bundled__"
+            fallbackName: "edit-copy-symbolic.svg"
+            onClicked: root.blockEditor.copyDocumentSelection()
+        }
+        ActionButton {
+            text: qsTr("More")
+            focusPolicy: Qt.NoFocus
+            Accessible.name: qsTr("Selection actions")
+            themeName: "__bundled__"
+            fallbackName: "overflow-menu-symbolic.svg"
+            onClicked: selectionMenu.open()
+
+            Menu {
+                id: selectionMenu
+                y: -height
+                margins: 8
+                MenuItem {
+                    text: qsTr("Cut")
+                    enabled: root.blockEditor.touchSelectionCanCut
+                    onTriggered: root.blockEditor.cutDocumentSelection()
+                }
+                MenuItem {
+                    text: qsTr("Paste")
+                    enabled: !root.blockEditor.selectionSpansEditors
+                             && root.blockEditor.activeEditor && root.blockEditor.activeEditor.canPaste
+                    onTriggered: root.blockEditor.pasteClipboard()
+                }
+                MenuItem { text: qsTr("Select all"); onTriggered: root.blockEditor.selectAllDocument() }
+                MenuItem { text: qsTr("Clear selection"); onTriggered: root.blockEditor.clearDocumentSelection() }
             }
         }
     }

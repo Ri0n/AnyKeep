@@ -507,6 +507,23 @@ QString NoteBlockModel::blockTextAt(int row) const
     return row >= 0 && row < blocks_.size() ? blocks_.at(row).text : QString();
 }
 
+QString NoteBlockModel::selectionFieldText(int row, int listItem, int tableCell) const
+{
+    if (row < 0 || row >= blocks_.size())
+        return {};
+    const auto &block = blocks_.at(row);
+    if (listItem >= 0)
+        return block.items.value(listItem);
+    if (tableCell >= 0)
+        return block.cells.value(tableCell);
+    return block.text;
+}
+
+int NoteBlockModel::tableColumnCountAt(int row) const
+{
+    return row >= 0 && row < blocks_.size() ? blocks_.at(row).columns : 0;
+}
+
 int NoteBlockModel::listItemCountAt(int row) const
 {
     return row >= 0 && row < blocks_.size() && isListType(blocks_.at(row).type) ? blocks_.at(row).items.size() : 0;

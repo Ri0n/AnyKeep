@@ -37,9 +37,331 @@ QtObject {
     property int pendingLeadingParagraphFocus: -1
     property int editTransactionDepth: 0
 
+    // Addresses belong to the document, including while a delegate is
+    // outside ListView's cache. The TextArea selections are projections.
+    property var addressSelection: null
+    property bool projectingSelection: false
+    property bool formattingAddressSelection: false
+    onBlockModelChanged: if (addressSelection) clearDocumentSelection()
+    readonly property bool addressSelectionAvailable: addressSelection !== null
+            && compareSelectionAddresses(addressSelection.anchor, addressSelection.end) !== 0
+
+    property Connections selectionModelChanges: Connections {
+        target: controller.blockModel
+        function onModelAboutToBeReset() {
+            if (controller.addressSelection)
+                controller.clearDocumentSelection()
+        }
+        function onRowsAboutToBeInserted(parent, first, last) { controller.invalidateAddressSelection(first) }
+        function onRowsAboutToBeRemoved(parent, first, last) { controller.invalidateAddressSelection(first) }
+        function onRowsAboutToBeMoved(parent, first, last, destinationParent, row) {
+            controller.invalidateAddressSelection(Math.min(first, row))
+        }
+        function onDataChanged(first, last, roles) {
+            const selection = controller.orderedAddressSelection()
+            if (!selection || controller.formattingAddressSelection
+                    || first.row > selection.last.blockIndex || last.row < selection.first.blockIndex)
+                return
+            if (!roles.length || roles.includes(NoteBlockType.TextRole) || roles.includes(NoteBlockType.TypeRole)
+                    || roles.includes(NoteBlockType.ItemsRole) || roles.includes(NoteBlockType.CellsRole))
+                controller.clearDocumentSelection()
+        }
+    }
+
+    function invalidateAddressSelection(firstRow) {
+        if (!addressSelection)
+            return
+        const last = Math.max(addressSelection.anchor.blockIndex, addressSelection.end.blockIndex)
+        if (firstRow <= last)
+            clearDocumentSelection()
+    }
+
+    function selectionAddress(editor, position) {
+        return { blockIndex: editor.blockIndex, listItemIndex: editor.listItemIndex,
+                 tableCellIndex: editor.tableCellIndex, field: editor.editorField,
+                 cursorPosition: position, edge: 0 }
+    }
+
+    function selectionBoundary(row, edge) {
+        return { blockIndex: row, listItemIndex: -1, tableCellIndex: -1,
+                 field: "", cursorPosition: 0, edge: edge }
+    }
+
+    function compareSelectionAddresses(left, right) {
+        return left.blockIndex - right.blockIndex || left.edge - right.edge
+                || Math.max(left.listItemIndex, left.tableCellIndex)
+                   - Math.max(right.listItemIndex, right.tableCellIndex)
+                || left.cursorPosition - right.cursorPosition
+    }
+
+    function orderedAddressSelection() {
+        if (!addressSelectionAvailable)
+            return null
+        const a = addressSelection.anchor
+        const b = addressSelection.end
+        return compareSelectionAddresses(a, b) < 0 ? { first: a, last: b } : { first: b, last: a }
+    }
+
+    function fieldSelection(first, last, field) {
+        const low = Object.assign({}, field, { cursorPosition: 0 })
+        const high = Object.assign({}, field, { cursorPosition: Number.MAX_SAFE_INTEGER })
+        if (compareSelectionAddresses(last, low) < 0 || compareSelectionAddresses(first, high) > 0)
+            return null
+        const start = compareSelectionAddresses(first, low) > 0 ? first.cursorPosition : 0
+        const end = compareSelectionAddresses(last, high) < 0 ? last.cursorPosition : -1
+        return { start: start, end: end }
+    }
+
+    function wholeRowSelected(first, last, row) {
+        return compareSelectionAddresses(first, selectionBoundary(row, -1)) <= 0
+                && compareSelectionAddresses(last, selectionBoundary(row, 1)) >= 0
+    }
+
+    function projectAddressSelection(editor, registering) {
+        if (!addressSelection || projectingSelection || !editor
+                || (!registering && !focusCoordinator.editorHasLiveDelegate(editor)))
+            return
+        const selection = orderedAddressSelection()
+        const range = selection ? fieldSelection(selection.first, selection.last, selectionAddress(editor, 0)) : null
+        const start = range ? Math.min(editor.length, range.start) : editor.cursorPosition
+        const end = range ? (range.end < 0 ? editor.length : Math.min(editor.length, range.end)) : start
+        projectingSelection = true
+        try {
+            setEditorSelection(editor, start, end)
+        } finally {
+            projectingSelection = false
+        }
+    }
+
+    function setAddressSelection(anchor, end) {
+        addressSelection = { anchor: anchor, end: end }
+        selectionSpansEditors = anchor.blockIndex !== end.blockIndex
+                || anchor.listItemIndex !== end.listItemIndex || anchor.tableCellIndex !== end.tableCellIndex
+                || anchor.edge !== 0 || end.edge !== 0
+        documentSelectionAvailable = addressSelectionAvailable
+        for (const editor of editorView.editors)
+            projectAddressSelection(editor)
+        ++selectionRevision
+    }
+
+    function beginTouchSelection(editor, x, y) {
+        if (!editor)
+            return false
+        if (editor.inputMethodComposing)
+            Qt.inputMethod.commit()
+        if (editor.inputMethodComposing || editor.length === 0)
+            return false
+        clearDocumentSelection()
+        editor.forceActiveFocus()
+        editorView.activeEditor = editor
+        editor.cursorPosition = editor.positionAt(x, y)
+        editor.selectWord()
+        if (editor.selectionStart === editor.selectionEnd)
+            return false
+        setAddressSelection(selectionAddress(editor, editor.selectionStart),
+                            selectionAddress(editor, editor.selectionEnd))
+        return true
+    }
+
+    function updateTouchSelection(which, x, y) {
+        if (!addressSelection)
+            return
+        const fixed = which === 0 ? addressSelection.end : addressSelection.anchor
+        const row = editorView.indexAt(x + editorView.contentX, y + editorView.contentY)
+        let endpoint = null
+        if (row >= 0) {
+            const type = blockModel.blockTypeAt(row)
+            if (type === NoteBlockType.Media || type === NoteBlockType.Attachment || type === NoteBlockType.TagLine)
+                endpoint = selectionBoundary(row, row >= fixed.blockIndex ? 1 : -1)
+        }
+        if (!endpoint) {
+            const hit = editorView.editorAtPoint(x, y)
+            if (!hit || !focusCoordinator.editorHasLiveDelegate(hit.editor))
+                return
+            endpoint = selectionAddress(hit.editor, hit.position)
+        }
+        const previous = which === 0 ? addressSelection.anchor : addressSelection.end
+        if (compareSelectionAddresses(previous, endpoint) === 0)
+            return
+        wholeDocumentSelected = false
+        setAddressSelection(which === 0 ? endpoint : fixed, which === 0 ? fixed : endpoint)
+    }
+
+    function addressSelectionHandle(which) {
+        const selection = addressSelection
+        // Re-evaluate when a delegate is evicted, when the viewport scrolls,
+        // and when formatting changes the geometry of a text range.
+        editorView.contentY
+        editorView.editorRegistrations
+        selectionRevision
+        if (!selection)
+            return null
+        const address = which === 0 ? selection.anchor : selection.end
+        const item = editorView.itemAtIndex(address.blockIndex)
+        if (!item)
+            return null
+        if (address.edge !== 0) {
+            const leading = address.edge < 0
+            const right = leading === (Qt.application.layoutDirection === Qt.RightToLeft)
+            return mapSelectionHandle(item, right ? item.width : 0, leading ? 0 : item.height)
+        }
+        const editor = editorView.editors.find(candidate => focusCoordinator.addressMatchesEditor(address, candidate, true)
+                                                && focusCoordinator.editorHasLiveDelegate(candidate))
+        if (!editor)
+            return null
+        editor.width
+        editor.contentHeight
+        const rect = editor.positionToRectangle(Math.min(editor.length, address.cursorPosition))
+        return mapSelectionHandle(editor, rect.x, rect.y + rect.height)
+    }
+
+    function mapSelectionHandle(item, x, y) {
+        // mapToItem() doesn't bind to the ancestor positions changed by
+        // list, table or block layout.
+        for (let ancestor = item; ancestor && ancestor !== editorView; ancestor = ancestor.parent) {
+            ancestor.x
+            ancestor.y
+        }
+        return item.mapToItem(editorView, x, y)
+    }
+
+    function canCutAddressSelection() {
+        const selection = orderedAddressSelection()
+        if (!selection)
+            return false
+        if (!selectionSpansEditors || wholeDocumentSelected)
+            return true
+        // The model's current cross-block removal can slice a list at an
+        // arbitrary item. Avoid leaving descendants without their parent
+        // when the boundary only covers part of a nested list.
+        return [selection.first.blockIndex, selection.last.blockIndex].every(row => {
+            if (blockModel.listItemCountAt(row) === 0 || wholeRowSelected(selection.first, selection.last, row))
+                return true
+            const indents = blockModel.data(blockModel.index(row, 0), NoteBlockType.IndentsRole)
+            return Boolean(indents) && !indents.some(indent => indent > 0)
+        })
+    }
+
+    function addressSelectionFields() {
+        const selection = orderedAddressSelection()
+        if (!selection || !blockModel)
+            return []
+        const fields = []
+        for (let row = selection.first.blockIndex; row <= selection.last.blockIndex; ++row) {
+            const type = blockModel.blockTypeAt(row)
+            if (type === NoteBlockType.Media || type === NoteBlockType.Attachment || type === NoteBlockType.TagLine) {
+                if (wholeRowSelected(selection.first, selection.last, row))
+                    fields.push({ blockIndex: row, listItemIndex: -1, tableCellIndex: -1, structural: true })
+                continue
+            }
+            const items = blockModel.listItemCountAt(row)
+            const cells = blockModel.tableCellCountAt(row)
+            for (let index = 0; index < Math.max(1, items, cells); ++index) {
+                const field = { blockIndex: row, listItemIndex: items ? index : -1,
+                                tableCellIndex: cells ? index : -1, edge: 0 }
+                const range = fieldSelection(selection.first, selection.last, field)
+                if (range)
+                    fields.push(Object.assign(field, range))
+            }
+        }
+        return fields
+    }
+
+    function renderedField(field) {
+        const source = blockModel.selectionFieldText(field.blockIndex, field.listItemIndex, field.tableCellIndex)
+        return field.tableCellIndex >= 0 ? editorView.markdownTableCellForRendering(source)
+                                         : editorView.markdownForRendering(source)
+    }
+
+    function addressSelectionRanges(includeBoundaryEditors) {
+        const ranges = []
+        const editors = editorView.editors.filter(editor => focusCoordinator.editorHasLiveDelegate(editor))
+        for (const field of addressSelectionFields()) {
+            if (field.structural) {
+                ranges.push(Object.assign({}, field, { wholeEditor: true, markdown: "", before: "", after: "" }))
+                continue
+            }
+            const editor = editors.find(candidate => candidate.blockIndex === field.blockIndex
+                                      && candidate.listItemIndex === field.listItemIndex
+                                      && candidate.tableCellIndex === field.tableCellIndex)
+            let fragments
+            if (editor) {
+                const end = field.end < 0 ? editor.length : field.end
+                const fragment = (start, finish) => blockModel.markdown ? editor.markdownRange(start, finish)
+                                                                        : editor.getText(start, finish)
+                fragments = { length: editor.length, markdown: fragment(field.start, end),
+                              before: fragment(0, field.start), after: fragment(end, editor.length) }
+            } else if (blockModel.markdown && blockModel.blockTypeAt(field.blockIndex) !== NoteBlockType.CodeBlock) {
+                fragments = editorBackend.renderedSelection(renderedField(field), field.start, field.end)
+            } else {
+                const plain = blockModel.selectionFieldText(field.blockIndex, field.listItemIndex, field.tableCellIndex)
+                const end = field.end < 0 ? plain.length : field.end
+                fragments = { length: plain.length, markdown: plain.substring(field.start, end),
+                              before: plain.substring(0, field.start), after: plain.substring(end) }
+            }
+            const end = field.end < 0 ? fragments.length : Math.min(field.end, fragments.length)
+            const start = Math.min(field.start, end)
+            const whole = start === 0 && end === fragments.length
+            const boundaryOnly = start === end && !whole
+            if (boundaryOnly && !includeBoundaryEditors)
+                continue
+            const columns = field.tableCellIndex >= 0 ? blockModel.tableColumnCountAt(field.blockIndex) : 0
+            ranges.push(Object.assign({}, field, fragments, {
+                tableRow: columns > 0 ? Math.floor(field.tableCellIndex / columns) : -1,
+                wholeEditor: whole, boundaryOnly: boundaryOnly, selectionStart: start, selectionEnd: end
+            }))
+        }
+        return ranges
+    }
+
+    function writeSelectionField(field, value) {
+        if (field.listItemIndex >= 0)
+            blockModel.setListItem(field.blockIndex, field.listItemIndex, value)
+        else if (field.tableCellIndex >= 0)
+            blockModel.setTableCell(field.blockIndex, field.tableCellIndex, value)
+        else
+            blockModel.setBlockText(field.blockIndex, value)
+    }
+
+    function formatAddressSelection(style) {
+        if (!addressSelectionAvailable || !editorBackend.markdown)
+            return false
+        flushPendingEditorChanges()
+        const fields = addressSelectionFields().filter(field => !field.structural && field.blockIndex > 0
+                      && blockModel.blockTypeAt(field.blockIndex) !== NoteBlockType.CodeBlock)
+        if (fields.length === 0)
+            return false
+        return runEditTransaction("inline-format", function() {
+            formattingAddressSelection = true
+            try {
+                const editors = editorView.editors.filter(editor => focusCoordinator.editorHasLiveDelegate(editor))
+                for (const field of fields) {
+                    const editor = editors.find(candidate => candidate.blockIndex === field.blockIndex
+                                              && candidate.listItemIndex === field.listItemIndex
+                                              && candidate.tableCellIndex === field.tableCellIndex)
+                    if (editor) {
+                        projectAddressSelection(editor)
+                        if (editor.selectionStart !== editor.selectionEnd)
+                            editorView.applyInlineStyle(editor, style)
+                    } else {
+                        const formatted = editorBackend.formatRenderedSelection(renderedField(field),
+                                                                             field.start, field.end, style,
+                                                                             field.tableCellIndex >= 0)
+                        if (formatted.length > 0)
+                            writeSelectionField(field, formatted)
+                    }
+                }
+                refreshSelectionState()
+                return true
+            } finally {
+                formattingAddressSelection = false
+            }
+        }, false)
+    }
+
     function refreshSelectionState() {
         ++selectionRevision
-        if (wholeDocumentSelected) {
+        if (wholeDocumentSelected || addressSelectionAvailable) {
             documentSelectionAvailable = true
             return
         }
@@ -60,6 +382,10 @@ QtObject {
         id: selectionStateRefresh
         interval: 0
         onTriggered: editorView.refreshSelectionState()
+    }
+
+    function blockRequiresWholeSelection(type) {
+        return type === NoteBlockType.Media || type === NoteBlockType.TagLine || type === NoteBlockType.Attachment
     }
 
     function selectionAnchorAtBoundary(boundary, direction) {
@@ -137,8 +463,7 @@ QtObject {
             return null
         const anchorRow = Number(anchorEditor.blockIndex)
         for (let row = 0; row < editorView.count; ++row) {
-            const type = blockModel.blockTypeAt(row)
-            if (type !== 4 && type !== 9 && type !== 10 && type !== 11)
+            if (!blockRequiresWholeSelection(blockModel.blockTypeAt(row)))
                 continue
             const block = editorView.itemAtIndex(row)
             if (!block)
@@ -159,9 +484,8 @@ QtObject {
         // preceding text editor.
         const lastRow = editorView.count - 1
         if (lastRow > anchorRow) {
-            const type = blockModel.blockTypeAt(lastRow)
             const lastBlock = editorView.itemAtIndex(lastRow)
-            if ((type === 4 || type === 9 || type === 10 || type === 11) && lastBlock) {
+            if (lastBlock && blockRequiresWholeSelection(blockModel.blockTypeAt(lastRow))) {
                 const bottom = lastBlock.mapToItem(editorView, 0, lastBlock.height).y
                 if (y > bottom)
                     return { boundary: editorView.count, direction: -1 }
@@ -373,6 +697,7 @@ QtObject {
     }
 
     function clearDocumentSelection() {
+        addressSelection = null
         wholeDocumentSelected = false
         selectionSpansEditors = false
         documentSelectionStartEditor = null
@@ -622,6 +947,8 @@ QtObject {
 
     function applyDocumentSelection(anchorEditor, anchorPosition, focusEditor, focusPosition,
                                     preserveBlankBoundary) {
+        if (addressSelection)
+            clearDocumentSelection()
         if (!preserveBlankBoundary) {
             documentSelectionBlankBoundary = -1
             documentSelectionBlankDirection = 0
@@ -687,7 +1014,7 @@ QtObject {
     }
 
     function hasDocumentSelection() {
-        if (wholeDocumentSelected)
+        if (wholeDocumentSelected || addressSelectionAvailable)
             return true
         // documentSelectionAvailable is updated by a zero-delay timer. A
         // quick Ctrl+C immediately after mouse release must still see the
@@ -699,8 +1026,7 @@ QtObject {
         if (documentSelectionBlankBoundary >= 0) {
             const ranges = structuredSelectionRanges(false)
             for (const range of ranges) {
-                const type = blockModel.blockTypeAt(range.blockIndex)
-                if (range.wholeEditor && (type === 4 || type === 9 || type === 10 || type === 11))
+                if (range.wholeEditor && blockRequiresWholeSelection(blockModel.blockTypeAt(range.blockIndex)))
                     return true
             }
         }
@@ -710,26 +1036,34 @@ QtObject {
     function structuralBlockSelected(blockIndex) {
         if (wholeDocumentSelected)
             return true
-        if (selectionSpansEditors && documentSelectionStartEditor
-                && documentSelectionEndEditor) {
-            const firstRow = Math.min(documentSelectionStartEditor.blockIndex,
-                                      documentSelectionEndEditor.blockIndex)
-            const lastRow = Math.max(documentSelectionStartEditor.blockIndex,
-                                     documentSelectionEndEditor.blockIndex)
-            if (blockIndex > firstRow && blockIndex < lastRow)
-                return true
-        }
-        if (documentSelectionBlankBoundary >= 0) {
-            const ranges = structuredSelectionRanges(false)
-            for (const range of ranges) {
-                if (range.wholeEditor && Number(range.blockIndex) === blockIndex)
-                    return true
-            }
-        }
-        return false
+        const selection = orderedAddressSelection()
+        if (selection)
+            return wholeRowSelected(selection.first, selection.last, blockIndex)
+        if (!selectionSpansEditors || !documentSelectionStartEditor || !documentSelectionEndEditor)
+            return false
+
+        // This runs in a QML binding. The selection endpoints suffice for
+        // highlighting. Collecting clipboard ranges also updates the editor
+        // order cache and can invalidate the binding during evaluation.
+        const firstRow = Math.min(documentSelectionStartEditor.blockIndex,
+                                  documentSelectionEndEditor.blockIndex)
+        const lastRow = Math.max(documentSelectionStartEditor.blockIndex,
+                                 documentSelectionEndEditor.blockIndex)
+        if (blockIndex > firstRow && blockIndex < lastRow)
+            return true
+        if (documentSelectionBlankBoundary < 0 || !blockModel)
+            return false
+
+        const crossedBoundary = documentSelectionBlankDirection < 0
+                ? blockIndex > lastRow && blockIndex < documentSelectionBlankBoundary
+                : documentSelectionBlankDirection > 0
+                  && blockIndex >= documentSelectionBlankBoundary && blockIndex < firstRow
+        return crossedBoundary && blockRequiresWholeSelection(blockModel.blockTypeAt(blockIndex))
     }
 
     function selectedDocumentText() {
+        if (addressSelectionAvailable && !wholeDocumentSelected && !blockModel.markdown)
+            return addressSelectionRanges(false).map(range => range.markdown).join("\n")
         if (wholeDocumentSelected)
             return blockModel ? blockModel.contents : ""
         const parts = []
@@ -741,6 +1075,8 @@ QtObject {
     }
 
     function selectedDocumentMarkdown() {
+        if (addressSelectionAvailable && !wholeDocumentSelected)
+            return addressSelectionRanges(false).map(range => range.markdown).join("\n")
         if (wholeDocumentSelected)
             return blockModel ? blockModel.contents : ""
         const parts = []
@@ -762,6 +1098,8 @@ QtObject {
     }
 
     function structuredSelectionRanges(includeBoundaryEditors) {
+        if (addressSelection)
+            return addressSelectionRanges(includeBoundaryEditors)
         const ordered = editorView.orderedEditors()
         let first = -1
         let last = -1
@@ -848,14 +1186,12 @@ QtObject {
             }
             if (documentSelectionBlankDirection < 0) {
                 for (let row = lastRow + 1; row < documentSelectionBlankBoundary; ++row) {
-                    const type = blockModel.blockTypeAt(row)
-                    if (type === 4 || type === 9 || type === 10 || type === 11)
+                    if (blockRequiresWholeSelection(blockModel.blockTypeAt(row)))
                         ranges.push(wholeStructuralRange(row))
                 }
             } else {
                 for (let row = firstRow - 1; row >= documentSelectionBlankBoundary; --row) {
-                    const type = blockModel.blockTypeAt(row)
-                    if (type === 4 || type === 9 || type === 10 || type === 11)
+                    if (blockRequiresWholeSelection(blockModel.blockTypeAt(row)))
                         ranges.unshift(wholeStructuralRange(row))
                 }
             }
@@ -867,6 +1203,11 @@ QtObject {
         if (!ranges || ranges.length === 0)
             return -1
         const block = Number(ranges[0].blockIndex)
+        if (addressSelectionAvailable) {
+            const cells = blockModel.tableCellCountAt(block)
+            return cells > 0 && ranges.length === cells && ranges.every((range, index) =>
+                range.blockIndex === block && range.tableCellIndex === index && range.wholeEditor) ? block : -1
+        }
         const tableEditors = editorView.orderedEditors().filter(function(editor) {
             return editor.blockIndex === block && editor.tableCellIndex >= 0
         })
@@ -892,23 +1233,28 @@ QtObject {
     function copyDocumentSelection() {
         if (wholeDocumentSelected) {
             editorBackend.copyDocumentToClipboard()
-            return
+            return true
         }
         if (editorBackend.markdown) {
             const ranges = structuredSelectionRanges(false)
-            if (selectionNeedsStructure(ranges)
-                    && editorBackend.copySelectionToClipboard(ranges))
-                return
+            if (selectionNeedsStructure(ranges)) {
+                const copied = editorBackend.copySelectionToClipboard(ranges)
+                if (copied || addressSelectionAvailable)
+                    return copied
+            }
         }
         if (editorBackend.markdown) {
             const markdown = selectedDocumentMarkdown()
-            if (markdown.length > 0)
-                editorBackend.copyMarkdownToClipboard(markdown)
+            if (markdown.length === 0)
+                return false
+            editorBackend.copyMarkdownToClipboard(markdown)
         } else {
             const text = selectedDocumentText()
-            if (text.length > 0)
-                editorBackend.copyToClipboard(text)
+            if (text.length === 0)
+                return false
+            editorBackend.copyToClipboard(text)
         }
+        return true
     }
 
     function copyDocumentSelectionAsMarkdown() {
@@ -1011,6 +1357,9 @@ QtObject {
             return false
         if (replaceStructuredSelectionFromClipboard(editorView.activeEditor))
             return true
+        // A native TextArea paste can only replace its local selection.
+        if (addressSelectionAvailable && selectionSpansEditors)
+            return true
         // Code blocks are literal text containers. Never let image or rich
         // structured clipboard import turn their contents into other block
         // types or pass them through QTextDocument's Markdown importer.
@@ -1069,7 +1418,9 @@ QtObject {
         if (!hasDocumentSelection())
             return
         return runEditTransaction("cut", function() {
-            copyDocumentSelection()
+            const copied = copyDocumentSelection()
+            if (addressSelectionAvailable)
+                return copied && deleteStructuredSelectionImpl(false)
             if (deleteStructuredSelection())
                 return true
             for (const editor of editorView.orderedEditors()) {
@@ -1095,13 +1446,13 @@ QtObject {
     function deleteStructuredSelection(backwards) {
         // Ordinary selection inside one editor is handled by TextArea. Avoid
         // taking a structural before-state for every Backspace/Delete key.
-        if (!wholeDocumentSelected && !selectionSpansEditors && editorView.selectedEditorCount() < 2) {
+        if (!addressSelectionAvailable && !wholeDocumentSelected && !selectionSpansEditors
+                && editorView.selectedEditorCount() < 2) {
             let includesBoundaryStructuralBlock = false
             if (documentSelectionBlankBoundary >= 0) {
                 const ranges = structuredSelectionRanges(false)
                 includesBoundaryStructuralBlock = ranges.some(function(range) {
-                    const type = blockModel.blockTypeAt(range.blockIndex)
-                    return range.wholeEditor && (type === 4 || type === 9 || type === 10 || type === 11)
+                    return range.wholeEditor && blockRequiresWholeSelection(blockModel.blockTypeAt(range.blockIndex))
                 })
             }
             if (!includesBoundaryStructuralBlock)
@@ -1114,7 +1465,8 @@ QtObject {
 
     function replaceStructuredSelectionWithText(value, focusEditor) {
         if (!selectionSpansEditors || wholeDocumentSelected || !focusEditor
-                || focusEditor.listItemIndex < 0 || String(value).length === 0)
+                || focusEditor.listItemIndex < 0 || String(value).length === 0
+                || (addressSelectionAvailable && !canCutAddressSelection()))
             return false
 
         const ranges = structuredSelectionRanges(true)
@@ -1138,7 +1490,7 @@ QtObject {
 
     function replaceStructuredSelectionFromClipboard(focusEditor) {
         if (!selectionSpansEditors || wholeDocumentSelected || !focusEditor
-                || focusEditor.listItemIndex < 0)
+                || focusEditor.listItemIndex < 0 || (addressSelectionAvailable && !canCutAddressSelection()))
             return false
         const ranges = structuredSelectionRanges(true)
         const affected = ranges.filter(function(range) { return !range.boundaryOnly })
@@ -1182,16 +1534,26 @@ QtObject {
 
     function deleteStructuredSelectionImpl(backwards) {
         if (wholeDocumentSelected) {
-            wholeDocumentSelected = false
-            selectionSpansEditors = false
-            documentSelectionStartEditor = null
-            documentSelectionEndEditor = null
-            documentSelectionAvailable = false
+            clearDocumentSelection()
             blockModel.contents = ""
             editorView.focusBlock(0)
             return true
         }
+        const usesAddresses = addressSelectionAvailable
+        if (usesAddresses && !canCutAddressSelection())
+            return false
         const ranges = structuredSelectionRanges(true)
+        if (usesAddresses && ranges.length === 1 && !ranges[0].structural) {
+            const range = ranges[0]
+            const editor = focusCoordinator.editorForAddress(range)
+            if (!editor)
+                return false
+            clearDocumentSelection()
+            editor.remove(range.selectionStart, range.selectionEnd)
+            editor.cursorPosition = range.selectionStart
+            editor.commitText(false)
+            return true
+        }
         const selectedTableBlock = fullySelectedTableBlock(ranges)
         if (selectedTableBlock >= 0) {
             prepareForStructuralMutation()
@@ -1228,7 +1590,7 @@ QtObject {
                 const tableCells = affected.filter(range => range.tableCellIndex >= 0)
                 if (tableCells.length === affected.length
                         && tableCells.every(range => range.blockIndex === block)
-                        && tableCells.every(range => range.tableRow === tableCells[0].tableRow)) {
+                        && (usesAddresses || tableCells.every(range => range.tableRow === tableCells[0].tableRow))) {
                     // A selection crossing neighbouring cells in one table
                     // row is still a text selection, not a request to remove
                     // the row.  Native TextArea only knows the focused cell,
@@ -1249,6 +1611,9 @@ QtObject {
                 }
             }
         }
+        if (usesAddresses)
+            return false
+
         const selected = editorView.orderedEditors().filter(editor => editor.selectionStart !== editor.selectionEnd)
         if (selected.length < 2)
             return false
@@ -1278,6 +1643,12 @@ QtObject {
     }
 
     function selectAllDocument() {
+        if (editorView.touchMode && editorView.count > 0) {
+            clearDocumentSelection()
+            wholeDocumentSelected = true
+            setAddressSelection(selectionBoundary(0, -1), selectionBoundary(editorView.count - 1, 1))
+            return
+        }
         const ordered = editorView.orderedEditors()
         if (ordered.length > 0 && ordered.indexOf(editorView.activeEditor) < 0) {
             editorView.activeEditor = ordered[0]

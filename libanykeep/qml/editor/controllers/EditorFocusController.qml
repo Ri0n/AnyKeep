@@ -196,6 +196,7 @@ QtObject {
             selectedMediaIndex: editorView.selectedMediaIndex,
             selectedAttachmentIndex: editorView.selectedAttachmentIndex,
             wholeDocumentSelected: editorView.wholeDocumentSelected,
+            addressSelection: editorView.addressSelection,
             selectionSpansEditors: editorView.selectionSpansEditors,
             selectionStart: null,
             selectionEnd: null
@@ -381,6 +382,13 @@ QtObject {
         if (state.wholeDocumentSelected) {
             pendingEditorState = null
             editorView.selectAllDocument()
+            if (state.active)
+                focusEditorAddress(state.active)
+            return true
+        }
+        if (state.addressSelection) {
+            pendingEditorState = null
+            editorView.restoreAddressSelection(state.addressSelection)
             if (state.active)
                 focusEditorAddress(state.active)
             return true
