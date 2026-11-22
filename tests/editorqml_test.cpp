@@ -525,6 +525,170 @@ private slots:
         QCOMPARE(editor.model()->contents(), before);
     }
 
+    void listSelectionHandleMovesOnlySelectedItems_data()
+    {
+        QTest::addColumn<bool>("touchMode");
+        QTest::addColumn<bool>("crossList");
+        QTest::addColumn<bool>("reindent");
+        QTest::newRow("desktop") << false << false << false;
+        QTest::newRow("touch") << true << false << false;
+        QTest::newRow("desktop-cross-list") << false << true << false;
+        QTest::newRow("desktop-reindent") << false << false << true;
+    }
+
+    void listSelectionHandleMovesOnlySelectedItems()
+    {
+        QFETCH(bool, touchMode);
+        QFETCH(bool, crossList);
+        QFETCH(bool, reindent);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("List selection"));
+        auto text = QStringLiteral("- [ ] Stay before\n- [ ] Move parent\n    - [x] Move child\n"
+                                   "        - [x] Keep grandchild\n    - [ ] Keep sibling\n- [ ] Stay after");
+        if (crossList)
+            text += QStringLiteral("\n\n## Separator\n\n- [ ] Resident first\n- [x] Resident last");
+        note.setText(text, Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        QQuickView   view;
+        view.setResizeMode(QQuickView::SizeRootObjectToView);
+        view.resize(480, 640);
+        installThemedIconImageProvider(view.engine());
+        QString error;
+        QVERIFY2(loadQuickFixture(&view, QUrl(QStringLiteral("qrc:/qml/NoteBlockEditor.qml")),
+                                  { { QStringLiteral("blockModel"), QVariant::fromValue(editor.model()) },
+                                    { QStringLiteral("editorBackend"), QVariant::fromValue(&editor) },
+                                    { QStringLiteral("touchMode"), touchMode } },
+                                  &error),
+                 qPrintable(error));
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        auto      *root       = view.rootObject();
+        const auto itemEditor = [root](int item, int block = 1) -> QQuickItem * {
+            const auto *row = quickItemByName(root, QStringLiteral("listRow-%1-%2").arg(block).arg(item));
+            return row ? qobject_cast<QQuickItem *>(row->property("listEditor").value<QObject *>()) : nullptr;
+        };
+        QQuickItem *parent = nullptr;
+        QQuickItem *child  = nullptr;
+        QTRY_VERIFY((parent = itemEditor(1)));
+        QTRY_VERIFY((child = itemEditor(2)));
+        const QPointer<QQuickItem> grandchild(itemEditor(3));
+        const QPointer<QQuickItem> tail(itemEditor(5));
+        const QPointer<QQuickItem> target(crossList ? itemEditor(1, 3) : tail.data());
+        QVERIFY(grandchild);
+        QVERIFY(tail);
+        QVERIFY(target);
+        const auto before      = editor.model()->contents();
+        const auto beforeItems = editor.model()->index(1).data(NoteBlockModel::ItemsRole).toStringList();
+        auto      *device      = touchMode ? QTest::createTouchDevice() : nullptr;
+        const auto drag        = [&view, device](const QPoint &start, const QPoint &end) {
+            if (device) {
+                QTest::touchEvent(&view, device).press(0, start);
+                for (int step = 1; step <= 8; ++step)
+                    QTest::touchEvent(&view, device).move(0, start + (end - start) * step / 8);
+                QTest::touchEvent(&view, device).release(0, end);
+            } else {
+                QTest::mousePress(&view, Qt::LeftButton, Qt::NoModifier, start);
+                moveMouseAlong(&view, start, end, 8);
+                QTest::mouseRelease(&view, Qt::LeftButton, Qt::NoModifier, end);
+            }
+        };
+        const auto selectRange = [root, parent, child] {
+            return QMetaObject::invokeMethod(
+                root, "applyDocumentSelection", Q_ARG(QVariant, QVariant::fromValue(parent)), Q_ARG(QVariant, 1),
+                Q_ARG(QVariant, QVariant::fromValue(child)), Q_ARG(QVariant, 3), Q_ARG(QVariant, false));
+        };
+        if (touchMode) {
+            QRectF rect;
+            QVERIFY(
+                QMetaObject::invokeMethod(parent, "positionToRectangle", Q_RETURN_ARG(QRectF, rect), Q_ARG(int, 2)));
+            const QPoint press = parent->mapToScene(rect.center()).toPoint();
+            QTest::touchEvent(&view, device).press(0, press);
+            QTRY_VERIFY(root->property("touchSelectionActive").toBool());
+            QTest::touchEvent(&view, device).release(0, press);
+            auto *selectionEnd = quickVisibleItemByName(root, QStringLiteral("selectionEndHandle"));
+            QVERIFY(selectionEnd);
+            QVERIFY(QMetaObject::invokeMethod(child, "positionToRectangle", Q_RETURN_ARG(QRectF, rect), Q_ARG(int, 3)));
+            drag(selectionEnd->mapToScene(QPointF(selectionEnd->width() / 2, 14)).toPoint(),
+                 child->mapToScene(rect.center() + QPointF(0, 8)).toPoint());
+        } else {
+            QVERIFY(QMetaObject::invokeMethod(
+                root, "applyDocumentSelection", Q_ARG(QVariant, QVariant::fromValue(parent)), Q_ARG(QVariant, 0),
+                Q_ARG(QVariant, QVariant::fromValue(child)), Q_ARG(QVariant, 0), Q_ARG(QVariant, false)));
+            auto *single = quickVisibleItemByName(root, QStringLiteral("listItemRangeReorderHandle"));
+            QVERIFY(single);
+            QVERIFY(single->y() + single->height() <= child->mapToItem(root, QPointF()).y());
+            QVERIFY(selectRange());
+        }
+        QQuickItem *handle = nullptr;
+        QTRY_VERIFY((handle = quickVisibleItemByName(root, QStringLiteral("listItemRangeReorderHandle"))));
+        QVERIFY(!quickVisibleItemByName(root, QStringLiteral("blockRangeReorderHandle")));
+        auto *firstRow = quickItemByName(root, QStringLiteral("listRow-1-1"));
+        auto *lastRow  = quickItemByName(root, QStringLiteral("listRow-1-2"));
+        QVERIFY(firstRow);
+        QVERIFY(lastRow);
+        QCOMPARE(handle->y(), firstRow->mapToItem(root, QPointF()).y());
+        QCOMPARE(
+            handle->y() + handle->height(),
+            lastRow->mapToItem(root, QPointF(0, lastRow->height() - lastRow->property("trailingSpace").toReal())).y());
+        const QPoint from       = handle->mapToScene(QPointF(handle->width() / 2, handle->height() - 5)).toPoint();
+        const int    indentStep = root->property("listIndent").toInt();
+        if (reindent) {
+            const auto indents
+                = [&editor] { return editor.model()->index(1).data(NoteBlockModel::IndentsRole).toList(); };
+            QSignalSpy changed(editor.model(), &NoteBlockModel::dataChanged);
+            drag(from, from + QPoint(indentStep, 0));
+            QTRY_COMPARE(indents(), (QVariantList { 0, 1, 2, 0, 0, 0 }));
+            QCOMPARE(changed.count(), 1);
+            const auto roles = changed.first().at(2).value<QList<int>>();
+            QVERIFY(roles.contains(NoteBlockModel::IndentsRole));
+            QVERIFY(!roles.contains(NoteBlockModel::ItemsRole));
+            QCOMPARE(editor.model()->index(1).data(NoteBlockModel::ItemsRole).toStringList(), beforeItems);
+            QCOMPARE(itemEditor(1), parent);
+            QCOMPARE(itemEditor(2), child);
+            QCOMPARE(itemEditor(3), grandchild.data());
+            QCOMPARE(itemEditor(5), tail.data());
+            QVERIFY(selectRange());
+            QTRY_VERIFY((handle = quickVisibleItemByName(root, QStringLiteral("listItemRangeReorderHandle"))));
+            const QPoint nestedFrom = handle->mapToScene(QPointF(handle->width() / 2, handle->height() - 5)).toPoint();
+            QCOMPARE(nestedFrom.x(), from.x() + indentStep);
+            drag(nestedFrom, nestedFrom - QPoint(indentStep, 0));
+            QTRY_COMPARE(indents(), (QVariantList { 0, 0, 1, 0, 0, 0 }));
+            QCOMPARE(editor.model()->index(1).data(NoteBlockModel::ItemsRole).toStringList(), beforeItems);
+            QVERIFY(editor.undo());
+            QCOMPARE(indents(), (QVariantList { 0, 1, 2, 0, 0, 0 }));
+            QVERIFY(editor.undo());
+            QCOMPARE(editor.model()->contents(), before);
+            return;
+        }
+        const QPoint to(from.x() + (crossList ? indentStep : 0),
+                        target->mapToScene(QPointF(0, target->height() + 12)).toPoint().y());
+        drag(from, QPoint(-64, to.y()));
+        QCOMPARE(editor.model()->contents(), before);
+        QVERIFY(quickVisibleItemByName(root, QStringLiteral("listItemRangeReorderHandle")));
+        drag(from, to);
+        const QStringList remaining { "Stay before", "Keep grandchild", "Keep sibling", "Stay after" };
+        const QStringList moved { "Move parent", "Move child" };
+        if (crossList) {
+            QTRY_COMPARE(editor.model()->index(1).data(NoteBlockModel::ItemsRole).toStringList(), remaining);
+            QCOMPARE(editor.model()->index(3).data(NoteBlockModel::ItemsRole).toStringList(),
+                     (QStringList { "Resident first", "Resident last" } + moved));
+            QCOMPARE(editor.model()->index(3).data(NoteBlockModel::IndentsRole).toList(),
+                     (QVariantList { 0, 0, 1, 2 }));
+            QCOMPARE(itemEditor(1, 3), target.data());
+        } else {
+            QTRY_COMPARE(editor.model()->index(1).data(NoteBlockModel::ItemsRole).toStringList(), remaining + moved);
+            QCOMPARE(editor.model()->index(1).data(NoteBlockModel::IndentsRole).toList(),
+                     (QVariantList { 0, 0, 0, 0, 0, 1 }));
+        }
+        QVERIFY(grandchild);
+        QVERIFY(tail);
+        QCOMPARE(itemEditor(1), grandchild.data());
+        QCOMPARE(itemEditor(3), tail.data());
+        QVERIFY(editor.undo());
+        QCOMPARE(editor.model()->contents(), before);
+    }
+
     void touchSelectionSurvivesUnloadedDelegates()
     {
         FavoriteEditorStorage storage;

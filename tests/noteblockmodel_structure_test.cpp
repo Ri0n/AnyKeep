@@ -359,6 +359,43 @@ void NoteBlockModelTest::movesBlockRangesWithStableIndexes()
     QCOMPARE(changed.count(), 2);
 }
 
+void NoteBlockModelTest::movesExactListSelectionWithoutAdoptingUnselectedChildren()
+{
+    NoteBlockModel model;
+    model.load(
+        QStringLiteral("Title\n\n- [ ] Parent\n    - [x] Child\n        - [x] Grandchild\n"
+                       "    - [ ] Sibling\n- [ ] Tail\n\n## Separator\n\n- Resident\n    - Existing child\n- End"),
+        true);
+    QCOMPARE(model.rowCount(), 4);
+    const QPersistentModelIndex source(model.index(1));
+    const QPersistentModelIndex separator(model.index(2));
+    const QPersistentModelIndex destination(model.index(3));
+    QSignalSpy                  changed(&model, &NoteBlockModel::dataChanged);
+    QSignalSpy                  reset(&model, &NoteBlockModel::modelReset);
+
+    QCOMPARE(model.remainingListIndentsAfterMove(1, 0, 1), (QVariantList { 0, 0, 0 }));
+    QCOMPARE(model.moveListRangeResolved(1, 0, 1, 1, 0, 0, true), -1);
+    QCOMPARE(changed.count(), 0);
+    QCOMPARE(model.moveListRangeResolved(1, 0, 1, 1, 3, 0, true), 1);
+    QCOMPARE(source.data(NoteBlockModel::ItemsRole).toStringList(),
+             (QStringList { "Grandchild", "Sibling", "Tail", "Parent", "Child" }));
+    QCOMPARE(source.data(NoteBlockModel::IndentsRole).toList(), (QVariantList { 0, 0, 0, 0, 1 }));
+    QVERIFY(source.data(NoteBlockModel::CheckedRole).toList().at(0).toBool());
+    QVERIFY(source.data(NoteBlockModel::CheckedRole).toList().at(4).toBool());
+    QCOMPARE(changed.count(), 1);
+
+    QCOMPARE(model.moveListRangeResolved(1, 3, 4, 3, 1, 1, true), 3);
+    QCOMPARE(destination.data(NoteBlockModel::ItemsRole).toStringList(),
+             (QStringList { "Resident", "Parent", "Child", "Existing child", "End" }));
+    QCOMPARE(destination.data(NoteBlockModel::IndentsRole).toList(), (QVariantList { 0, 1, 2, 1, 0 }));
+    QCOMPARE(destination.data(NoteBlockModel::ItemTypesRole).toList().at(1).toInt(), int(NoteBlockModel::CheckList));
+    QVERIFY(destination.data(NoteBlockModel::CheckedRole).toList().at(2).toBool());
+    QCOMPARE(separator.row(), 2);
+    QCOMPARE(source.row(), 1);
+    QCOMPARE(destination.row(), 3);
+    QCOMPARE(reset.count(), 0);
+}
+
 void NoteBlockModelTest::movingListBlockNextToListMergesAndAdoptsResidentType()
 {
     NoteBlockModel afterTarget;

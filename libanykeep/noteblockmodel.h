@@ -92,7 +92,8 @@ public:
     Q_INVOKABLE bool moveListRange(int sourceRow, int sourceFirstItem, int sourceLastItem, int targetRow,
                                    int targetItem, int targetIndent);
     Q_INVOKABLE int  moveListRangeResolved(int sourceRow, int sourceFirstItem, int sourceLastItem, int targetRow,
-                                           int targetItem, int targetIndent);
+                                           int targetItem, int targetIndent, bool selectedItemsOnly = false);
+    Q_INVOKABLE QVariantList remainingListIndentsAfterMove(int row, int firstItem, int lastItem) const;
     Q_INVOKABLE int  moveListRangeToBlock(int sourceRow, int sourceFirstItem, int sourceLastItem, int targetRow);
     Q_INVOKABLE bool moveListSubtree(int sourceRow, int sourceItem, int targetRow, int targetItem, int targetIndent);
     Q_INVOKABLE void convertListToText(int row);

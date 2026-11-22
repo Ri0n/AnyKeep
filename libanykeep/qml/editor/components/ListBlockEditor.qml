@@ -22,6 +22,7 @@ Column {
     property var typeData: block.itemTypes
     property bool syncingItems: false
     property var pendingItemSplice: null
+    property var pendingItemMove: null
     property int blockIndex: block.index
     property int itemsRevision: 0
     property int handleHoverLevel: -1
@@ -56,6 +57,11 @@ Column {
 
     function syncItems(forceEditorText) {
         syncingItems = true
+        const move = pendingItemMove
+        if (move) {
+            pendingItemMove = null
+            listModel.move(move.first, move.to, move.count)
+        }
         const values = itemData || []
         const resized = listModel.count !== values.length
         if (resized) {
@@ -118,7 +124,7 @@ Column {
         // Repeater creates rows synchronously, but Column positions them on
         // polish. Finish that layout before the command transfers focus: the
         // new editor's initial y=0 would otherwise reveal the list's beginning.
-        if (resized)
+        if (resized || move)
             forceLayout()
     }
 
@@ -147,6 +153,34 @@ Column {
         }
     }
 
+    function moveSelectedItems(first, end, target, to, indent) {
+        const count = end - first
+        const sameList = target === listRoot
+        const removesList = !sameList && count === itemCount()
+        if (sameList) {
+            if (first !== to)
+                pendingItemMove = { first: first, to: to, count: count }
+        } else {
+            if (!removesList)
+                pendingItemSplice = { first: first, removed: count, inserted: 0 }
+            target.pendingItemSplice = { first: to, removed: 0, inserted: count }
+        }
+        try {
+            const row = editorView.blockModel.moveListRangeResolved(blockIndex, first, end - 1,
+                                                                     target.blockIndex, to, indent, true)
+            if (row >= 0 && pendingItemMove)
+                syncItems(true)
+            return row
+        } finally {
+            if (!removesList) {
+                pendingItemMove = null
+                pendingItemSplice = null
+            }
+            if (!sameList && target)
+                target.pendingItemSplice = null
+        }
+    }
+
     function rowAt(index) {
         return listRepeater.itemAt(index)
     }
@@ -158,6 +192,13 @@ Column {
     function itemIndent(index) {
         const item = index >= 0 && index < listModel.count ? listModel.get(index) : null
         return item ? Number(item.itemIndent) : 0
+    }
+
+    function rangeIndent(first, end) {
+        let indent = itemIndent(first)
+        for (let item = first + 1; item < end; ++item)
+            indent = Math.min(indent, itemIndent(item))
+        return indent
     }
 
     function itemText(index) {
@@ -234,6 +275,9 @@ Column {
     }
 
     function remainingIndentAt(index) {
+        const projected = reorderController.remainingSourceIndents
+        if (reorderController.sourceBlock === listRoot && projected)
+            return Number(projected[index] || 0)
         const original = originalIndexForRemaining(index)
         return original >= 0 && original < listModel.count
                 ? Number(listModel.get(original).itemIndent) : 0
@@ -529,7 +573,8 @@ Column {
                     Reorder.ReorderDragHandle {
                         objectName: "listReorderHandle-" + listRoot.blockIndex + "-" + rowWrapper.index
                         anchors.fill: parent
-                        dragEnabled: dragging || !editorView.blockInReorderRange(listRoot.blockIndex)
+                        dragEnabled: dragging || (!editorView.blockInReorderRange(listRoot.blockIndex)
+                                     && !editorView.listHasReorderSelection(listRoot.blockIndex))
                         hoverCursorShape: rowWrapper.itemType === 2 ? Qt.PointingHandCursor : Qt.OpenHandCursor
                         onDragStarted: reorderController.startListDrag(listRoot, rowWrapper)
                         onDragMoved: function(dx, dy) { reorderController.moveListDrag(dx, dy) }
@@ -627,7 +672,8 @@ Column {
                 objectName: "listLevelReorderHandle-" + listRoot.blockIndex + "-"
                             + handleLevel + "-" + rowWrapper.index
                 visible: dragging || (active && !reorderController.dragging
-                                      && !editorView.blockInReorderRange(listRoot.blockIndex))
+                                      && !editorView.blockInReorderRange(listRoot.blockIndex)
+                                      && !editorView.listHasReorderSelection(listRoot.blockIndex))
                 forceVisible: editorView.touchMode
                 fullHeight: true
                 x: listRoot.rightToLeft

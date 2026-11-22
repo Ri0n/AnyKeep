@@ -89,6 +89,7 @@ ListView {
     readonly property int reorderHandleWidth: touchMode ? 36 : listLevelHandleGutter
     readonly property int leadingEditorInset: touchMode ? Math.max(editorInset, reorderHandleWidth + 4) : editorInset
     readonly property var blockReorderRange: selectionController.blockReorderRange()
+    readonly property var listItemReorderRange: selectionController.listItemReorderRange()
     readonly property int listIndent: Math.max(touchMode ? 24 : 20,
                                                Math.round(editorFontMetrics.averageCharacterWidth * 4))
     readonly property int listMarkerWidth: Math.max(touchMode ? 44 : 24,
@@ -370,16 +371,39 @@ ListView {
         return range !== null && row >= range.first && row <= range.last
     }
 
+    function listHasReorderSelection(row) {
+        return listItemReorderRange !== null && row === listItemReorderRange.block
+    }
+
     Reorder.BlockReorderHandle {
         id: rangeReorderHandle
-        objectName: "blockRangeReorderHandle"
+        objectName: root.listItemReorderRange ? "listItemRangeReorderHandle" : "blockRangeReorderHandle"
         parent: root
         readonly property var viewportSpan: {
+            const scrollY = root.contentY
+            root.contentHeight
+            const itemRange = root.listItemReorderRange
+            if (itemRange) {
+                const block = root.itemAtIndex(itemRange.block)
+                const list = block ? block.item : null
+                if (!list || typeof list.rowAt !== "function")
+                    return null
+                list.itemsRevision
+                const firstItem = list.rowAt(itemRange.first)
+                const lastItem = list.rowAt(itemRange.last)
+                if (!firstItem || !lastItem)
+                    return null
+                const start = selectionController.mapSelectionHandle(firstItem, 0, 0).y
+                const end = selectionController.mapSelectionHandle(lastItem, 0,
+                                  lastItem.naturalHeight - lastItem.trailingSpace).y
+                const top = Math.max(0, start)
+                const bottom = Math.min(root.height, end)
+                return top < bottom ? { top: top, bottom: bottom,
+                                         indent: list.rangeIndent(itemRange.first, itemRange.last + 1) } : null
+            }
             const range = root.blockReorderRange
             if (!range)
                 return null
-            const scrollY = root.contentY
-            root.contentHeight
             const first = root.itemAtIndex(range.first)
             const last = root.itemAtIndex(range.last)
             if (!first) {
@@ -391,7 +415,7 @@ ListView {
             }
             const top = first ? Math.max(0, first.y - scrollY) : 0
             const bottom = last ? Math.min(root.height, last.y + last.height - scrollY) : root.height
-            return top < bottom ? { top: top, bottom: bottom } : null
+            return top < bottom ? { top: top, bottom: bottom, indent: 0 } : null
         }
         property var dragStartSpan: null
         readonly property var handleSpan: dragging && dragStartSpan ? dragStartSpan : viewportSpan
@@ -400,16 +424,25 @@ ListView {
         fullHeight: true
         fadeDuration: 0
         opacity: editorReorderController.dragging ? 0 : 1
-        Accessible.name: qsTr("Move selected blocks")
+        Accessible.name: root.listItemReorderRange ? qsTr("Move selected list items") : qsTr("Move selected blocks")
         handleColor: root.palette.highlight
-        x: root.rightToLeft ? root.width - root.scrollBarInset - root.leadingEditorInset
-                            : root.leadingEditorInset - width
+        readonly property real leadingOffset: (handleSpan ? handleSpan.indent : 0) * root.listIndent
+        x: root.rightToLeft ? root.width - root.scrollBarInset - root.leadingEditorInset - leadingOffset
+                            : root.leadingEditorInset - width + leadingOffset
         y: handleSpan ? handleSpan.top : 0
         width: root.reorderHandleWidth
         height: handleSpan ? handleSpan.bottom - handleSpan.top : 0
         z: 25
         onDragStarted: {
             dragStartSpan = viewportSpan
+            const itemRange = root.listItemReorderRange
+            if (itemRange) {
+                const block = root.itemAtIndex(itemRange.block)
+                if (block && block.item)
+                    editorReorderController.startSelectedListRangeDrag(block.item, itemRange.first,
+                                                                       itemRange.last + 1, rangeReorderHandle)
+                return
+            }
             const range = root.blockReorderRange
             if (range)
                 editorReorderController.startBlockRangeDrag(range.first, range.last, rangeReorderHandle,

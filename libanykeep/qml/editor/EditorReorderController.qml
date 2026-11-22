@@ -16,6 +16,10 @@ Item {
     property int sourceEnd: -1
     property var sourceRows: []
     property bool sourceRemovesWholeBlock: false
+    property var remainingSourceIndents: null
+    property int sourceSelectionDepth: 0
+    property real sourceSelectionMarkerOffset: 0
+    readonly property bool selectedListDrag: remainingSourceIndents !== null
     property string sourceKind: ""
     property int sourceBlockRow: -1
     property int sourceBlockCount: 0
@@ -80,6 +84,13 @@ Item {
         function onRowsAboutToBeInserted() { controller.cancelDrag() }
         function onRowsAboutToBeRemoved() { controller.cancelDrag() }
         function onRowsAboutToBeMoved() { controller.cancelDrag() }
+        function onDataChanged(first, last, roles) {
+            if (controller.selectedListDrag && first.row <= controller.sourceBlockRow
+                    && last.row >= controller.sourceBlockRow
+                    && (!roles.length || roles.includes(NoteBlockType.ItemsRole)
+                        || roles.includes(NoteBlockType.IndentsRole) || roles.includes(NoteBlockType.TypeRole)))
+                controller.cancelDrag()
+        }
     }
 
     onBlockModelChanged: if (dragging) cancelDrag()
@@ -89,8 +100,8 @@ Item {
         repeat: true
         readonly property real pointerY: controller.editorView
                                          ? reorderCore.currentPointerY - controller.editorView.contentY : 0
-        running: controller.dragging && controller.sourceKind === "block"
-                 && (controller.editorView.touchMode || controller.sourceBlockCount > 1)
+        running: controller.dragging && (controller.selectedListDrag || (controller.sourceKind === "block"
+                 && (controller.editorView.touchMode || controller.sourceBlockCount > 1)))
                  && (pointerY < 24 || pointerY > controller.editorView.height - 24)
         onTriggered: {
             const view = controller.editorView
@@ -155,6 +166,8 @@ Item {
         compensateForScroll: true
         previewObjectNamePrefix: "editorDragPreview-"
         boundaryProvider: function() {
+            if (controller.selectedListDrag && !controller.sourceRemovesWholeBlock)
+                return controller.listInsertionBoundaries()
             return controller.sourceKind === "block"
                     ? controller.blockInsertionBoundaries()
                     : controller.listDocumentBoundaries()
@@ -202,10 +215,17 @@ Item {
                            row.markerItem)
     }
 
-    function startListRangeDrag(listBlock, firstItem, endItem, pointerItem,
-                                logicalPointerX) {
+    function startListRangeDrag(listBlock, firstItem, endItem, pointerItem, logicalPointerX) {
+        beginListRangeDrag(listBlock, firstItem, endItem, pointerItem, logicalPointerX, null)
+    }
+
+    function startSelectedListRangeDrag(listBlock, firstItem, endItem, handle) {
+        beginListRangeDrag(listBlock, firstItem, endItem, handle, undefined, handle.pressScenePosition)
+    }
+
+    function beginListRangeDrag(listBlock, firstItem, endItem, pointerItem, logicalPointerX, selectionPress) {
         if (!editorView || !blockModel || !listBlock || dragging
-                || firstItem < 0 || endItem <= firstItem || !pointerItem)
+                || firstItem < 0 || endItem <= firstItem || endItem > listBlock.itemCount() || !pointerItem)
             return
 
         sourceKind = "list"
@@ -214,6 +234,10 @@ Item {
         sourceItem = firstItem
         sourceEnd = endItem
         sourceRemovesWholeBlock = firstItem === 0 && endItem === listBlock.itemCount()
+        if (selectionPress) {
+            remainingSourceIndents = blockModel.remainingListIndentsAfterMove(sourceBlockRow, firstItem, endItem - 1)
+            sourceSelectionDepth = listBlock.rangeIndent(firstItem, endItem)
+        }
         const rows = []
         const sources = []
         for (let index = sourceItem; index < sourceEnd; ++index) {
@@ -253,11 +277,16 @@ Item {
         // collapse and move with the same overlay as their contents. Leaving
         // the live handle inside the first source row makes its lower edge move
         // upward while the pointer moves in the opposite direction.
-        const previewHandle = pointerItem.fullHeight === true ? pointerItem : null
+        const previewHandle = !selectedListDrag && pointerItem.fullHeight === true ? pointerItem : null
         let previewItems = undefined
-        if (sourceRemovesWholeBlock || previewHandle) {
+        if (sourceRemovesWholeBlock || previewHandle || selectedListDrag) {
             previewItems = []
             for (const sourceRow of rows) {
+                if (selectedListDrag) {
+                    const top = sourceRow.dragContent.mapToItem(editorView, 0, 0).y
+                    if (top >= editorView.height || top + sourceRow.dragContent.height <= 0)
+                        continue
+                }
                 previewItems.push({
                     sourceItem: sourceRow.dragContent,
                     sourceX: 0,
@@ -277,8 +306,13 @@ Item {
             }
         }
 
-        const markerCenter = pointerItem.mapToItem(
-            editorView.contentItem, pointerItem.width / 2, pointerItem.height / 2)
+        const press = selectionPress ? editorView.contentItem.mapFromItem(null, selectionPress)
+                    : pointerItem.mapToItem(editorView.contentItem, pointerItem.width / 2, pointerItem.height / 2)
+        if (selectedListDrag) {
+            // Keep the actual press for viewport hit testing and use the
+            // source level's marker for hierarchy, like a level handle.
+            sourceSelectionMarkerOffset = listBlock.markerCenterXForIndent(sourceSelectionDepth) - press.x
+        }
         const started = reorderCore.beginDrag({
             sources: dragSources,
             previewItems: previewItems,
@@ -289,8 +323,8 @@ Item {
                 endItem: endItem
             },
             pointerX: logicalPointerX === undefined
-                      ? markerCenter.x : Number(logicalPointerX),
-            pointerY: markerCenter.y,
+                      ? press.x : Number(logicalPointerX),
+            pointerY: press.y,
             targetByDraggedTop: true
         })
         if (!started)
@@ -660,8 +694,9 @@ Item {
                   + editorView.listMarkerWidth / 2
         const maximumIndent = targetItem === 0
                 ? 0 : targetBlock.remainingIndentAt(targetItem - 1) + 1
+        const direction = targetBlock.rightToLeft ? -1 : 1
         targetIndent = hierarchyDropPolicy.depthFromMarker(
-                    pointerX, markerCenter, editorView.listIndent,
+                    direction * (pointerX + sourceSelectionMarkerOffset), direction * markerCenter, editorView.listIndent,
                     maximumIndent, false)
     }
 
@@ -721,11 +756,12 @@ Item {
         const focus = movedListFocus(fromBlock, fromItem, fromEnd)
         const viewportX = core.currentPointerX - editorView.contentX
         const viewportY = core.currentPointerY - editorView.contentY
-        const droppedOutside = !editorView.touchMode
-                && (viewportX < 0 || viewportY < 0
+        const droppedOutside = (viewportX < 0 || viewportY < 0
                     || viewportX > editorView.width || viewportY > editorView.height)
 
-        if (droppedOutside) {
+        if (droppedOutside && selectedListDrag)
+            return false
+        if (droppedOutside && !editorView.touchMode) {
             editorView.runEditTransaction("delete-list-items", function() {
                 editorView.prepareForStructuralMutation()
                 sourceBlock.removeItems(fromItem, fromEnd - 1)
@@ -743,12 +779,15 @@ Item {
         const toBlock = boundary.block.blockIndex
         const toItem = boundary.item
         const toIndent = targetIndent
+        if (selectedListDrag && fromBlock === toBlock && fromItem === toItem && toIndent === sourceSelectionDepth)
+            return false
         let moved = false
         editorView.runEditTransaction("move-list-item", function() {
             editorView.prepareForStructuralMutation()
-            const resolvedTargetRow = blockModel.moveListRangeResolved(
-                        fromBlock, fromItem, fromEnd - 1,
-                        toBlock, toItem, toIndent)
+            const resolvedTargetRow = selectedListDrag
+                    ? sourceBlock.moveSelectedItems(fromItem, fromEnd, boundary.block, toItem, toIndent)
+                    : blockModel.moveListRangeResolved(fromBlock, fromItem, fromEnd - 1,
+                                                       toBlock, toItem, toIndent)
             if (resolvedTargetRow < 0) {
                 return
             }
@@ -781,6 +820,9 @@ Item {
         sourceEnd = -1
         sourceRows = []
         sourceRemovesWholeBlock = false
+        remainingSourceIndents = null
+        sourceSelectionDepth = 0
+        sourceSelectionMarkerOffset = 0
         sourceBlockRow = -1
         sourceBlockCount = 0
         sourceBlockType = -1

@@ -6,6 +6,37 @@
 namespace AnyKeep {
 using namespace NoteBlockModelPrivate;
 
+namespace {
+    struct ListMoveIndents {
+        QVariantList selected;
+        QVariantList remaining;
+        int          sourceDepth = 0;
+    };
+
+    ListMoveIndents projectListMoveIndents(const QVariantList &indents, int itemCount, int firstItem, int lastItem)
+    {
+        ListMoveIndents result;
+        QList<bool>     selectedParents;
+        int             selectedDepth = 0;
+        for (int item = 0; item < itemCount; ++item) {
+            const int depth = qBound(0, indents.value(item).toInt(), selectedParents.size());
+            while (selectedParents.size() > depth)
+                selectedDepth -= selectedParents.takeLast();
+            const bool selected = item >= firstItem && item <= lastItem;
+            // Each item keeps its ancestors that are still in the same list.
+            if (selected) {
+                result.sourceDepth = item == firstItem ? depth : qMin(result.sourceDepth, depth);
+                result.selected.append(selectedDepth);
+            } else {
+                result.remaining.append(depth - selectedDepth);
+            }
+            selectedParents.append(selected);
+            selectedDepth += selected;
+        }
+        return result;
+    }
+}
+
 void NoteBlockModel::normalizeListStorage(Block *block)
 {
     if (!block || !isListType(block->type))
@@ -290,8 +321,18 @@ bool NoteBlockModel::moveListRange(int sourceRow, int sourceFirstItem, int sourc
     return moveListRangeResolved(sourceRow, sourceFirstItem, sourceLastItem, targetRow, targetItem, targetIndent) >= 0;
 }
 
+QVariantList NoteBlockModel::remainingListIndentsAfterMove(int row, int firstItem, int lastItem) const
+{
+    if (row < 0 || row >= blocks_.size() || !isListType(blocks_.at(row).type))
+        return {};
+    const auto &block = blocks_.at(row);
+    if (firstItem < 0 || lastItem < firstItem || lastItem >= block.items.size())
+        return {};
+    return projectListMoveIndents(block.indents, block.items.size(), firstItem, lastItem).remaining;
+}
+
 int NoteBlockModel::moveListRangeResolved(int sourceRow, int sourceFirstItem, int sourceLastItem, int targetRow,
-                                          int targetItem, int targetIndent)
+                                          int targetItem, int targetIndent, bool selectedItemsOnly)
 {
     if (sourceRow < 0 || sourceRow >= blocks_.size() || targetRow < 0 || targetRow >= blocks_.size()
         || !isListType(blocks_[sourceRow].type) || !isListType(blocks_[targetRow].type)) {
@@ -309,13 +350,27 @@ int NoteBlockModel::moveListRangeResolved(int sourceRow, int sourceFirstItem, in
     const int sourceIndent = source.indents.at(sourceFirstItem).toInt();
     const int movedCount   = sourceLastItem - sourceFirstItem + 1;
 
-    const int remainingTargetItems
-        = targetRow == sourceRow ? source.items.size() - movedCount : blocks_[targetRow].items.size();
+    const bool sameList             = sourceRow == targetRow;
+    const int  remainingTargetItems = sameList ? source.items.size() - movedCount : blocks_[targetRow].items.size();
     if (targetItem < 0 || targetItem > remainingTargetItems)
         return -1;
 
+    const auto  projected     = selectedItemsOnly
+        ? projectListMoveIndents(source.indents, source.items.size(), sourceFirstItem, sourceLastItem)
+        : ListMoveIndents {};
+    const auto &targetIndents = selectedItemsOnly && sameList ? projected.remaining : blocks_.at(targetRow).indents;
+    const int   previousItem
+        = sameList && !selectedItemsOnly && targetItem > sourceFirstItem ? targetItem - 1 + movedCount : targetItem - 1;
+    const int maximumIndent      = targetItem == 0 ? 0 : targetIndents.at(previousItem).toInt() + 1;
+    targetIndent                 = qBound(0, targetIndent, maximumIndent);
+    const bool changesIndentOnly = selectedItemsOnly && sameList && targetItem == sourceFirstItem;
+    if (changesIndentOnly && targetIndent == projected.sourceDepth)
+        return -1;
+
+    const QVariantList previousChecks = changesIndentOnly ? source.checked : QVariantList {};
     const QStringList  movedItems     = source.items.mid(sourceFirstItem, movedCount);
-    const QVariantList movedIndents   = source.indents.mid(sourceFirstItem, movedCount);
+    const QVariantList movedIndents
+        = selectedItemsOnly ? projected.selected : source.indents.mid(sourceFirstItem, movedCount);
     const QVariantList movedItemTypes = source.itemTypes.mid(sourceFirstItem, movedCount);
     const QVariantList movedChecked   = source.checked.mid(sourceFirstItem, movedCount);
 
@@ -327,6 +382,8 @@ int NoteBlockModel::moveListRangeResolved(int sourceRow, int sourceFirstItem, in
             source.itemTypes.removeAt(sourceFirstItem);
             source.checked.removeAt(sourceFirstItem);
         }
+        if (selectedItemsOnly)
+            source.indents = projected.remaining;
     }
 
     // Emptying the source list removes its block and can coalesce neighbours:
@@ -344,16 +401,15 @@ int NoteBlockModel::moveListRangeResolved(int sourceRow, int sourceFirstItem, in
 
     Block &target = blocks[adjustedTargetRow];
     normalizeListStorage(&target);
-    const int maximumIndent = targetItem == 0 ? 0 : target.indents.value(targetItem - 1).toInt() + 1;
-    targetIndent            = qBound(0, targetIndent, maximumIndent);
-    const int indentDelta   = targetIndent - sourceIndent;
+    const int indentDelta = targetIndent - (selectedItemsOnly ? 0 : sourceIndent);
     for (int index = 0; index < movedCount; ++index) {
         target.items.insert(targetItem + index, movedItems.at(index));
         target.indents.insert(targetItem + index, qMax(0, movedIndents.at(index).toInt() + indentDelta));
         target.itemTypes.insert(targetItem + index, movedItemTypes.at(index));
         target.checked.insert(targetItem + index, movedChecked.at(index));
     }
-    normalizeMovedListTypes(&target, targetItem, movedCount);
+    if (!selectedItemsOnly)
+        normalizeMovedListTypes(&target, targetItem, movedCount);
     if (!removeSourceBlock)
         recomputeTaskParentChecks(&source);
     recomputeTaskParentChecks(&target);
@@ -374,6 +430,12 @@ int NoteBlockModel::moveListRangeResolved(int sourceRow, int sourceFirstItem, in
         replaceBlocks(std::move(updated));
         emit contentsChanged();
         return resolvedTargetRow;
+    } else if (changesIndentOnly) {
+        QList<int> roles { IndentsRole };
+        if (target.checked != previousChecks)
+            roles.append(CheckedRole);
+        changed(sourceRow, roles);
+        return sourceRow;
     } else if (sourceRow == targetRow) {
         changed(sourceRow, { ItemsRole, IndentsRole, ItemTypesRole, CheckedRole });
         return sourceRow;

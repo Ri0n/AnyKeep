@@ -1105,6 +1105,25 @@ QtObject {
                 ? { first: first, last: last } : null
     }
 
+    function listItemReorderRange() {
+        if (wholeDocumentSelected || !blockModel || !selectionSpansEditors
+                || documentSelectionBlankBoundary >= 0)
+            return null
+        const touch = orderedAddressSelection()
+        const start = touch ? touch.first : documentSelectionStartEditor
+        const end = touch ? touch.last : documentSelectionEndEditor
+        if (!start || !end || start.blockIndex !== end.blockIndex
+                || start.listItemIndex < 0 || end.listItemIndex < 0)
+            return null
+        const startPosition = touch ? start.cursorPosition : documentSelectionStartPosition
+        const endPosition = touch ? end.cursorPosition : documentSelectionEndPosition
+        const first = start.listItemIndex + (startPosition === start.length ? 1 : 0)
+        const last = end.listItemIndex - (endPosition === 0 ? 1 : 0)
+        const count = blockModel.listItemCountAt(start.blockIndex)
+        return first <= last && last < count && (first > 0 || last + 1 < count || editorView.count > 1)
+                ? { block: start.blockIndex, first: first, last: last } : null
+    }
+
     function selectedDocumentText() {
         if (addressSelectionAvailable && !wholeDocumentSelected && !blockModel.markdown)
             return addressSelectionRanges(false).map(range => range.markdown).join("\n")
