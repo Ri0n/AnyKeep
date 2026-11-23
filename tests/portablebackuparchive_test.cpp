@@ -22,6 +22,18 @@ class PortableBackupArchiveTest final : public QObject {
         return source;
     }
 
+    static void repairTarChecksum(QByteArray *bytes)
+    {
+        quint64 checksum = 0;
+        for (int i = 0; i < 512; ++i)
+            checksum += i >= 148 && i < 156 ? quint64(' ') : quint64(uchar(bytes->at(i)));
+        const auto digits = QByteArray::number(checksum, 8).rightJustified(6, '0');
+        for (int i = 0; i < 6; ++i)
+            (*bytes)[148 + i] = digits.at(i);
+        (*bytes)[154] = '\0';
+        (*bytes)[155] = ' ';
+    }
+
     static QByteArray validArchive()
     {
         QByteArray noteBytes = QByteArrayLiteral("# Example\n\n![Diagram](anykeep-media:/sample/diagram.png)");
@@ -133,6 +145,32 @@ private slots:
         QByteArray data = validArchive();
         QVERIFY(data.size() > 512);
         data[156] = '2'; // USTAR symlink type
+        repairTarChecksum(&data); // Reject the type, not merely a stale checksum.
+        QBuffer archive(&data);
+        QVERIFY(archive.open(QIODevice::ReadOnly));
+        PortableBackupManifest manifest;
+        QVERIFY(!PortableBackupArchive::inspectReadable(&archive, &manifest));
+    }
+
+    void forgedTraversalHeaderRejected()
+    {
+        QByteArray data = validArchive();
+        QVERIFY(data.size() > 512);
+        data.replace(0, 100, QByteArray(100, '\0'));
+        data.replace(0, 7, QByteArrayLiteral("../a.md"));
+        repairTarChecksum(&data);
+        QBuffer archive(&data);
+        QVERIFY(archive.open(QIODevice::ReadOnly));
+        PortableBackupManifest manifest;
+        QVERIFY(!PortableBackupArchive::inspectReadable(&archive, &manifest));
+    }
+
+    void forgedUstarPrefixRejected()
+    {
+        QByteArray data = validArchive();
+        QVERIFY(data.size() > 512);
+        data.replace(345, 3, QByteArrayLiteral("../"));
+        repairTarChecksum(&data);
         QBuffer archive(&data);
         QVERIFY(archive.open(QIODevice::ReadOnly));
         PortableBackupManifest manifest;
