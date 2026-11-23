@@ -356,20 +356,32 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
             widget->setKeyState({}, tr("Enter the XMPP JID first"));
             return;
         }
-        auto existing = SecureKeyStore::read(storageKeyName(jid));
-        if (existing) {
-            widget->setKeyState(SecureEnvelope::keyId(existing.value, KeyDerivationProfile::PrivateNotes),
-                                tr("A key already exists"));
-            return;
-        }
-        const auto key   = SecureEnvelope::generateMasterKey();
-        const auto error = SecureKeyStore::write(storageKeyName(jid), key);
-        if (error) {
-            widget->setKeyState({}, error.message);
-            return;
-        }
-        widget->setKeyState(SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes));
-        clearErrorState();
+        const auto epoch = configEpoch_;
+        SecureKeyStore::readAsync(widget, storageKeyName(jid), [this, widget, jid, epoch](CryptoResult<QByteArray> existing) {
+            if (epoch != configEpoch_)
+                return;
+            if (existing) {
+                widget->setKeyState(SecureEnvelope::keyId(existing.value, KeyDerivationProfile::PrivateNotes),
+                                    tr("A key already exists"));
+                return;
+            }
+            if (existing.error.code != CryptoError::InvalidArgument) {
+                widget->setKeyState({}, existing.error.message);
+                return;
+            }
+            const auto key = SecureEnvelope::generateMasterKey();
+            SecureKeyStore::writeAsync(widget, storageKeyName(jid), key,
+                                       [this, widget, key, epoch](CryptoError error) {
+                if (epoch != configEpoch_)
+                    return;
+                if (error) {
+                    widget->setKeyState({}, error.message);
+                    return;
+                }
+                widget->setKeyState(SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes));
+                clearErrorState();
+            });
+        });
     });
     connect(widget, &XmppSettingsController::importKeyRequested, this,
             [this, widget](const QString &jid, const QString &encoded) {
@@ -382,28 +394,43 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
                     widget->setKeyState({}, imported.error.message);
                     return;
                 }
-                auto existing = SecureKeyStore::read(storageKeyName(jid));
-                if (existing && existing.value != imported.value) {
-                    widget->setKeyState(SecureEnvelope::keyId(existing.value, KeyDerivationProfile::PrivateNotes),
-                                        tr("A different key already exists; it was not replaced"));
-                    return;
-                }
-                const auto error = SecureKeyStore::write(storageKeyName(jid), imported.value);
-                if (error) {
-                    widget->setKeyState({}, error.message);
-                    return;
-                }
-                widget->setKeyState(SecureEnvelope::keyId(imported.value, KeyDerivationProfile::PrivateNotes));
-                clearErrorState();
+                const auto epoch = configEpoch_;
+                SecureKeyStore::readAsync(
+                    widget, storageKeyName(jid), [this, widget, jid, imported, epoch](CryptoResult<QByteArray> existing) {
+                        if (epoch != configEpoch_)
+                            return;
+                        if (existing && existing.value != imported.value) {
+                            widget->setKeyState(SecureEnvelope::keyId(existing.value, KeyDerivationProfile::PrivateNotes),
+                                                tr("A different key already exists; it was not replaced"));
+                            return;
+                        }
+                        if (!existing && existing.error.code != CryptoError::InvalidArgument) {
+                            widget->setKeyState({}, existing.error.message);
+                            return;
+                        }
+                        SecureKeyStore::writeAsync(
+                            widget, storageKeyName(jid), imported.value,
+                            [this, widget, key = imported.value, epoch](CryptoError error) {
+                                if (epoch != configEpoch_)
+                                    return;
+                                if (error) {
+                                    widget->setKeyState({}, error.message);
+                                    return;
+                                }
+                                widget->setKeyState(SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes));
+                                clearErrorState();
+                            });
+                    });
             });
     connect(widget, &XmppSettingsController::exportKeyRequested, this, [widget](const QString &jid) {
-        auto key = SecureKeyStore::read(storageKeyName(jid));
-        if (!key) {
-            widget->setKeyState({}, key.error.message);
-            return;
-        }
-        widget->setRecoveryKey(SecureEnvelope::encodeRecoveryKey(key.value, KeyDerivationProfile::PrivateNotes));
-        widget->setKeyState(SecureEnvelope::keyId(key.value, KeyDerivationProfile::PrivateNotes));
+        SecureKeyStore::readAsync(widget, storageKeyName(jid), [widget](CryptoResult<QByteArray> key) {
+            if (!key) {
+                widget->setKeyState({}, key.error.message);
+                return;
+            }
+            widget->setRecoveryKey(SecureEnvelope::encodeRecoveryKey(key.value, KeyDerivationProfile::PrivateNotes));
+            widget->setKeyState(SecureEnvelope::keyId(key.value, KeyDerivationProfile::PrivateNotes));
+        });
     });
     connect(widget, &XmppSettingsController::omemoSyncRequested, this, [this, widget](const QString &jid) {
         if (jid != config_.jid) {

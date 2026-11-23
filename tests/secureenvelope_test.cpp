@@ -3,6 +3,7 @@
 #include "mediachunkwirestream.h"
 #include "mediasource.h"
 #include "secureenvelope.h"
+#include "securekeystore.h"
 
 #include <QCryptographicHash>
 #include <QtTest>
@@ -63,6 +64,7 @@ private slots:
     void mediaChunkWireRoundTripAndMapping();
     void mediaChunkWireStreamIsSeekableAndStable();
     void mediaStoreAsyncInitializationIsDeferredAndContextBound();
+    void secureKeyStoreInvalidWritesAreDeferredAndContextBound();
     void mediaChunkWireRejectsTamperingAndWrongIndex();
     void mediaChunkWireRepresentsEmptyFile();
     void recoveryKeyRoundTrip();
@@ -299,6 +301,38 @@ void SecureEnvelopeTest::mediaStoreAsyncInitializationIsDeferredAndContextBound(
     abandoned.reset();
     QCoreApplication::processEvents();
     QCOMPARE(called, 1);
+}
+
+void SecureEnvelopeTest::secureKeyStoreInvalidWritesAreDeferredAndContextBound()
+{
+    QObject context;
+    int called = 0;
+    CryptoError observed;
+    SecureKeyStore::writeAsync(&context, QStringLiteral("test-key"), QByteArray(7, 'x'),
+                               [&](CryptoError error) {
+                                   ++called;
+                                   observed = std::move(error);
+                               });
+    // Errors from the facade are delivered through the context event loop,
+    // just like results returned by the real platform keychain.
+    QCOMPARE(called, 0);
+    QTRY_COMPARE(called, 1);
+    QCOMPARE(observed.code, CryptoError::InvalidArgument);
+
+    auto abandoned = std::make_unique<QObject>();
+    SecureKeyStore::writeAsync(abandoned.get(), QStringLiteral("test-key"), {},
+                               [&](CryptoError) { ++called; });
+    abandoned.reset();
+    QCoreApplication::processEvents();
+    QCOMPARE(called, 1);
+
+    SecureKeyStore::writePasswordAsync(&context, {}, QStringLiteral("test-key"), QStringLiteral("secret"),
+                                       [&](CryptoError error) {
+                                           ++called;
+                                           QCOMPARE(error.code, CryptoError::InvalidArgument);
+                                       });
+    QCOMPARE(called, 1);
+    QTRY_COMPARE(called, 2);
 }
 
 void SecureEnvelopeTest::mediaChunkWireRejectsTamperingAndWrongIndex()
