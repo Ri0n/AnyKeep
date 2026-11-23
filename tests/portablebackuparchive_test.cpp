@@ -97,7 +97,7 @@ private slots:
     {
         QByteArray data = validArchive();
         QVERIFY(data.size() > 512);
-        data[512] ^= 1;
+        data[512] = char(data.at(512) ^ 1);
         QBuffer archive(&data);
         QVERIFY(archive.open(QIODevice::ReadOnly));
         PortableBackupManifest manifest;
