@@ -79,7 +79,7 @@ void SecureKeyStore::readPasswordAsync(QObject *context, const QString &service,
 {
     if (!context || !callback)
         return;
-    KeychainService::read(context, service, keyName, [callback = std::move(callback)](KeychainService::Result result) mutable {
+    KeychainService::readText(context, service, keyName, [callback = std::move(callback)](KeychainService::Result result) mutable {
         const auto error = errorFor(result, QStringLiteral("Password was not found"));
         callback({ error ? QString() : std::move(result.text), error });
     });
@@ -105,7 +105,7 @@ void SecureKeyStore::readAsync(QObject *context, const QString &keyName, KeyCall
 {
     if (!context || !callback)
         return;
-    KeychainService::read(context, Service, keyName, [callback = std::move(callback)](KeychainService::Result result) mutable {
+    KeychainService::readBinary(context, Service, keyName, [callback = std::move(callback)](KeychainService::Result result) mutable {
         auto error = errorFor(result, QStringLiteral("Encryption key was not found"));
         if (!error && result.binary.size() != SecureEnvelope::MasterKeySize)
             error = { CryptoError::Corrupt, QStringLiteral("Stored encryption key has an invalid size") };
