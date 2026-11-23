@@ -11,7 +11,7 @@
 
 namespace AnyKeep {
 namespace {
-    enum class Operation { Read, WriteBinary, WriteText, Remove };
+    enum class Operation { ReadBinary, ReadText, WriteBinary, WriteText, Remove };
 
     KeychainService::Status statusFor(QKeychain::Error error)
     {
@@ -76,7 +76,8 @@ namespace {
 
         QKeychain::Job *job = nullptr;
         switch (operation) {
-        case Operation::Read:
+        case Operation::ReadBinary:
+        case Operation::ReadText:
             job = new QKeychain::ReadPasswordJob(service, app);
             break;
         case Operation::WriteBinary: {
@@ -102,10 +103,13 @@ namespace {
                          [job, operation, guard, callback = std::move(callback)]() mutable {
             KeychainService::Result result;
             result.status = statusFor(job->error());
-            if (result.status == KeychainService::Status::Ok && operation == Operation::Read) {
+            if (result.status == KeychainService::Status::Ok
+                && (operation == Operation::ReadBinary || operation == Operation::ReadText)) {
                 const auto *read = static_cast<QKeychain::ReadPasswordJob *>(job);
-                result.binary = read->binaryData();
-                result.text   = read->textData();
+                if (operation == Operation::ReadBinary)
+                    result.binary = read->binaryData();
+                else
+                    result.text = read->textData();
             }
             if (result.status != KeychainService::Status::Ok)
                 result.error = job->errorString();
@@ -116,9 +120,14 @@ namespace {
     }
 } // namespace
 
-void KeychainService::read(QObject *context, QString service, QString key, Callback callback)
+void KeychainService::readBinary(QObject *context, QString service, QString key, Callback callback)
 {
-    run(context, std::move(service), std::move(key), Operation::Read, {}, {}, std::move(callback));
+    run(context, std::move(service), std::move(key), Operation::ReadBinary, {}, {}, std::move(callback));
+}
+
+void KeychainService::readText(QObject *context, QString service, QString key, Callback callback)
+{
+    run(context, std::move(service), std::move(key), Operation::ReadText, {}, {}, std::move(callback));
 }
 
 void KeychainService::writeBinary(QObject *context, QString service, QString key, QByteArray data, Callback callback)
