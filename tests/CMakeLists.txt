@@ -279,6 +279,8 @@ endif()
 add_anykeep_test(pluginmetadata_test pluginmetadata_test.cpp)
 
 add_anykeep_test(cryptoproviders_test cryptoproviders_test.cpp)
+# This test includes QCA headers directly; anykeep deliberately links QCA privately.
+target_link_libraries(cryptoproviders_test PRIVATE ${ANYKEEP_QCA_TARGET})
 set_tests_properties(cryptoproviders_test PROPERTIES LABELS "storage;xmpp")
 if(TARGET Iris::Iris)
   target_link_libraries(cryptoproviders_test PRIVATE Iris::Iris Qt6::Network)
