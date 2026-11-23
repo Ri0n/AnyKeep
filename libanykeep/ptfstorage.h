@@ -40,6 +40,8 @@ class ANYKEEP_EXPORT PTFStorage : public FileStorage {
 public:
     PTFStorage(QObject *parent = 0);
     explicit PTFStorage(LocalMediaStore &mediaStore, QObject *parent = nullptr);
+    // Unregistered, explicitly located storage for portable import/export.
+    PTFStorage(LocalMediaStore &mediaStore, const QString &directory, QObject *parent = nullptr);
     bool          init() override;
     bool          isAccessible() const override;
     const QString systemName() const override;
@@ -52,6 +54,9 @@ public:
     Note note(const QString &noteId) override;
     bool loadNote(Note &note) override;
     bool saveNote(const Note &note) override;
+    // Copy a loaded snapshot without publication or global storage lookup.
+    // Missing media are reported separately; the original URI remains in the body.
+    bool copySnapshot(const Note &source, Note *saved, QList<MediaReference> *unavailableMedia);
     void removeNote(const QString &noteId) override;
 
     bool                  supportsFavorite() const override { return true; }
@@ -77,6 +82,7 @@ public:
     static QString storageId;
 
 private:
+    bool saveNoteImpl(const Note &note, Note *savedNote, QList<MediaReference> *unavailableMedia);
     void               applyNoteReorderChanges(QList<NoteReorderChange> changes, NoteReorderJob *job) override;
     void               loadFolderCatalog();
     QUuid              folderIdForNote(const QString &noteId) const;

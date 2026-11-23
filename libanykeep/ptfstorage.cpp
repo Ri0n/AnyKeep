@@ -39,9 +39,11 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #endif // Q_OS_WIN
 
 #include "localmediastore.h"
+#include "mediasource.h"
 #include "noteblockmodel.h"
 #include "notedata.h"
 #include "notetitleresolver.h"
+#include "notetransfercontroller.h"
 #include "ptffolderindex.h"
 #include "ptfstorage.h"
 #include "utils.h"
@@ -274,11 +276,11 @@ namespace {
             sources.append({ match.capturedStart(2), match.capturedLength(2), match.captured(2) });
         }
 
-        // Resized/non-centred images, audio, and generic attachments use HTML
+        // Resized/non-centred images, audio, video, and generic attachments use HTML
         // blocks. Restore src/href targets through the encrypted media store.
         static const QRegularExpression htmlMedia(
             QStringLiteral(
-                R"(<(?:img|audio)\b[^>]*?\s+src\s*=\s*(["'])(.*?)\1[^>]*>|<a\b[^>]*?\s+href\s*=\s*(["'])(.*?)\3[^>]*\bdata-anykeep-attachment\b[^>]*>)"),
+                R"(<(?:img|audio|video)\b[^>]*?\s+src\s*=\s*(["'])(.*?)\1[^>]*>|<a\b[^>]*?\s+href\s*=\s*(["'])(.*?)\3[^>]*\bdata-anykeep-attachment\b[^>]*>)"),
             QRegularExpression::CaseInsensitiveOption);
         auto htmlMatches = htmlMedia.globalMatch(body);
         while (htmlMatches.hasNext()) {
@@ -364,8 +366,25 @@ PTFStorage::PTFStorage(LocalMediaStore &mediaStore, QObject *parent) :
     fileExt.append(QLatin1String("md"));
 }
 
+PTFStorage::PTFStorage(LocalMediaStore &mediaStore, const QString &directory, QObject *parent) :
+    FileStorage(directory, parent), icon(QLatin1String(":/icons/trayicon")), mediaStore_(mediaStore)
+{
+    fileExt.append(QLatin1String("txt"));
+    fileExt.append(QLatin1String("md"));
+}
+
 bool PTFStorage::init()
 {
+    if (explicitPath_) {
+        if (explicitPath_->isEmpty() || !QDir::isAbsolutePath(*explicitPath_))
+            return false;
+        notesDir.setPath(*explicitPath_);
+        if ((!notesDir.exists() && !notesDir.mkpath(QStringLiteral("."))) || !isAccessible())
+            return false;
+        // Never migrate or touch the ordinary profile's settings or files.
+        loadFolderCatalog();
+        return folderCatalogAvailable_;
+    }
     bool usesDefaultPath = true;
 #ifdef Q_OS_ANDROID
     // The mobile storage is always private application data. A stale or
@@ -405,6 +424,9 @@ bool PTFStorage::init()
 
 bool PTFStorage::isAccessible() const
 {
+    if (explicitPath_ && (explicitPath_->isEmpty() || !QDir::isAbsolutePath(*explicitPath_)
+                          || notesDir.absolutePath() != QDir(*explicitPath_).absolutePath()))
+        return false;
     const bool readable = notesDir.isReadable();
     return readable;
 }
@@ -543,11 +565,35 @@ bool PTFStorage::loadNote(Note &note)
 
 bool PTFStorage::saveNote(const Note &note)
 {
+    return saveNoteImpl(note, nullptr, nullptr);
+}
+
+bool PTFStorage::copySnapshot(const Note &source, Note *saved, QList<MediaReference> *unavailableMedia)
+{
+    if (!explicitPath_ || !isAccessible() || !folderCatalogAvailable_ || source.isNull() || !source.isLoaded()
+        || !saved || !unavailableMedia)
+        return false;
+    *saved = {};
+    unavailableMedia->clear();
+    Note destination = createNote();
+    destination.setTitle(NoteTransferController::convertTextFormat(source.title(), source.format(), Note::Markdown));
+    destination.setText(NoteTransferController::convertTextFormat(source.text(), source.format(), Note::Markdown),
+                        Note::Markdown);
+    destination.setTags(source.tags());
+    destination.setFolderId(source.folderId());
+    destination.setFavorite(source.isFavorite());
+    destination.setMedia(source.media());
+    destination.setBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey), source.lastChangeUTC());
+    return saveNoteImpl(destination, saved, unavailableMedia);
+}
+
+bool PTFStorage::saveNoteImpl(const Note &note, Note *savedNote, QList<MediaReference> *unavailableMedia)
+{
     qCInfo(logPtfStorage) << "Saving PTF note: idHash=" << diagnosticName(note.id()) << "format=" << int(note.format())
                           << "titleLength=" << note.title().size() << "bodyLength=" << note.text().size()
                           << "media=" << note.media().size() << "storagePath=" << notesDir.absolutePath();
     logDirectorySnapshot(notesDir, "PTF pre-save snapshot:");
-    if (note.isEmpty()) {
+    if (note.isEmpty() && !savedNote) {
         if (!note.id().isEmpty()) {
             removeNote(note.id()); // TODO check errors?
         }
@@ -581,20 +627,62 @@ bool PTFStorage::saveNote(const Note &note)
         QJsonArray    manifest;
         QSet<QString> usedNames;
         for (const auto &reference : note.media()) {
-            const auto loaded = mediaStore_.data(reference.blobId);
-            if (!loaded) {
-                qWarning() << "Failed to materialize note attachment:" << loaded.error;
+            auto source = createLocalMediaSource(reference, &mediaStore_);
+            QString sourceError;
+            const auto unavailable = [&]() {
+                qWarning() << "Failed to materialize note attachment:" << sourceError;
+                if (!unavailableMedia)
+                    return false;
+                unavailableMedia->append(reference);
+                return true;
+            };
+            if (!source->open(&sourceError)) {
+                if (unavailable())
+                    continue;
                 return false;
             }
             const auto materializedName
                 = uniqueName(Utils::portableFileName(reference.portableName, QStringLiteral("attachment")), usedNames);
-            materializedFiles.insert(materializedName);
             QSaveFile mediaFile(sidecar.filePath(materializedName));
-            if (!mediaFile.open(QIODevice::WriteOnly) || mediaFile.write(loaded.value) != loaded.value.size()
-                || !mediaFile.commit()) {
+            if (!mediaFile.open(QIODevice::WriteOnly)) {
                 handleFSError();
                 return false;
             }
+
+            QCryptographicHash hash(QCryptographicHash::Sha256);
+            QByteArray chunk(1024 * 1024, Qt::Uninitialized);
+            qint64 offset = 0;
+            bool sourceFailed = false;
+            const qint64 size = source->size();
+            while (offset < size) {
+                const auto count = source->read(offset, chunk.data(), qMin<qint64>(chunk.size(), size - offset),
+                                                &sourceError);
+                if (count <= 0) {
+                    sourceFailed = true;
+                    break;
+                }
+                hash.addData(QByteArrayView(chunk.constData(), count));
+                if (mediaFile.write(chunk.constData(), count) != count) {
+                    handleFSError();
+                    return false;
+                }
+                offset += count;
+            }
+            source->close();
+            if (sourceFailed || offset != size
+                || (!reference.checksum.isEmpty() && hash.result() != reference.checksum)) {
+                mediaFile.cancelWriting();
+                if (sourceError.isEmpty())
+                    sourceError = tr("Attachment failed its integrity check");
+                if (unavailable())
+                    continue;
+                return false;
+            }
+            if (!mediaFile.commit()) {
+                handleFSError();
+                return false;
+            }
+            materializedFiles.insert(materializedName);
             contents.replace(reference.uri(),
                              QString::fromUtf8(QUrl::toPercentEncoding(newNoteId)) + QLatin1Char('/')
                                  + QString::fromUtf8(QUrl::toPercentEncoding(materializedName)));
@@ -675,6 +763,8 @@ bool PTFStorage::saveNote(const Note &note)
         qCWarning(logPtfStorage) << "Failed to update PTF portable metadata:" << metadataError.message;
         emit storageErorr(tr("Failed to update PTF note metadata. The note content was saved, but its folder or "
                              "favorite state may need recovery."));
+        if (savedNote)
+            return false; // An export must not silently lose its metadata.
         // Folder organization is recoverable metadata. Do not report a body
         // save as failed after its QSaveFile commit succeeded: doing so would
         // make a damaged folder index block ordinary editing and can cause a
@@ -694,6 +784,8 @@ bool PTFStorage::saveNote(const Note &note)
             }
         }
     }
+    if (savedNote)
+        *savedNote = saved;
     notifyNoteSaved(saved, oldNoteId, existedBeforeSave);
     logDirectorySnapshot(notesDir, "PTF post-save snapshot:");
     qCInfo(logPtfStorage) << "PTF save completed: oldIdHash=" << diagnosticName(oldNoteId)
@@ -794,7 +886,10 @@ QList<Note::Format> PTFStorage::availableFormats() const
     return formats;
 }
 
-QString PTFStorage::findStorageDir() const { return Utils::anykeepDataDir() + QLatin1Char('/') + storageId; }
+QString PTFStorage::findStorageDir() const
+{
+    return explicitPath_ ? *explicitPath_ : Utils::anykeepDataDir() + QLatin1Char('/') + storageId;
+}
 
 FolderCatalogSnapshot PTFStorage::nativeFolderCatalog() const { return folderCatalog_; }
 
