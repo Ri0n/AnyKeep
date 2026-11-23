@@ -42,6 +42,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "noteblockmodel.h"
 #include "notedata.h"
 #include "notetitleresolver.h"
+#include "notetransfercontroller.h"
 #include "ptffolderindex.h"
 #include "ptfstorage.h"
 #include "utils.h"
@@ -364,8 +365,25 @@ PTFStorage::PTFStorage(LocalMediaStore &mediaStore, QObject *parent) :
     fileExt.append(QLatin1String("md"));
 }
 
+PTFStorage::PTFStorage(LocalMediaStore &mediaStore, const QString &directory, QObject *parent) :
+    FileStorage(directory, parent), icon(QLatin1String(":/icons/trayicon")), mediaStore_(mediaStore)
+{
+    fileExt.append(QLatin1String("txt"));
+    fileExt.append(QLatin1String("md"));
+}
+
 bool PTFStorage::init()
 {
+    if (explicitPath_) {
+        if (explicitPath_->isEmpty() || !QDir::isAbsolutePath(*explicitPath_))
+            return false;
+        notesDir.setPath(*explicitPath_);
+        if ((!notesDir.exists() && !notesDir.mkpath(QStringLiteral("."))) || !isAccessible())
+            return false;
+        // Never migrate or touch the ordinary profile's settings or files.
+        loadFolderCatalog();
+        return folderCatalogAvailable_;
+    }
     bool usesDefaultPath = true;
 #ifdef Q_OS_ANDROID
     // The mobile storage is always private application data. A stale or
@@ -405,6 +423,9 @@ bool PTFStorage::init()
 
 bool PTFStorage::isAccessible() const
 {
+    if (explicitPath_ && (explicitPath_->isEmpty() || !QDir::isAbsolutePath(*explicitPath_)
+                          || notesDir.absolutePath() != QDir(*explicitPath_).absolutePath()))
+        return false;
     const bool readable = notesDir.isReadable();
     return readable;
 }
@@ -543,11 +564,35 @@ bool PTFStorage::loadNote(Note &note)
 
 bool PTFStorage::saveNote(const Note &note)
 {
+    return saveNoteImpl(note, nullptr, nullptr);
+}
+
+bool PTFStorage::copySnapshot(const Note &source, Note *saved, QList<MediaReference> *unavailableMedia)
+{
+    if (!explicitPath_ || !isAccessible() || !folderCatalogAvailable_ || source.isNull() || !source.isLoaded()
+        || !saved || !unavailableMedia)
+        return false;
+    *saved = {};
+    unavailableMedia->clear();
+    Note destination = createNote();
+    destination.setTitle(NoteTransferController::convertTextFormat(source.title(), source.format(), Note::Markdown));
+    destination.setText(NoteTransferController::convertTextFormat(source.text(), source.format(), Note::Markdown),
+                        Note::Markdown);
+    destination.setTags(source.tags());
+    destination.setFolderId(source.folderId());
+    destination.setFavorite(source.isFavorite());
+    destination.setMedia(source.media());
+    destination.setBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey), source.lastChangeUTC());
+    return saveNoteImpl(destination, saved, unavailableMedia);
+}
+
+bool PTFStorage::saveNoteImpl(const Note &note, Note *savedNote, QList<MediaReference> *unavailableMedia)
+{
     qCInfo(logPtfStorage) << "Saving PTF note: idHash=" << diagnosticName(note.id()) << "format=" << int(note.format())
                           << "titleLength=" << note.title().size() << "bodyLength=" << note.text().size()
                           << "media=" << note.media().size() << "storagePath=" << notesDir.absolutePath();
     logDirectorySnapshot(notesDir, "PTF pre-save snapshot:");
-    if (note.isEmpty()) {
+    if (note.isEmpty() && !savedNote) {
         if (!note.id().isEmpty()) {
             removeNote(note.id()); // TODO check errors?
         }
@@ -581,8 +626,12 @@ bool PTFStorage::saveNote(const Note &note)
         QJsonArray    manifest;
         QSet<QString> usedNames;
         for (const auto &reference : note.media()) {
-            const auto loaded = mediaStore_.data(reference.blobId);
+            const auto loaded = mediaStore_.data(reference);
             if (!loaded) {
+                if (unavailableMedia) {
+                    unavailableMedia->append(reference);
+                    continue;
+                }
                 qWarning() << "Failed to materialize note attachment:" << loaded.error;
                 return false;
             }
@@ -675,6 +724,8 @@ bool PTFStorage::saveNote(const Note &note)
         qCWarning(logPtfStorage) << "Failed to update PTF portable metadata:" << metadataError.message;
         emit storageErorr(tr("Failed to update PTF note metadata. The note content was saved, but its folder or "
                              "favorite state may need recovery."));
+        if (savedNote)
+            return false; // An export must not silently lose its metadata.
         // Folder organization is recoverable metadata. Do not report a body
         // save as failed after its QSaveFile commit succeeded: doing so would
         // make a damaged folder index block ordinary editing and can cause a
@@ -694,6 +745,8 @@ bool PTFStorage::saveNote(const Note &note)
             }
         }
     }
+    if (savedNote)
+        *savedNote = saved;
     notifyNoteSaved(saved, oldNoteId, existedBeforeSave);
     logDirectorySnapshot(notesDir, "PTF post-save snapshot:");
     qCInfo(logPtfStorage) << "PTF save completed: oldIdHash=" << diagnosticName(oldNoteId)
@@ -794,7 +847,10 @@ QList<Note::Format> PTFStorage::availableFormats() const
     return formats;
 }
 
-QString PTFStorage::findStorageDir() const { return Utils::anykeepDataDir() + QLatin1Char('/') + storageId; }
+QString PTFStorage::findStorageDir() const
+{
+    return explicitPath_ ? *explicitPath_ : Utils::anykeepDataDir() + QLatin1Char('/') + storageId;
+}
 
 FolderCatalogSnapshot PTFStorage::nativeFolderCatalog() const { return folderCatalog_; }
 
