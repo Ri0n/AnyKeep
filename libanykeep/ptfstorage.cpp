@@ -275,11 +275,11 @@ namespace {
             sources.append({ match.capturedStart(2), match.capturedLength(2), match.captured(2) });
         }
 
-        // Resized/non-centred images, audio, and generic attachments use HTML
+        // Resized/non-centred images, audio, video, and generic attachments use HTML
         // blocks. Restore src/href targets through the encrypted media store.
         static const QRegularExpression htmlMedia(
             QStringLiteral(
-                R"(<(?:img|audio)\b[^>]*?\s+src\s*=\s*(["'])(.*?)\1[^>]*>|<a\b[^>]*?\s+href\s*=\s*(["'])(.*?)\3[^>]*\bdata-anykeep-attachment\b[^>]*>)"),
+                R"(<(?:img|audio|video)\b[^>]*?\s+src\s*=\s*(["'])(.*?)\1[^>]*>|<a\b[^>]*?\s+href\s*=\s*(["'])(.*?)\3[^>]*\bdata-anykeep-attachment\b[^>]*>)"),
             QRegularExpression::CaseInsensitiveOption);
         auto htmlMatches = htmlMedia.globalMatch(body);
         while (htmlMatches.hasNext()) {
