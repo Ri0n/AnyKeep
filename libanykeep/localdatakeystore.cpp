@@ -37,20 +37,6 @@ namespace {
     }
 
 #ifdef Q_OS_ANDROID
-        // Android users should never have to decipher Keystore internals.
-        // Keep the operation phase and technical error in logcat for diagnosis.
-        qWarning().noquote() << "Android local keychain" << (operation ? operation : "unknown") << ':'
-                             << job->errorString();
-        return QCoreApplication::translate("LocalDataKeyStore",
-                                           "Local note saving is unavailable. Previously saved notes have not been changed.");
-#else
-        Q_UNUSED(operation);
-        return QCoreApplication::translate("LocalDataKeyStore", "Failed to access the secure keychain: %1")
-            .arg(job->errorString());
-#endif
-    }
-
-#ifdef Q_OS_ANDROID
     // A QtKeychain settings entry was restored, but its AndroidKeyStore
     // private key is missing. This is not a transient decryption error.
     bool isMissingAndroidPrivateKey(const KeychainService::Result &result)
