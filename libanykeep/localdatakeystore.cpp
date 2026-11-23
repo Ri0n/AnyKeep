@@ -235,7 +235,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
             });
     };
 
-    KeychainService::read(
+    KeychainService::readBinary(
         app, LocalKeychainService, KeychainKey,
         [app, finish, createAndStore](KeychainService::Result result) {
             if (result.status == KeychainService::Status::Ok) {
