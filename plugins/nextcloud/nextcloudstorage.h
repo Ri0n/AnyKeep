@@ -35,6 +35,10 @@ public:
     QIcon           storageIcon() const override;
     QIcon           noteIcon() const override;
     bool            isAccessible() const override;
+    ConnectivityState connectivityState() const override
+    {
+        return accessible_ ? ConnectivityState::Online : ConnectivityState::Offline;
+    }
 
     QList<Note::Format> availableFormats() const override;
     qint64              requestedModificationTimeResolutionMs() const override { return 1000; }
