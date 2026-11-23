@@ -83,6 +83,11 @@ private:
 
 FileStorage::FileStorage(QObject *parent) : NoteStorage(parent) {}
 
+FileStorage::FileStorage(const QString &explicitPath, QObject *parent) :
+    NoteStorage(parent), explicitPath_(explicitPath)
+{
+}
+
 void FileStorage::removeNote(const QString &noteId)
 {
     QFileInfoList matchingFiles;
@@ -143,12 +148,14 @@ void FileStorage::notifyNoteSaved(const Note &note, const QString &oldNoteId, bo
 
 QString FileStorage::customStoragePath() const
 {
+    if (explicitPath_)
+        return *explicitPath_;
     return QSettings().value(QStringLiteral("storage.%1.path").arg(systemName())).toString();
 }
 
 bool FileStorage::setStoragePath(const QString &path)
 {
-    if (path.isEmpty()) {
+    if (explicitPath_ || path.isEmpty()) {
         return false;
     }
     QFileInfo fi(path);
@@ -168,7 +175,7 @@ QUrl FileStorage::settingsComponent() const { return QUrl(QStringLiteral("qrc:/q
 
 SettingsController *FileStorage::createSettingsController(QObject *parent)
 {
-    return new FileStorageSettingsController(this, parent);
+    return isConfigurable() ? new FileStorageSettingsController(this, parent) : nullptr;
 }
 
 QString FileStorage::tooltip() { return QString("<b>%1:</b> %2").arg(tr("Storage path"), notesDir.absolutePath()); }
