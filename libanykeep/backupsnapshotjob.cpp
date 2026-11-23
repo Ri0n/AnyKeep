@@ -175,11 +175,9 @@ void BackupSnapshotJob::nextProvider()
             source.complete = storage->isAccessible()
                 && (!source.remote || storage->connectivityState() == NoteStorage::ConnectivityState::Online);
         }
-        // A failed remote refresh may still have locally readable cached
-        // summaries. Never treat this fallback as complete.
-        else if (storage) {
-            summaries_ = storage->noteList(0);
-        }
+        // A failed asynchronous list does not authorize a synchronous
+        // network fallback. Providers exposing an offline cache return it
+        // through their asynchronous list API.
         job->deleteLater();
 
         if (storage) {
@@ -231,11 +229,9 @@ void BackupSnapshotJob::nextNote()
 
     const Note summary = summaries_.at(noteIndex_++);
     const auto storage = providers_.at(providerIndex_);
-    if (summary.isLoaded()) {
-        captureNote(summary, summary.id());
-        QMetaObject::invokeMethod(this, [this] { nextNote(); }, Qt::QueuedConnection);
-        return;
-    }
+    // Even a list entry with a body may not have resolved its media
+    // references (e.g. Nextcloud native attachments). Use the provider's
+    // load API, which owns that normalization.
     if (!storage) {
         captureNote({}, summary.id());
         QMetaObject::invokeMethod(this, [this] { nextNote(); }, Qt::QueuedConnection);
@@ -249,7 +245,12 @@ void BackupSnapshotJob::nextNote()
                 result_.storages[providerIndex_].complete = false;
             captureNote(job->result(), summary.id());
         } else {
-            captureNote({}, summary.id());
+            auto &source = result_.storages[providerIndex_];
+            source.complete = false;
+            // Keep readable cached content, but report the failed full load.
+            source.omittedNoteIds.append(summary.id());
+            if (summary.isLoaded())
+                source.notes.append({ detachedSnapshot(summary), summary.id(), {} });
         }
         job->deleteLater();
         nextNote();
