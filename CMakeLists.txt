@@ -267,6 +267,31 @@ if(NOT TARGET ${ANYKEEP_QCA_TARGET})
   message(FATAL_ERROR "Selected QCA target does not exist: ${ANYKEEP_QCA_TARGET}")
 endif()
 
+# All Iris builds must link against the same QCA target as libanykeep.
+# Check the real target interface instead of subproject-local IRIS_QCA_* variables,
+# which FetchContent does not expose to this parent directory scope.
+function(anykeep_validate_iris_qca)
+  get_target_property(_iris_imported Iris::Iris IMPORTED)
+  if(_iris_imported)
+    if(NOT DEFINED Iris_QCA_MAJOR OR NOT "${Iris_QCA_MAJOR}" MATCHES "^[23]$")
+      message(FATAL_ERROR
+              "The installed Iris package does not declare Iris_QCA_MAJOR. "
+              "Cannot safely share QCA with libanykeep; update the Iris package or build Iris with AnyKeep.")
+    endif()
+    if(NOT "${Iris_QCA_MAJOR}" STREQUAL "${ANYKEEP_QCA_MAJOR}")
+      message(FATAL_ERROR
+              "Iris uses QCA ${Iris_QCA_MAJOR}, but AnyKeep selected QCA ${ANYKEEP_QCA_MAJOR}. "
+              "Use matching packages/SDKs or build Iris with AnyKeep.")
+    endif()
+  endif()
+  get_target_property(_iris_qca_links Iris::Iris INTERFACE_LINK_LIBRARIES)
+  if(NOT "${ANYKEEP_QCA_TARGET}" IN_LIST _iris_qca_links)
+    message(FATAL_ERROR
+            "Iris does not expose the selected QCA dependency (${ANYKEEP_QCA_TARGET}) "
+            "through Iris::Iris. This might load a separate QCA runtime; use a compatible Iris build.")
+  endif()
+endfunction()
+
 anykeep_plugin_mode(xmpppubsub _anykeep_xmpp_plugin_mode)
 if(NOT _anykeep_xmpp_plugin_mode STREQUAL "OFF")
   if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
@@ -339,11 +364,6 @@ if(NOT _anykeep_xmpp_plugin_mode STREQUAL "OFF")
       endif()
 
       if(TARGET Iris::Iris)
-        if(DEFINED Iris_QCA_MAJOR AND NOT "${Iris_QCA_MAJOR}" STREQUAL "${ANYKEEP_QCA_MAJOR}")
-          message(FATAL_ERROR
-                  "Iris uses QCA ${Iris_QCA_MAJOR}, but AnyKeep selected QCA ${ANYKEEP_QCA_MAJOR}. "
-                  "Use matching packages/SDKs or build Iris with AnyKeep.")
-        endif()
         message(STATUS "XMPP backend: installed Iris (Iris::Iris)")
       elseif(ANYKEEP_BUILD_BUNDLED_IRIS AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
         message(STATUS "XMPP backend: bundled Iris FetchContent")
@@ -358,10 +378,8 @@ if(NOT _anykeep_xmpp_plugin_mode STREQUAL "OFF")
       endif()
     endif()
 
-    if(TARGET Iris::Iris AND DEFINED Iris_QCA_MAJOR AND NOT "${Iris_QCA_MAJOR}" STREQUAL "${ANYKEEP_QCA_MAJOR}")
-      message(FATAL_ERROR
-              "Iris uses QCA ${Iris_QCA_MAJOR}, but AnyKeep selected QCA ${ANYKEEP_QCA_MAJOR}. "
-              "Use matching packages/SDKs or build Iris with AnyKeep.")
+    if(TARGET Iris::Iris)
+      anykeep_validate_iris_qca()
     endif()
   endif()
 endif()

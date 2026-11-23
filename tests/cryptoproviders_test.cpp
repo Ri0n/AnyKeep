@@ -38,6 +38,9 @@ private slots:
 
     void saslStartsScram()
     {
+#ifndef ANYKEEP_TEST_IRIS_JDNS
+        QSKIP("SASL is only required when the Iris XMPP backend is enabled");
+#else
         QFETCH(QString, provider);
         QVERIFY(QCA::isSupported("sasl", provider));
         QCA::SASL client(nullptr, provider);
@@ -52,6 +55,7 @@ private slots:
         QCOMPARE(client.mechanism(), QStringLiteral("SCRAM-SHA-256"));
         QVERIFY(started.first().at(0).toBool());
         QVERIFY(started.first().at(1).toByteArray().startsWith("n,,n=user,r="));
+#endif
     }
 
     void irisHasJdns()
