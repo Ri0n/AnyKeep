@@ -1,3 +1,4 @@
+#include "backupsnapshotjob.h"
 #include "draftmanager.h"
 #include "draftstore.h"
 #include "notedata.h"
@@ -259,6 +260,8 @@ class DraftManagerTransferTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void backupCapturesLiveEditsWithoutPublication();
+    void backupReportsFailedLoadsAndSupportsCancellation();
     void publishesDestinationBeforeDeletingSource();
     void preservesSourceWhenDestinationPublicationFails();
     void synchronouslyFailedLoadDoesNotStrandDraft();
@@ -418,6 +421,92 @@ void DraftManagerTransferTest::synchronouslyFailedRemovalDoesNotStrandDelete()
     };
     QTRY_VERIFY(deletionRetried());
     QCOMPARE(raw->removeCalls_, 0);
+}
+
+void DraftManagerTransferTest::backupCapturesLiveEditsWithoutPublication()
+{
+    TransferStorage storage(QStringLiteral("backup-source"));
+    const auto original = storage.addStored(QStringLiteral("original"), QStringLiteral("Title"),
+                                            QStringLiteral("Published body"));
+    auto store = std::make_unique<MemoryDraftStore>();
+    auto *data = store.get();
+    DraftRecord pendingDelete;
+    pendingDelete.id = QUuid::createUuid();
+    pendingDelete.operation = DraftRecord::Delete;
+    pendingDelete.state = DraftRecord::Ready;
+    pendingDelete.storageId = storage.systemName();
+    pendingDelete.remoteNoteId = QStringLiteral("deleted-note");
+    data->records_.insert(pendingDelete.id, pendingDelete);
+    DraftManager drafts(std::move(store));
+
+    auto *editor = drafts.acquireEditor(original);
+    QVERIFY(editor);
+    editor->setText(QStringLiteral("Title\n\nUnsaved body"));
+    QVERIFY(editor->isDirty());
+    const Note expected = editor->note();
+    const auto writesBefore = data->writeCount_;
+    const QMap<QString, NoteStorage::Ptr> providers { { storage.systemName(), &storage } };
+
+    const auto records = drafts.backupRecords();
+    QVERIFY(records);
+    QCOMPARE(records.value.size(), 2);
+    QCOMPARE(data->writeCount_, writesBefore);
+    QVERIFY(editor->isDirty());
+
+    auto *job = BackupSnapshotJob::collect(providers, drafts, {}, this);
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->state(), StorageJob::Succeeded);
+    const auto &snapshot = job->result();
+    QCOMPARE(snapshot.storages.size(), 2);
+    const auto &source = snapshot.storages.first();
+    QVERIFY(source.complete);
+    QCOMPARE(source.notes.size(), 1);
+    QCOMPARE(source.notes.first().snapshot.text(), original.text());
+    QVERIFY(source.notes.first().snapshot.storage() == nullptr);
+
+    const auto &draftGroup = snapshot.storages.last();
+    QCOMPARE(draftGroup.storageId, DraftManager::draftsStorageId());
+    QCOMPARE(draftGroup.notes.size(), 1);
+    QCOMPARE(draftGroup.notes.first().draftId, editor->draftId());
+    QCOMPARE(draftGroup.notes.first().snapshot.text(), expected.text());
+    QCOMPARE(draftGroup.drafts.size(), 2);
+    const auto deletion = std::find_if(draftGroup.drafts.cbegin(), draftGroup.drafts.cend(),
+                                      [&pendingDelete](const auto &info) { return info.id == pendingDelete.id; });
+    QVERIFY(deletion != draftGroup.drafts.cend());
+    QCOMPARE(deletion->operation, DraftRecord::Delete);
+    QCOMPARE(deletion->noteId, pendingDelete.remoteNoteId);
+    QCOMPARE(data->writeCount_, writesBefore);
+    QCOMPARE(storage.saveCalls_, 0);
+    QCOMPARE(storage.removeCalls_, 0);
+    QVERIFY(editor->isDirty());
+    delete job;
+}
+
+void DraftManagerTransferTest::backupReportsFailedLoadsAndSupportsCancellation()
+{
+    TransferStorage storage(QStringLiteral("failed-backup-source"));
+    storage.addStored(QStringLiteral("one"), QStringLiteral("Cached note"), QStringLiteral("Cached body"));
+    storage.failLoadsSynchronously_ = true;
+    DraftManager drafts(std::make_unique<MemoryDraftStore>());
+    const QMap<QString, NoteStorage::Ptr> providers { { storage.systemName(), &storage } };
+
+    auto *job = BackupSnapshotJob::collect(providers, drafts, {}, this);
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->state(), StorageJob::Succeeded);
+    const auto &source = job->result().storages.first();
+    QVERIFY(!source.complete);
+    QCOMPARE(source.omittedNoteIds, QStringList { QStringLiteral("one") });
+    QCOMPARE(source.notes.size(), 1); // retain readable cached body
+    QCOMPARE(source.notes.first().snapshot.text(), QStringLiteral("Cached body"));
+    delete job;
+
+    auto *cancelled = BackupSnapshotJob::collect(providers, drafts, {}, this);
+    cancelled->cancel();
+    QCOMPARE(cancelled->state(), StorageJob::Cancelled);
+    QCoreApplication::processEvents();
+    QCOMPARE(cancelled->state(), StorageJob::Cancelled);
+    QVERIFY(cancelled->result().storages.first().notes.isEmpty());
+    delete cancelled;
 }
 
 void DraftManagerTransferTest::publishesDestinationBeforeDeletingSource()
