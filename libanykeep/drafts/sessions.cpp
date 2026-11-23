@@ -30,6 +30,62 @@ namespace AnyKeep {
 using DraftManagerPrivate::concurrencySummary;
 using DraftManagerPrivate::draftStateName;
 
+DraftStoreResult<QList<DraftRecord>> DraftManager::backupRecords() const
+{
+    if (!store_)
+        return { {}, { DraftStoreError::Locked, lastError_.isEmpty() ? tr("Draft store is locked") : lastError_ } };
+    auto records = store_->records();
+    if (!records)
+        return records;
+
+    QHash<QUuid, qsizetype> positions;
+    for (qsizetype i = 0; i < records.value.size(); ++i)
+        positions.insert(records.value.at(i).id, i);
+
+    // The registry owns one canonical model per draft. Reading it on the
+    // application thread captures dirty content without saving, publishing,
+    // changing editor history, or altering the persisted draft's state.
+    for (auto it = liveEditorsByDraft_.cbegin(); it != liveEditorsByDraft_.cend(); ++it) {
+        const auto *editor = it.value().data();
+        if (!editor || !editor->isDirty())
+            continue;
+        const Note note = editor->note();
+        if (note.isNull() || !note.isLoaded() || it.key().isNull())
+            return { {}, { DraftStoreError::Corrupt, tr("Could not capture an active note editor") } };
+
+        const qsizetype position = positions.value(it.key(), -1);
+        DraftRecord record;
+        if (position >= 0) {
+            record = records.value.at(position);
+            if (record.operation != DraftRecord::Publish || record.state == DraftRecord::Deleting)
+                return { {}, { DraftStoreError::InvalidArgument, tr("An active editor has an unresolved deletion") } };
+        } else {
+            record.id = it.key();
+            record.storageId = note.storageId();
+            record.remoteNoteId = note.id();
+            record.backendData = note.backendData();
+        }
+        record.title = note.title();
+        record.body = note.text();
+        record.format = note.format();
+        record.tags = note.tags();
+        record.folderId = note.folderId();
+        record.folderUserOverride = record.folderUserOverride || editor->folderUserOverride();
+        record.backendData.insert(QString::fromLatin1(FavoriteBackendKey), note.isFavorite());
+        record.media = note.media();
+        record.media.removeIf([&note](const MediaReference &reference) {
+            return !note.text().contains(reference.id.toString(QUuid::WithoutBraces), Qt::CaseInsensitive)
+                && !note.title().contains(reference.id.toString(QUuid::WithoutBraces), Qt::CaseInsensitive);
+        });
+        record.updatedAt = QDateTime::currentDateTimeUtc();
+        if (position >= 0)
+            records.value[position] = std::move(record);
+        else
+            records.value.append(std::move(record));
+    }
+    return records;
+}
+
 DraftStoreError DraftManager::saveEditing(const QUuid &draftId, const Note &note, const QString &title,
                                           const QString &body, Note::Format format, bool folderUserOverride)
 {
