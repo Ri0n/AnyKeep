@@ -3,6 +3,7 @@
 #include "localdatakeystore.h"
 #include "localmediastore.h"
 #include "ptfstorage.h"
+#include "portablebackup.h"
 #include "secureenvelope.h"
 
 #include <QDir>
@@ -42,6 +43,149 @@ class PTFStorageTest : public QObject {
     }
 
 private slots:
+    void portableExportUsesDetachedPtfAndRestoresWithNewKey()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QVariant configuredPath = QSettings().value(QStringLiteral("storage.ptf.path"));
+        LocalMediaStore oldMedia(directory.filePath(QStringLiteral("old-media")), SecureEnvelope::generateMasterKey());
+        PTFStorage sourceStorage(oldMedia, directory.filePath(QStringLiteral("source")));
+        QVERIFY(sourceStorage.init());
+        QVERIFY(!sourceStorage.isConfigurable());
+        QVERIFY(!sourceStorage.setStoragePath(directory.path()));
+        QCOMPARE(sourceStorage.customStoragePath(), directory.filePath(QStringLiteral("source")));
+
+        const auto image = oldMedia.importData(QByteArrayLiteral("picture"), QStringLiteral("diagram.png"),
+                                               QStringLiteral("image/png"));
+        const auto video = oldMedia.importData(QByteArrayLiteral("video bytes"), QStringLiteral("clip.mp4"),
+                                               QStringLiteral("video/mp4"));
+        QVERIFY(image);
+        QVERIFY(video);
+        QFile external(directory.filePath(QStringLiteral("document.pdf")));
+        QVERIFY(external.open(QIODevice::WriteOnly));
+        QCOMPARE(external.write("external document"), qint64(17));
+        external.close();
+        const auto linked = oldMedia.referenceFile(external.fileName());
+        QVERIFY(linked);
+        QVERIFY(linked.value.blobId.isEmpty());
+
+        const QUuid folderId = QUuid::createUuid();
+        Note source = sourceStorage.createNote();
+        source.setTitle(QStringLiteral("Portable note"));
+        source.setText(QStringLiteral("![Diagram](%1)\n\n<video src=\"%2\" title=\"Clip\"></video>\n\n"
+                                      "<a href=\"%3\" data-anykeep-attachment=\"1\">Document</a>")
+                           .arg(image.value.uri(), video.value.uri(), linked.value.uri()),
+                       Note::Markdown);
+        source.setMedia({ image.value, video.value, linked.value });
+        source.setFavorite(true);
+        source.setFolderId(folderId);
+
+        PortableBackupStorage provider;
+        provider.storageId = QStringLiteral("remote-instance-1");
+        provider.displayName = QStringLiteral("Example");
+        provider.remote = true;
+        provider.complete = true;
+        provider.notes.append({ source, QStringLiteral("server-note-42"), {} });
+
+        const auto backupPath = directory.filePath(QStringLiteral("backup"));
+        const auto result = PortableBackup::exportDirectory(backupPath, { provider }, catalogWithFolder(folderId),
+                                                            oldMedia);
+        QVERIFY2(result, qPrintable(result.error));
+        QVERIFY(result.complete);
+        QCOMPARE(result.notesWritten, 1);
+        QCOMPARE(result.unavailableMedia, 0);
+        QCOMPARE(QSettings().value(QStringLiteral("storage.ptf.path")), configuredPath);
+        QVERIFY(sourceStorage.noteList().isEmpty());
+
+        QFile manifest(QDir(backupPath).filePath(QStringLiteral("manifest.json")));
+        QVERIFY(manifest.open(QIODevice::ReadOnly));
+        const auto root = QJsonDocument::fromJson(manifest.readAll()).object();
+        const auto storage = root.value(QStringLiteral("storages")).toArray().at(0).toObject();
+        QCOMPARE(storage.value(QStringLiteral("storageId")).toString(), provider.storageId);
+        const auto exported = storage.value(QStringLiteral("notes")).toArray().at(0).toObject();
+        QCOMPARE(exported.value(QStringLiteral("sourceNoteId")).toString(), QStringLiteral("server-note-42"));
+
+        // The exported files are independent of the old local encryption key
+        // and the original external file.
+        QVERIFY(external.remove());
+        LocalMediaStore freshMedia(directory.filePath(QStringLiteral("fresh-media")),
+                                   SecureEnvelope::generateMasterKey());
+        PTFStorage restored(freshMedia, QDir(backupPath).filePath(storage.value(QStringLiteral("directory")).toString()));
+        QVERIFY(restored.init());
+        const auto savedId = exported.value(QStringLiteral("ptfId")).toString();
+        const Note loaded = restored.note(savedId);
+        QVERIFY(!loaded.isNull());
+        QCOMPARE(loaded.folderId(), folderId);
+        QVERIFY(loaded.isFavorite());
+        QCOMPARE(loaded.media().size(), 3);
+        const auto media = loaded.media();
+        const auto check = [&](const QUuid &id, const QByteArray &expected) {
+            const auto it = std::find_if(media.cbegin(), media.cend(),
+                                         [&id](const MediaReference &ref) { return ref.id == id; });
+            QVERIFY(it != media.cend());
+            const auto data = freshMedia.data(*it);
+            QVERIFY2(data, qPrintable(data.error));
+            QCOMPARE(data.value, expected);
+        };
+        check(image.value.id, QByteArrayLiteral("picture"));
+        check(video.value.id, QByteArrayLiteral("video bytes"));
+        check(linked.value.id, QByteArrayLiteral("external document"));
+        QCOMPARE(QSettings().value(QStringLiteral("storage.ptf.path")), configuredPath);
+    }
+
+    void portableExportReportsUnavailableMediaAndDoesNotPublishCancelledOutput()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        LocalMediaStore media(directory.filePath(QStringLiteral("media")), SecureEnvelope::generateMasterKey());
+        PTFStorage sourceStorage(media, directory.filePath(QStringLiteral("source")));
+        QVERIFY(sourceStorage.init());
+        MediaReference missing;
+        missing.id = QUuid::createUuid();
+        missing.portableName = QStringLiteral("missing.pdf");
+        missing.originalName = missing.portableName;
+        missing.mediaType = QStringLiteral("application/pdf");
+        missing.size = 100;
+        Note source = sourceStorage.createNote();
+        source.setTitle(QStringLiteral("Offline"));
+        source.setText(QStringLiteral("<a href=\"%1\" data-anykeep-attachment=\"1\">Document</a>").arg(missing.uri()),
+                       Note::Markdown);
+        source.setMedia({ missing });
+        PortableBackupStorage provider;
+        provider.storageId = QStringLiteral("offline-storage");
+        provider.remote = true;
+        provider.complete = false;
+        provider.notes.append({ source, QStringLiteral("id-1"), QUuid::createUuid() });
+
+        const auto backupPath = directory.filePath(QStringLiteral("backup"));
+        auto result = PortableBackup::exportDirectory(backupPath, { provider }, {}, media);
+        QVERIFY2(result, qPrintable(result.error));
+        QVERIFY(!result.complete);
+        QCOMPARE(result.unavailableMedia, 1);
+        QFile manifest(QDir(backupPath).filePath(QStringLiteral("manifest.json")));
+        QVERIFY(manifest.open(QIODevice::ReadOnly));
+        const auto root = QJsonDocument::fromJson(manifest.readAll()).object();
+        QVERIFY(!root.value(QStringLiteral("complete")).toBool());
+        const auto storage = root.value(QStringLiteral("storages")).toArray().at(0).toObject();
+        const auto note = storage.value(QStringLiteral("notes")).toArray().at(0).toObject();
+        QCOMPARE(note.value(QStringLiteral("draftId")).toString(),
+                 provider.notes.first().draftId.toString(QUuid::WithoutBraces));
+        const auto unavailable = note.value(QStringLiteral("unavailableMedia")).toArray();
+        QCOMPARE(unavailable.size(), 1);
+        QCOMPARE(unavailable.at(0).toObject().value(QStringLiteral("uri")).toString(), missing.uri());
+        QFile raw(QDir(backupPath).filePath(storage.value(QStringLiteral("directory")).toString() + QLatin1Char('/')
+                                          + note.value(QStringLiteral("ptfId")).toString() + QStringLiteral(".md")));
+        QVERIFY(raw.open(QIODevice::ReadOnly));
+        QVERIFY(raw.readAll().contains(missing.uri().toUtf8()));
+
+        const auto cancelledPath = directory.filePath(QStringLiteral("cancelled"));
+        result = PortableBackup::exportDirectory(cancelledPath, { provider }, {}, media,
+                                                 [](int done, int) { return done == 0; });
+        QVERIFY(!result);
+        QVERIFY(!QFileInfo::exists(cancelledPath));
+        QVERIFY(!PortableBackup::exportDirectory(backupPath, { provider }, {}, media));
+    }
+
     void codeOnlyNoteKeepsEmptyTitleAndExactBody()
     {
         QTemporaryDir notesDirectory;
