@@ -24,6 +24,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include <QDir>
 #include <QFileInfoList>
+#include <optional>
 
 #include "anykeep_export.h"
 #include "notestorage.h"
@@ -40,11 +41,15 @@ public:
     virtual QString     findStorageDir() const = 0;
     QString             customStoragePath() const;
     bool                setStoragePath(const QString &path);
-    bool                isConfigurable() const override { return true; }
+    bool                isConfigurable() const override { return !explicitPath_; }
     QUrl                settingsComponent() const override;
     SettingsController *createSettingsController(QObject *parent = nullptr) override;
 
 protected:
+    // Fixed-path instances are detached from the profile configuration.
+    FileStorage(const QString &explicitPath, QObject *parent);
+    const std::optional<QString> explicitPath_;
+
     virtual QList<Note> noteListFromInfoList(const QFileInfoList &) = 0;
 
     bool noteFileExists(const QString &noteId) const;
