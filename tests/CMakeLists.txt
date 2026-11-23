@@ -167,6 +167,8 @@ add_anykeep_test(qcastartup_test qcastartup_test.cpp)
 set_tests_properties(qcastartup_test PROPERTIES LABELS "storage;xmpp")
 
 add_anykeep_test(localmediastore_test localmediastore_test.cpp)
+add_anykeep_test(portablebackuparchive_test portablebackuparchive_test.cpp)
+set_tests_properties(portablebackuparchive_test PROPERTIES LABELS storage)
 add_anykeep_test(mediapartialchunkcache_test mediapartialchunkcache_test.cpp)
 add_anykeep_test(mediachunkscheduler_test mediachunkscheduler_test.cpp)
 add_anykeep_test(mediarangeservice_test mediarangeservice_test.cpp)
