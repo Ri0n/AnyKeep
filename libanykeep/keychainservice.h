@@ -27,7 +27,8 @@ public:
 
     using Callback = std::function<void(Result)>;
 
-    static void read(QObject *context, QString service, QString key, Callback callback);
+    static void readBinary(QObject *context, QString service, QString key, Callback callback);
+    static void readText(QObject *context, QString service, QString key, Callback callback);
     static void writeBinary(QObject *context, QString service, QString key, QByteArray data, Callback callback);
     static void writeText(QObject *context, QString service, QString key, QString data, Callback callback);
     static void remove(QObject *context, QString service, QString key, Callback callback);
