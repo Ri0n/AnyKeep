@@ -2,15 +2,30 @@
 
 #include "keychainservice.h"
 
+#include <QCoreApplication>
 #include <QEventLoop>
+#include <QHash>
+#include <QList>
 #include <QMetaObject>
 #include <QPointer>
+#include <QThread>
 
 #include <utility>
 
 namespace AnyKeep {
 namespace {
     const QString Service = QStringLiteral("com.github.ri0n.anykeep");
+
+    struct PendingKeyRequest {
+        QPointer<QObject> context;
+        SecureKeyStore::KeyCallback callback;
+    };
+    QHash<QString, QList<PendingKeyRequest>> &pendingKeyRequests()
+    {
+        static QHash<QString, QList<PendingKeyRequest>> requests;
+        return requests;
+    }
+
 
     CryptoError errorFor(const KeychainService::Result &result, const QString &notFound)
     {
@@ -126,23 +141,53 @@ void SecureKeyStore::loadOrCreateAsync(QObject *context, const QString &keyName,
 {
     if (!context || !callback)
         return;
-    const QPointer<QObject> guard(context);
-    readAsync(context, keyName,
-              [guard, keyName, callback = std::move(callback)](CryptoResult<QByteArray> existing) mutable {
+    auto *app = QCoreApplication::instance();
+    if (!app) {
+        deliver(context, std::move(callback),
+                CryptoResult<QByteArray> {
+                    {}, { CryptoError::Unavailable, QStringLiteral("Application is shutting down") } });
+        return;
+    }
+    if (QThread::currentThread() != app->thread()) {
+        const QPointer<QObject> guard(context);
+        QMetaObject::invokeMethod(
+            app,
+            [guard, keyName, callback = std::move(callback)]() mutable {
+                if (guard)
+                    loadOrCreateAsync(guard, keyName, std::move(callback));
+            },
+            Qt::QueuedConnection);
+        return;
+    }
+
+    // Coalesce initial loads of a particular XMPP/OMEMO key. Multiple
+    // consumers must never independently generate and overwrite each other.
+    auto &pending = pendingKeyRequests()[keyName];
+    pending.append({ context, std::move(callback) });
+    if (pending.size() > 1)
+        return;
+
+    const auto finish = [keyName](CryptoResult<QByteArray> result) {
+        auto pending = pendingKeyRequests().take(keyName);
+        for (auto &request : pending) {
+            if (request.context)
+                deliver(request.context, std::move(request.callback), result);
+        }
+    };
+
+    readAsync(app, keyName, [app, keyName, finish](CryptoResult<QByteArray> existing) mutable {
         if (existing || existing.error.code != CryptoError::InvalidArgument) {
-            callback(std::move(existing));
+            finish(std::move(existing));
             return;
         }
         const auto key = SecureEnvelope::generateMasterKey();
         if (key.size() != SecureEnvelope::MasterKeySize) {
-            callback({ {}, { CryptoError::Unavailable, QStringLiteral("Could not generate a secure encryption key") } });
+            finish({ {}, { CryptoError::Unavailable, QStringLiteral("Could not generate a secure encryption key") } });
             return;
         }
-        if (!guard)
-            return;
-        writeAsync(guard, keyName, key,
-                   [callback = std::move(callback), key](CryptoError error) mutable {
-            callback({ error ? QByteArray() : key, std::move(error) });
+        writeAsync(app, keyName, key,
+                   [finish, key](CryptoError error) mutable {
+            finish({ error ? QByteArray() : key, std::move(error) });
         });
     });
 }
