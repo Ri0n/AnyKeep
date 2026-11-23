@@ -25,6 +25,19 @@ namespace {
                  { QStringLiteral("sha256"), QString::fromLatin1(media.checksum.toHex()) } };
     }
 
+    QString draftStateName(DraftRecord::State state)
+    {
+        switch (state) {
+        case DraftRecord::Editing: return QStringLiteral("editing");
+        case DraftRecord::Ready: return QStringLiteral("ready");
+        case DraftRecord::Publishing: return QStringLiteral("publishing");
+        case DraftRecord::Retry: return QStringLiteral("retry");
+        case DraftRecord::NeedsRouting: return QStringLiteral("needs-routing");
+        case DraftRecord::Deleting: return QStringLiteral("deleting");
+        }
+        return {};
+    }
+
     QString formatName(Note::Format format)
     {
         switch (format) {
@@ -138,15 +151,32 @@ PortableBackupResult PortableBackup::exportDirectory(const QString &directory,
             ++result.notesWritten;
         }
 
+        QJsonArray drafts;
+        for (const auto &draft : storage.drafts) {
+            drafts.append(QJsonObject {
+                { QStringLiteral("id"), draft.id.toString(QUuid::WithoutBraces) },
+                { QStringLiteral("sourceStorageId"), draft.storageId },
+                { QStringLiteral("sourceNoteId"), draft.noteId },
+                { QStringLiteral("operation"), draft.operation == DraftRecord::Delete
+                      ? QStringLiteral("delete") : QStringLiteral("publish") },
+                { QStringLiteral("state"), draftStateName(draft.state) },
+                { QStringLiteral("transferSourceStorageId"), draft.transferSourceStorageId },
+                { QStringLiteral("transferSourceNoteId"), draft.transferSourceNoteId },
+                { QStringLiteral("revision"), QString::number(draft.revision) },
+                { QStringLiteral("updatedUtc"), draft.updatedAt.toUTC().toString(Qt::ISODateWithMs) }
+            });
+        }
         storageEntries.append(QJsonObject {
             { QStringLiteral("directory"), folder },
             { QStringLiteral("storageId"), storage.storageId },
             { QStringLiteral("displayName"), storage.displayName },
             { QStringLiteral("remote"), storage.remote },
             { QStringLiteral("complete"), storage.complete },
-            { QStringLiteral("notes"), notes }
+            { QStringLiteral("notes"), notes },
+            { QStringLiteral("drafts"), drafts },
+            { QStringLiteral("omittedNoteIds"), QJsonArray::fromStringList(storage.omittedNoteIds) }
         });
-        complete = complete && storage.complete;
+        complete = complete && storage.complete && storage.omittedNoteIds.isEmpty();
     }
 
     if (progress && !progress(result.notesWritten, total))
