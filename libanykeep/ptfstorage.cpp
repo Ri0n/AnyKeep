@@ -39,6 +39,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #endif // Q_OS_WIN
 
 #include "localmediastore.h"
+#include "mediasource.h"
 #include "noteblockmodel.h"
 #include "notedata.h"
 #include "notetitleresolver.h"
@@ -626,24 +627,62 @@ bool PTFStorage::saveNoteImpl(const Note &note, Note *savedNote, QList<MediaRefe
         QJsonArray    manifest;
         QSet<QString> usedNames;
         for (const auto &reference : note.media()) {
-            const auto loaded = mediaStore_.data(reference);
-            if (!loaded) {
-                if (unavailableMedia) {
-                    unavailableMedia->append(reference);
+            auto source = createLocalMediaSource(reference, &mediaStore_);
+            QString sourceError;
+            const auto unavailable = [&]() {
+                qWarning() << "Failed to materialize note attachment:" << sourceError;
+                if (!unavailableMedia)
+                    return false;
+                unavailableMedia->append(reference);
+                return true;
+            };
+            if (!source->open(&sourceError)) {
+                if (unavailable())
                     continue;
-                }
-                qWarning() << "Failed to materialize note attachment:" << loaded.error;
                 return false;
             }
             const auto materializedName
                 = uniqueName(Utils::portableFileName(reference.portableName, QStringLiteral("attachment")), usedNames);
-            materializedFiles.insert(materializedName);
             QSaveFile mediaFile(sidecar.filePath(materializedName));
-            if (!mediaFile.open(QIODevice::WriteOnly) || mediaFile.write(loaded.value) != loaded.value.size()
-                || !mediaFile.commit()) {
+            if (!mediaFile.open(QIODevice::WriteOnly)) {
                 handleFSError();
                 return false;
             }
+
+            QCryptographicHash hash(QCryptographicHash::Sha256);
+            QByteArray chunk(1024 * 1024, Qt::Uninitialized);
+            qint64 offset = 0;
+            bool sourceFailed = false;
+            const qint64 size = source->size();
+            while (offset < size) {
+                const auto count = source->read(offset, chunk.data(), qMin<qint64>(chunk.size(), size - offset),
+                                                &sourceError);
+                if (count <= 0) {
+                    sourceFailed = true;
+                    break;
+                }
+                hash.addData(QByteArrayView(chunk.constData(), count));
+                if (mediaFile.write(chunk.constData(), count) != count) {
+                    handleFSError();
+                    return false;
+                }
+                offset += count;
+            }
+            source->close();
+            if (sourceFailed || offset != size
+                || (!reference.checksum.isEmpty() && hash.result() != reference.checksum)) {
+                mediaFile.cancelWriting();
+                if (sourceError.isEmpty())
+                    sourceError = tr("Attachment failed its integrity check");
+                if (unavailable())
+                    continue;
+                return false;
+            }
+            if (!mediaFile.commit()) {
+                handleFSError();
+                return false;
+            }
+            materializedFiles.insert(materializedName);
             contents.replace(reference.uri(),
                              QString::fromUtf8(QUrl::toPercentEncoding(newNoteId)) + QLatin1Char('/')
                                  + QString::fromUtf8(QUrl::toPercentEncoding(materializedName)));
