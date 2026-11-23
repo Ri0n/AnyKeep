@@ -67,8 +67,13 @@ bool readOctal(const char *field, int width, quint64 *value)
 {
     QByteArray text(field, width);
     const int  terminator = text.indexOf('\0');
-    if (terminator >= 0)
+    if (terminator >= 0) {
+        for (int i = terminator; i < text.size(); ++i) {
+            if (text.at(i) != '\0' && text.at(i) != ' ')
+                return false;
+        }
         text.truncate(terminator);
+    }
     text = text.trimmed();
     if (text.isEmpty())
         return false;
@@ -276,7 +281,7 @@ bool readPayload(QIODevice *input, qint64 size, QByteArray *contents, QByteArray
 
 bool PortableBackupArchive::safeEntryPath(const QString &path)
 {
-    if (path.isEmpty() || path.size() > 100 || path == ManifestPath || path.startsWith(QLatin1Char('/')))
+    if (path.isEmpty() || path.size() > 99 || path == ManifestPath || path.startsWith(QLatin1Char('/')))
         return false;
     const auto parts = path.split(QLatin1Char('/'), Qt::KeepEmptyParts);
     for (const QString &part : parts) {
@@ -382,6 +387,8 @@ bool PortableBackupArchive::inspectReadable(QIODevice *input, PortableBackupMani
         if (std::memcmp(header.constData() + 257, "ustar", 5) != 0
             || std::memcmp(header.constData() + 263, "00", 2) != 0
             || header.at(156) != '0'
+            || header.mid(157, 100) != QByteArray(100, '\0')
+            || header.mid(345, 155) != QByteArray(155, '\0')
             || !readOctal(header.constData() + 148, 8, &checksum)
             || checksum != tarChecksum(header)
             || !readOctal(header.constData() + 124, 12, &size))
