@@ -118,6 +118,9 @@ public:
     /** Preserve in-flight publication drafts for a clean retry on the next launch. */
     void                          prepareForShutdown();
     QList<DraftRecord>            pendingDrafts() const;
+    // Read-only snapshot of durable intents and unsaved canonical editor contents.
+    // Unlike pendingDrafts(), this reports enumeration errors and includes deletions.
+    DraftStoreResult<QList<DraftRecord>> backupRecords() const;
     DraftStoreResult<DraftRecord> pendingDraft(const QUuid &draftId) const;
     DraftStoreResult<DraftRecord> pendingDraftForNote(const QString &storageId, const QString &noteId) const;
     QList<DraftRecord>            recoverableDrafts() const;
