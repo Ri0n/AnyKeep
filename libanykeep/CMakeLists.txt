@@ -165,6 +165,7 @@ set(anykeep_CORE_SRCS
     notetransfercontroller.cpp
     ptfstorage.cpp
     ptffolderindex.cpp
+    portablebackuparchive.cpp
     qcainitializer.cpp
     secureenvelope.cpp
     securekeystore.cpp
@@ -245,6 +246,7 @@ set(anykeep_CORE_HDRS
     notetransfercontroller.h
     ptfstorage.h
     ptffolderindex.h
+    portablebackuparchive.h
     qcainitializer.h
     remotecachestore.h
     secureenvelope.h
