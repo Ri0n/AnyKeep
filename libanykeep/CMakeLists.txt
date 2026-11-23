@@ -163,6 +163,7 @@ set(anykeep_CORE_SRCS
     notestorage.cpp
     notetagline.cpp
     notetransfercontroller.cpp
+    portablebackup.cpp
     ptfstorage.cpp
     ptffolderindex.cpp
     qcainitializer.cpp
@@ -243,6 +244,7 @@ set(anykeep_CORE_HDRS
     notestorage.h
     notetagline.h
     notetransfercontroller.h
+    portablebackup.h
     ptfstorage.h
     ptffolderindex.h
     qcainitializer.h
