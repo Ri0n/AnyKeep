@@ -11,7 +11,9 @@
 #include <QJsonObject>
 #include <QSet>
 
+#include <initializer_list>
 #include <limits>
+#include <utility>
 
 namespace AnyKeep {
 namespace {
@@ -246,7 +248,10 @@ PortableBackupInspection PortableBackup::inspectDirectory(const QString &directo
         return fail(QStringLiteral("The backup directory is unavailable"));
     // Resolve the selected directory's ancestors once. All descendants must
     // then be ordinary entries in this tree, not links or redirected paths.
-    const QDir root(rootInfo.canonicalFilePath());
+    const auto canonicalRoot = rootInfo.canonicalFilePath();
+    if (canonicalRoot.isEmpty())
+        return fail(QStringLiteral("Could not resolve the backup directory"));
+    const QDir root(canonicalRoot);
     const QFileInfo manifestInfo(root.filePath(ManifestName));
     if (!manifestInfo.isFile() || !regularEntry(manifestInfo))
         return fail(QStringLiteral("The backup manifest is unavailable or unsafe"));
@@ -304,6 +309,8 @@ PortableBackupInspection PortableBackup::inspectDirectory(const QString &directo
         QSet<QString> identities, notePaths;
         QHash<QUuid, QString> draftNotes;
         for (const auto &noteEntry : storageObject.value(QStringLiteral("notes")).toArray()) {
+            if (cancelled())
+                return fail(QStringLiteral("Backup inspection cancelled"));
             PortableBackupNoteInfo note;
             if (!noteInfo(noteEntry.toObject(), &note))
                 return fail(QStringLiteral("Invalid portable note metadata"));
@@ -350,6 +357,8 @@ PortableBackupInspection PortableBackup::inspectDirectory(const QString &directo
 
     QHash<QString, qsizetype> inventory;
     for (const auto &entry : object.value(QStringLiteral("files")).toArray()) {
+        if (cancelled())
+            return fail(QStringLiteral("Backup inspection cancelled"));
         const auto fileObject = entry.toObject();
         PortableBackupFileInfo file;
         file.path = fileObject.value(QStringLiteral("path")).toString();
