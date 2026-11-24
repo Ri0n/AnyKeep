@@ -164,6 +164,7 @@ set(anykeep_CORE_SRCS
     notetagline.cpp
     notetransfercontroller.cpp
     portablebackup.cpp
+    portablebackupinspection.cpp
     backupsnapshotjob.cpp
     backupexportjob.cpp
     ptfstorage.cpp
