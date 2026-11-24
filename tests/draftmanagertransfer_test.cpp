@@ -32,7 +32,7 @@ class MemoryDraftStore final : public DraftStore {
 public:
     DraftStoreError write(const DraftRecord &record) override
     {
-        if (failWrite_)
+        if (failWrite_ || (failAfterWrites_ >= 0 && writeCount_ >= failAfterWrites_))
             return { DraftStoreError::Io, QStringLiteral("injected draft write failure") };
         ++writeCount_;
         records_.insert(record.id, record);
@@ -70,6 +70,7 @@ public:
     QUuid                     failRemoveId_;
     int                       writeCount_ { 0 };
     bool                      failWrite_ { false };
+    int                       failAfterWrites_ { -1 };
 };
 
 class TransferStorage final : public NoteStorage {
@@ -260,6 +261,7 @@ class DraftManagerTransferTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void recoveredCopiesNeverReplaceExistingNotesAndRollbackOnError();
     void backupCapturesLiveEditsWithoutPublication();
     void backupReportsFailedLoadsAndSupportsCancellation();
     void publishesDestinationBeforeDeletingSource();
@@ -298,6 +300,61 @@ private slots:
     void lateCreateAckDuringDeleteQueuesOrphan();
     void auditDeletingSurvivesStorageDisable();
 };
+
+void DraftManagerTransferTest::recoveredCopiesNeverReplaceExistingNotesAndRollbackOnError()
+{
+    auto storage = std::make_unique<TransferStorage>(QStringLiteral("recovery-target"));
+    storage->supportsFavorite_ = true;
+    const auto existing = storage->addStored(QStringLiteral("original-id"), QStringLiteral("Server title"),
+                                             QStringLiteral("Server body"));
+    auto *raw = registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([raw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+    auto store = std::make_unique<MemoryDraftStore>();
+    auto *memory = store.get();
+    DraftManager drafts(std::move(store));
+
+    Note detached(new NoteData(nullptr));
+    detached.setId(existing.id());
+    detached.setTitle(QStringLiteral("Recovered"));
+    detached.setText(QStringLiteral("Recovered body"), Note::Markdown);
+    detached.setFavorite(true);
+    detached.setBackendValue(QStringLiteral("backend-token"), QStringLiteral("must not be copied"));
+
+    const QList<RecoveredNoteCopy> copies { { detached, raw->systemName() }, { detached, {} } };
+    memory->failAfterWrites_ = memory->writeCount_ + 1;
+    auto staged = drafts.stageRecoveredCopies(copies);
+    QVERIFY(!staged);
+    QVERIFY(staged.value.isEmpty());
+    QVERIFY(memory->records_.isEmpty());
+
+    memory->failAfterWrites_ = -1;
+    staged = drafts.stageRecoveredCopies(copies);
+    QVERIFY2(staged, qPrintable(staged.error.message));
+    QCOMPARE(staged.value.size(), 2);
+    drafts.publishPending();
+    QCOMPARE(raw->note(existing.id()).text(), QStringLiteral("Server body"));
+    QCOMPARE(raw->noteList().size(), 1);
+
+    const auto record = drafts.pendingDraft(staged.value.first());
+    QVERIFY(record);
+    QCOMPARE(record.value.state, DraftRecord::Editing);
+    QCOMPARE(record.value.storageId, raw->systemName());
+    QVERIFY(record.value.remoteNoteId.isEmpty());
+    QVERIFY(record.value.removeSourceNoteId.isEmpty());
+    QVERIFY(!record.value.backendData.contains(QStringLiteral("backend-token")));
+
+    // Explicit publication uses the normal draft pipeline and creates a new
+    // object instead of writing back to the original remote note.
+    QVERIFY(!drafts.markReady(record.value.id));
+    QTRY_COMPARE(raw->noteList().size(), 2);
+    QCOMPARE(raw->note(existing.id()).text(), QStringLiteral("Server body"));
+    QTRY_VERIFY(!drafts.pendingDraft(record.value.id));
+    QVERIFY(drafts.pendingDraft(staged.value.last()));
+}
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
 {
