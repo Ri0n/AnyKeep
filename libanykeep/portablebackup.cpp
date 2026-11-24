@@ -249,6 +249,8 @@ PortableBackupResult PortableBackup::exportDirectory(const QString &directory,
         { QStringLiteral("files"), inventory }
     };
     const auto bytes = QJsonDocument(manifest).toJson(QJsonDocument::Indented);
+    if (bytes.size() > MaximumManifestBytes)
+        return fail(QStringLiteral("The backup manifest exceeds the supported size limit"));
     QSaveFile manifestFile(staging.filePath(QStringLiteral("manifest.json")));
     if (!manifestFile.open(QIODevice::WriteOnly) || manifestFile.write(bytes) != bytes.size()
         || !manifestFile.commit())
