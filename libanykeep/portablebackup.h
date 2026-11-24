@@ -135,6 +135,9 @@ public:
     static PortableBackupInspection inspectDirectory(const QString &directory,
                                                       const Progress &progress = {},
                                                       const Continue &continueReading = {});
+
+private:
+    static constexpr qint64 MaximumManifestBytes = 32 * 1024 * 1024;
 };
 
 } // namespace AnyKeep
