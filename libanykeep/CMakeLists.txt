@@ -165,6 +165,7 @@ set(anykeep_CORE_SRCS
     notetransfercontroller.cpp
     portablebackup.cpp
     portablebackupinspection.cpp
+    portablebackuprestore.cpp
     backupsnapshotjob.cpp
     backupexportjob.cpp
     ptfstorage.cpp
@@ -248,6 +249,7 @@ set(anykeep_CORE_HDRS
     notetagline.h
     notetransfercontroller.h
     portablebackup.h
+    portablebackuprestore.h
     backupsnapshotjob.h
     backupexportjob.h
     ptfstorage.h
