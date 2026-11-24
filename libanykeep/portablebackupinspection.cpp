@@ -17,7 +17,6 @@
 
 namespace AnyKeep {
 namespace {
-    constexpr qint64 MaximumManifestBytes = 32 * 1024 * 1024;
     const QString ManifestName = QStringLiteral("manifest.json");
     const QString FolderIndexName = QStringLiteral(".anykeep-folders.json");
 
