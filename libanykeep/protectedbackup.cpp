@@ -386,7 +386,7 @@ PortableBackupInspection ProtectedBackup::unlockDirectory(
             || !output.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner))
             return failed(output.errorString());
         if (const auto error = decryptFile(source.filePath(opaqueFileName(i)), &output, entry.size, entry.size,
-                                          entry.sha256, key, container, entry.path, keepGoing); !error.isEmpty())
+                                          entry.sha256, key, container, opaqueFileName(i), keepGoing); !error.isEmpty())
             return failed(error);
         if (!output.commit())
             return failed(output.errorString());
