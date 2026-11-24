@@ -230,7 +230,7 @@ namespace {
         return name.normalized(QString::NormalizationForm_C).toCaseFolded();
     }
 
-    QString uniqueName(QString proposed, QSet<QString> &used, qsizetype maxLength = 180)
+    QString uniqueName(QString proposed, QSet<QString> &used, qsizetype maxLength = 180, bool preserveSuffix = true)
     {
         const auto claim = [&used](const QString &name) {
             const auto key = portableNameKey(name);
@@ -242,8 +242,8 @@ namespace {
         if (claim(proposed))
             return proposed;
         const QFileInfo info(proposed);
-        const auto base = info.completeBaseName();
-        const auto suffix = info.suffix().isEmpty() ? QString() : QLatin1Char('.') + info.suffix();
+        const auto base = preserveSuffix ? info.completeBaseName() : proposed;
+        const auto suffix = !preserveSuffix || info.suffix().isEmpty() ? QString() : QLatin1Char('.') + info.suffix();
         for (int i = 2;; ++i) {
             const auto number = QStringLiteral(" (%1)").arg(i);
             const auto candidate = base.left(qMax<qsizetype>(0, maxLength - number.size() - suffix.size()))
@@ -637,7 +637,7 @@ bool PTFStorage::saveNoteImpl(const Note &note, Note *savedNote, QList<MediaRefe
             if (entry.endsWith(suffix, Qt::CaseInsensitive))
                 used.insert(portableNameKey(entry.left(entry.size() - suffix.size())));
         }
-        newNoteId = uniqueName(newNoteId, used, 255 - suffix.size());
+        newNoteId = uniqueName(newNoteId, used, 255 - suffix.size(), false);
         fileName = notesDir.filePath(newNoteId + suffix);
     }
     qCInfo(logPtfStorage) << "PTF save target: oldIdHash=" << diagnosticName(oldNoteId)
