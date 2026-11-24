@@ -165,6 +165,7 @@ set(anykeep_CORE_SRCS
     notetransfercontroller.cpp
     portablebackup.cpp
     portablebackupinspection.cpp
+    protectedbackup.cpp
     portablebackuprestore.cpp
     backupsnapshotjob.cpp
     backupexportjob.cpp
@@ -251,6 +252,7 @@ set(anykeep_CORE_HDRS
     notetagline.h
     notetransfercontroller.h
     portablebackup.h
+    protectedbackup.h
     portablebackuprestore.h
     backupsnapshotjob.h
     backupexportjob.h
@@ -301,7 +303,7 @@ target_include_directories(
 set_target_properties(anykeep_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(anykeep_core PUBLIC Qt6::Core Qt6::Gui Qt6::Quick Qt6::Qml Qt6::Svg)
 target_link_libraries(anykeep_core PRIVATE ${ANYKEEP_QCA_TARGET} QSourceHighlite::QSourceHighlite)
-target_link_libraries(anykeep_core PRIVATE Qt6Keychain::Qt6Keychain)
+target_link_libraries(anykeep_core PRIVATE Qt6Keychain::Qt6Keychain Qt6::Network)
 if(WIN32)
   target_compile_definitions(anykeep_core PRIVATE NOMINMAX)
 endif()
