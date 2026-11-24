@@ -2,6 +2,7 @@
 #define DRAFTMANAGER_H
 
 #include "draftstore.h"
+#include "conflictresolver.h"
 
 #include <QHash>
 #include <QObject>
@@ -131,6 +132,9 @@ public:
     void                          setConflictResolver(std::unique_ptr<ConflictResolver> resolver);
     /// Resolves a conflict discovered after a storage operation was acknowledged.
     void resolveConcurrentEdit(const Note &localVersion, const Note &remoteVersion, const QString &message);
+    // Ask the configured policy for a recovery preview, without writing a
+    // draft or applying its publication decision.
+    void previewRecoveryConflict(NoteConflict conflict, ConflictResolver::Completion completion);
 
 signals:
     void discardEditorsForNoteRequested(const QString &storageId, const QString &noteId);
