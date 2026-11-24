@@ -314,11 +314,11 @@ PortableBackupInspection ProtectedBackup::protectDirectory(
         if (!input.open(QIODevice::ReadOnly) || input.size() != entry.size)
             return failed(QStringLiteral("A portable file changed before protection"));
         const auto protectedPath = staging.filePath(opaqueFileName(i));
-        if (const auto error = encryptFile(input, entry, protectedPath, key, container, entry.path, keepGoing);
+        if (const auto error = encryptFile(input, entry, protectedPath, key, container, opaqueFileName(i), keepGoing);
             !error.isEmpty())
             return failed(error);
         if (const auto error = decryptFile(protectedPath, nullptr, entry.size, entry.size, entry.sha256, key,
-                                          container, entry.path, keepGoing); !error.isEmpty())
+                                          container, opaqueFileName(i), keepGoing); !error.isEmpty())
             return failed(error);
     }
     if (!exactProtectedTree(QDir(staging.path()), inspected.files.size())
