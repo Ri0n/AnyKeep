@@ -54,6 +54,124 @@ class PTFStorageTest : public QObject {
     }
 
 private slots:
+    void protectedBackupJobsRecoverAttachmentsUnderNewProfileKey()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto privatePath = directory.filePath(QStringLiteral("private"));
+        QVERIFY(QDir().mkpath(privatePath));
+        const auto privateEntries = [&] {
+            return QDir(privatePath).entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
+        };
+        const auto sourceKey = SecureEnvelope::generateMasterKey();
+        LocalMediaStore sourceMedia(directory.filePath(QStringLiteral("source-media")), sourceKey);
+        const QByteArray payload(2 * 1024 * 1024 + 17, 'x');
+        const auto imported = sourceMedia.importData(payload, QStringLiteral("private-image.png"),
+                                                      QStringLiteral("image/png"));
+        QVERIFY(imported);
+        auto store = std::make_unique<FileDraftStore>(directory.filePath(QStringLiteral("source-drafts")), sourceKey);
+        DraftRecord original;
+        original.id = QUuid::createUuid();
+        original.title = QStringLiteral("Private unpublished note");
+        original.body = QStringLiteral("![Picture](%1)").arg(imported.value.uri());
+        original.format = Note::Markdown;
+        original.updatedAt = QDateTime::currentDateTimeUtc();
+        original.media = { imported.value };
+        QVERIFY(!store->write(original));
+        DraftManager sourceDrafts(std::move(store));
+        const QMap<QString, NoteStorage::Ptr> providers;
+        const auto destination = directory.filePath(QStringLiteral("protected"));
+        const auto password = QStringLiteral("portable recovery password");
+        auto *exportJob = BackupExportJob::exportProtectedDirectory(destination, privatePath, password,
+                                                                     providers, sourceDrafts, {}, sourceMedia, this);
+        QSignalSpy phases(exportJob, &BackupExportJob::phaseChanged);
+        QTRY_VERIFY_WITH_TIMEOUT(exportJob->isFinished(), 30000);
+        QVERIFY2(exportJob->state() == StorageJob::Succeeded, qPrintable(exportJob->error().message));
+        QCOMPARE(exportJob->result().notesWritten, 1);
+        QVERIFY(exportJob->result().complete);
+        QCOMPARE(exportJob->phase(), BackupExportJob::Protecting);
+        QCOMPARE(phases.size(), 3);
+        QVERIFY(privateEntries().isEmpty());
+        QVERIFY(!QFileInfo::exists(QDir(destination).filePath(QStringLiteral("manifest.json"))));
+        QVERIFY(QFileInfo::exists(QDir(destination).filePath(QStringLiteral("manifest.enc"))));
+        QCOMPARE(sourceDrafts.pendingDrafts().size(), 1);
+        delete exportJob;
+
+        const auto newKey = SecureEnvelope::generateMasterKey();
+        LocalMediaStore newMedia(directory.filePath(QStringLiteral("new-media")), newKey);
+        DraftManager newDrafts(std::make_unique<FileDraftStore>(directory.filePath(QStringLiteral("new-drafts")), newKey));
+        FolderCatalogManager folders(std::make_unique<FileFolderCatalogStore>(
+            directory.filePath(QStringLiteral("new-folders")), newKey));
+        QVERIFY(folders.initialize());
+
+        auto *wrong = BackupRestoreJob::restoreProtectedDirectory(destination, QStringLiteral("wrong password"),
+            privatePath, *NoteManager::instance(), newDrafts, folders, newMedia, this);
+        QTRY_VERIFY_WITH_TIMEOUT(wrong->isFinished(), 30000);
+        QCOMPARE(wrong->state(), StorageJob::Failed);
+        QVERIFY(wrong->decisions().isEmpty());
+        QVERIFY(!wrong->prepared());
+        QVERIFY(newDrafts.pendingDrafts().isEmpty());
+        QVERIFY(privateEntries().isEmpty());
+        delete wrong;
+
+        auto *restoreJob = BackupRestoreJob::restoreProtectedDirectory(destination, password, privatePath,
+            *NoteManager::instance(), newDrafts, folders, newMedia, this);
+        QTRY_VERIFY_WITH_TIMEOUT(restoreJob->phase() == BackupRestoreJob::AwaitingSelection
+                                     || restoreJob->isFinished(), 30000);
+        QVERIFY2(!restoreJob->isFinished(), qPrintable(restoreJob->error().message));
+        QCOMPARE(restoreJob->decisions().size(), 1);
+        QVERIFY(newDrafts.pendingDrafts().isEmpty());
+        // Only the isolated prepared tree remains, not the decrypted
+        // transport intermediate.
+        QCOMPARE(privateEntries().size(), 1);
+        QVERIFY(!restoreJob->apply({ { 0, BackupRestoreJob::Choice::KeepDraft, {}, {} } }, true, false));
+        QTRY_VERIFY_WITH_TIMEOUT(restoreJob->isFinished(), 30000);
+        QVERIFY2(restoreJob->state() == StorageJob::Succeeded, qPrintable(restoreJob->error().message));
+        QCOMPARE(restoreJob->result().draftIds.size(), 1);
+        const auto record = newDrafts.pendingDraft(restoreJob->result().draftIds.first());
+        QVERIFY(record);
+        QCOMPARE(record.value.title, original.title);
+        QCOMPARE(record.value.state, DraftRecord::Editing);
+        QCOMPARE(record.value.media.size(), 1);
+        QVERIFY(record.value.media.first().blobId != imported.value.blobId);
+        const auto restored = newMedia.data(record.value.media.first());
+        QVERIFY(restored);
+        QCOMPARE(restored.value, payload);
+        delete restoreJob;
+        QVERIFY(privateEntries().isEmpty());
+    }
+
+    void protectedBackupJobsCancelWithoutPublishingPlaintext()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto privatePath = directory.filePath(QStringLiteral("private"));
+        QVERIFY(QDir().mkpath(privatePath));
+        const auto key = SecureEnvelope::generateMasterKey();
+        LocalMediaStore media(directory.filePath(QStringLiteral("media")), key);
+        DraftManager drafts(std::make_unique<FileDraftStore>(directory.filePath(QStringLiteral("drafts")), key));
+        const QMap<QString, NoteStorage::Ptr> providers;
+        const auto destination = directory.filePath(QStringLiteral("backup"));
+        const auto password = QStringLiteral("portable recovery password");
+
+        auto *job = BackupExportJob::exportProtectedDirectory(destination, privatePath, password,
+                                                               providers, drafts, {}, media, this);
+        connect(job, &BackupExportJob::phaseChanged, job, [job](BackupExportJob::Phase phase) {
+            if (phase == BackupExportJob::Writing)
+                job->cancel();
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 30000);
+        QCOMPARE(job->state(), StorageJob::Cancelled);
+        QVERIFY(!QFileInfo::exists(destination));
+        QVERIFY(QDir(privatePath).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
+        delete job;
+
+        job = BackupExportJob::exportProtectedDirectory(destination, privatePath, {}, providers, drafts, {}, media, this);
+        QCOMPARE(job->state(), StorageJob::Failed);
+        QVERIFY(!QFileInfo::exists(destination));
+        delete job;
+    }
+
     void protectedBackupRoundTripAndRejectsTampering()
     {
         QTemporaryDir directory;
