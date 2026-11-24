@@ -225,22 +225,31 @@ namespace {
         return result;
     }
 
-    QString uniqueName(QString proposed, QSet<QString> &used)
+    QString portableNameKey(const QString &name)
     {
-        if (!used.contains(proposed)) {
-            used.insert(proposed);
+        return name.normalized(QString::NormalizationForm_C).toCaseFolded();
+    }
+
+    QString uniqueName(QString proposed, QSet<QString> &used, qsizetype maxLength = 180)
+    {
+        const auto claim = [&used](const QString &name) {
+            const auto key = portableNameKey(name);
+            if (used.contains(key))
+                return false;
+            used.insert(key);
+            return true;
+        };
+        if (claim(proposed))
             return proposed;
-        }
         const QFileInfo info(proposed);
-        const auto      base   = info.completeBaseName();
-        const auto      suffix = info.suffix();
+        const auto base = info.completeBaseName();
+        const auto suffix = info.suffix().isEmpty() ? QString() : QLatin1Char('.') + info.suffix();
         for (int i = 2;; ++i) {
-            const auto candidate
-                = base + QStringLiteral(" (%1)").arg(i) + (suffix.isEmpty() ? QString() : QLatin1Char('.') + suffix);
-            if (!used.contains(candidate)) {
-                used.insert(candidate);
+            const auto number = QStringLiteral(" (%1)").arg(i);
+            const auto candidate = base.left(qMax<qsizetype>(0, maxLength - number.size() - suffix.size()))
+                + number + suffix;
+            if (claim(candidate))
                 return candidate;
-            }
         }
     }
 
@@ -616,6 +625,21 @@ bool PTFStorage::saveNoteImpl(const Note &note, Note *savedNote, QList<MediaRefe
                                  << "titleLength=" << note.title().size() << "extension=" << ext;
         return false;
     }
+    if (savedNote) {
+        // A portable backup must remain unambiguous on case-insensitive
+        // filesystems. Reserve both note IDs (sidecar directories) and the
+        // filenames that already exist, including hidden PTF indexes.
+        QSet<QString> used { portableNameKey(FolderIndexName), portableNameKey(FolderIndexName + QStringLiteral(".bak")) };
+        const auto entries = notesDir.entryList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
+        const auto suffix = QLatin1Char('.') + ext;
+        for (const auto &entry : entries) {
+            used.insert(portableNameKey(entry));
+            if (entry.endsWith(suffix, Qt::CaseInsensitive))
+                used.insert(portableNameKey(entry.left(entry.size() - suffix.size())));
+        }
+        newNoteId = uniqueName(newNoteId, used, 255 - suffix.size());
+        fileName = notesDir.filePath(newNoteId + suffix);
+    }
     qCInfo(logPtfStorage) << "PTF save target: oldIdHash=" << diagnosticName(oldNoteId)
                           << "newIdHash=" << diagnosticName(newNoteId) << "suffix=" << ext;
     QString       contents = title.isEmpty() ? body : title + QLatin1Char('\n') + body;
@@ -627,7 +651,7 @@ bool PTFStorage::saveNoteImpl(const Note &note, Note *savedNote, QList<MediaRefe
             return false;
         }
         QJsonArray    manifest;
-        QSet<QString> usedNames;
+        QSet<QString> usedNames { portableNameKey(MediaManifestName), portableNameKey(LegacyMediaManifestName) };
         for (const auto &reference : note.media()) {
             if (continueCopy && !continueCopy())
                 return false;
