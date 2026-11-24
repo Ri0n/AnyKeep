@@ -98,6 +98,22 @@ BackupRestorePreviewJob *BackupRestorePreviewJob::compare(
         job->fail({ StorageError::Other, error.message, false });
         return job;
     }
+    // Capture the current local editing state once and index both sides of
+    // pending transfers. Avoid decrypting all drafts for each backup note.
+    const auto records = drafts.backupRecords();
+    if (!records) {
+        job->fail({ StorageError::Io, records.error.message, false });
+        return job;
+    }
+    job->currentDrafts_ = records.value;
+    for (qsizetype i = 0; i < records.value.size(); ++i) {
+        const auto &record = records.value.at(i);
+        job->draftById_.insert(record.id, i);
+        if (!record.storageId.isEmpty() && !record.remoteNoteId.isEmpty())
+            job->draftsByOrigin_.insert(qMakePair(record.storageId, record.remoteNoteId), i);
+        if (!record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty())
+            job->draftsByOrigin_.insert(qMakePair(record.removeSourceStorageId, record.removeSourceNoteId), i);
+    }
     for (qsizetype i = 0; i < storages.size(); ++i) {
         const auto &storage = storages.at(i);
         QHash<QUuid, PortableBackupDraftInfo> draftOrigins;
@@ -217,24 +233,13 @@ void BackupRestorePreviewJob::next()
         fail({ StorageError::Unavailable, tr("The draft manager is unavailable"), false });
         return;
     }
-    // Re-read dirty editors and durable intents for each comparison. Never
-    // treat a pending local change or deletion as an absent remote object.
-    const auto records = drafts_->backupRecords();
-    if (!records) {
-        fail({ StorageError::Io, records.error.message, false });
-        return;
-    }
-    for (const auto &record : records.value) {
-        const bool sameDraft = !entry.draftId.isNull() && record.id == entry.draftId;
-        const bool sameOrigin = !decision.originStorageId.isEmpty() && !decision.originNoteId.isEmpty()
-            && record.storageId == decision.originStorageId && record.remoteNoteId == decision.originNoteId;
-        const bool movingOrigin = !decision.originStorageId.isEmpty() && !decision.originNoteId.isEmpty()
-            && record.removeSourceStorageId == decision.originStorageId
-            && record.removeSourceNoteId == decision.originNoteId;
-        if (!sameDraft && !sameOrigin && !movingOrigin)
-            continue;
-        // Even an identical body may be a pending deletion/transfer or a
-        // different editing session. Do not auto-skip these versions.
+    // A preview observes current state; selection/commit must revalidate it.
+    // Never treat a pending local change or deletion as an absent remote object.
+    qsizetype localIndex = entry.draftId.isNull() ? -1 : draftById_.value(entry.draftId, -1);
+    if (localIndex < 0 && !decision.originStorageId.isEmpty() && !decision.originNoteId.isEmpty())
+        localIndex = draftsByOrigin_.value(qMakePair(decision.originStorageId, decision.originNoteId), -1);
+    if (localIndex >= 0) {
+        const auto &record = currentDrafts_.at(localIndex);
         conflict(record.operation == DraftRecord::Publish ? draftNote(record) : Note {},
                  tr("A current local editing or deletion intent refers to this note"));
         return;
@@ -278,11 +283,14 @@ void BackupRestorePreviewJob::next()
                 return;
             const auto state = guard->state();
             const auto error = guard->error();
-            auto current = detachedNote(guard->result());
+            const Note loaded = guard->result();
             const auto &decision = decisions_.at(index_);
             const auto &entry = storages_.at(decision.storageIndex).notes.at(decision.noteIndex);
-            const bool valid = state == Succeeded && !guard->result().isNull()
-                && guard->result().isLoaded() && current.id() == decision.originNoteId;
+            const bool valid = state == Succeeded && !loaded.isNull()
+                && loaded.isLoaded() && loaded.id() == decision.originNoteId;
+            Note current;
+            if (valid)
+                current = detachedNote(loaded);
             stopRead();
             if (!storage || !online(storage.data())) {
                 finishEntry(BackupRestoreDecision::Unavailable, tr("The original storage became unavailable"));
