@@ -205,13 +205,9 @@ namespace {
                                         << descriptions.join(QStringLiteral(", "));
     }
 
-    QHash<QString, SidecarMetadata> readMediaMetadata(const QDir &sidecar)
+    QHash<QString, SidecarMetadata> parseMediaMetadata(const QJsonDocument &document)
     {
         QHash<QString, SidecarMetadata> result;
-        QFile                           file(sidecar.filePath(MediaManifestName));
-        if (!file.open(QIODevice::ReadOnly))
-            return result;
-        const auto document = QJsonDocument::fromJson(file.readAll());
         for (const auto value : document.array()) {
             const auto  object = value.toObject();
             const QUuid id(object.value(QStringLiteral("id")).toString());
@@ -223,6 +219,14 @@ namespace {
             }
         }
         return result;
+    }
+
+    QHash<QString, SidecarMetadata> readMediaMetadata(const QDir &sidecar)
+    {
+        QFile file(sidecar.filePath(MediaManifestName));
+        if (!file.open(QIODevice::ReadOnly))
+            return {};
+        return parseMediaMetadata(QJsonDocument::fromJson(file.readAll()));
     }
 
     QString portableNameKey(const QString &name)
@@ -269,17 +273,21 @@ namespace {
         const QDir sidecar(notesDir.filePath(noteId));
         if (!sidecar.exists())
             return body;
-        const auto metadata = readMediaMetadata(sidecar);
+        QHash<QString, SidecarMetadata> metadata;
         QHash<QString, MediaReference> portableMedia;
         if (snapshotError) {
             const auto fail = [&](const QString &error) {
                 *snapshotError = error;
                 return body;
             };
-            QFile index(sidecar.filePath(MediaManifestName));
+            const QFileInfo indexInfo(sidecar.filePath(MediaManifestName));
+            if (QFileInfo(sidecar.absolutePath()).isSymLink() || !indexInfo.isFile() || indexInfo.isSymLink())
+                return fail(QStringLiteral("Unsafe portable attachment index"));
+            QFile index(indexInfo.absoluteFilePath());
             if (!index.open(QIODevice::ReadOnly) || index.size() > 32 * 1024 * 1024)
                 return fail(QStringLiteral("Could not read portable attachment index"));
             const auto document = QJsonDocument::fromJson(index.readAll());
+            metadata = parseMediaMetadata(document);
             if (!document.isArray() || document.array().size() != metadata.size())
                 return fail(QStringLiteral("Invalid or duplicate portable attachment metadata"));
             QSet<QUuid> ids;
@@ -315,6 +323,8 @@ namespace {
                 if (!files.contains(entry))
                     return fail(QStringLiteral("Unexpected file in portable attachment directory"));
             }
+        } else {
+            metadata = readMediaMetadata(sidecar);
         }
 
         struct SourceMatch {
