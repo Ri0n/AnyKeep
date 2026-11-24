@@ -4,10 +4,14 @@
 #include "foldercatalogmanager.h"
 #include "localmediastore.h"
 #include "notemanager.h"
+#include "protectedbackup.h"
 
+#include <QDir>
+#include <QFileInfo>
 #include <QMetaObject>
 #include <QSet>
 #include <QThread>
+#include <QTemporaryDir>
 
 #include <atomic>
 #include <utility>
@@ -44,6 +48,25 @@ BackupRestoreJob *BackupRestoreJob::restoreDirectory(const QString &directory, c
     return job;
 }
 
+BackupRestoreJob *BackupRestoreJob::restoreProtectedDirectory(
+    const QString &directory, const QString &password, const QString &privateParent,
+    NoteManager &notes, DraftManager &drafts, FolderCatalogManager &folders, LocalMediaStore &mediaStore,
+    QObject *owner)
+{
+    auto *job = new BackupRestoreJob(notes, drafts, folders, mediaStore, owner);
+    job->start();
+    const QFileInfo parent(privateParent);
+    if (password.isEmpty() || !QDir::isAbsolutePath(privateParent) || !parent.isDir()
+        || parent.isSymLink() || parent.canonicalFilePath().isEmpty()) {
+        job->fail({ StorageError::Other, tr("A password and an existing private staging directory are required"), false });
+        return job;
+    }
+    job->setPhase(Unlocking);
+    if (!job->isFinished())
+        job->startPreparation(directory, {}, parent.canonicalFilePath(), password);
+    return job;
+}
+
 void BackupRestoreJob::setPhase(Phase phase)
 {
     if (phase_ == phase)
@@ -76,22 +99,51 @@ void BackupRestoreJob::stopComparison()
 }
 
 void BackupRestoreJob::startPreparation(const QString &directory, const QByteArray &digest,
-                                         const QString &privateParent)
+                                         const QString &privateParent, const QString &password)
 {
     workerState_ = std::make_shared<WorkerState>();
     auto state = workerState_;
-    worker_ = QThread::create([this, state, directory, digest, privateParent] {
+    worker_ = QThread::create([this, state, directory, digest, privateParent, password] {
+        const auto keepGoing = [state] { return !state->cancelled.load(); };
         const auto progress = [this, state](int done, int total) {
             if (state->cancelled.load())
                 return false;
             QMetaObject::invokeMethod(this, [this, done, total] {
-                if (!isFinished() && phase_ == Preparing)
+                if (!isFinished() && (phase_ == Preparing || phase_ == Unlocking))
                     emit progressChanged(done, total);
             }, Qt::QueuedConnection);
             return true;
         };
-        state->prepared = PortableBackupRestore::prepareDirectory(directory, digest, privateParent, &state->error,
-                                                                  progress, [state] { return !state->cancelled.load(); });
+        if (password.isEmpty()) {
+            state->prepared = PortableBackupRestore::prepareDirectory(directory, digest, privateParent, &state->error,
+                                                                      progress, keepGoing);
+            return;
+        }
+
+        // Authenticate the complete protected transport in private storage
+        // before allowing the PTF loader to see any of its metadata. The
+        // authenticated manifest digest binds the next preparation step.
+        QTemporaryDir unlocked(QDir(privateParent).filePath(QStringLiteral("anykeep-unlock-job-XXXXXX")));
+        if (!unlocked.isValid()) {
+            state->error = unlocked.errorString();
+            return;
+        }
+        const auto plain = unlocked.filePath(QStringLiteral("ptf"));
+        const auto inspected = ProtectedBackup::unlockDirectory(directory, plain, password, progress, keepGoing);
+        if (!inspected) {
+            state->error = inspected.error;
+            return;
+        }
+        if (!keepGoing())
+            return;
+        QMetaObject::invokeMethod(this, [this] {
+            if (!isFinished())
+                setPhase(Preparing);
+        }, Qt::QueuedConnection);
+        state->prepared = PortableBackupRestore::prepareDirectory(plain, inspected.manifestSha256, privateParent,
+                                                                  &state->error, progress, keepGoing);
+        // The intermediate unlocked tree is destroyed here, before the
+        // application thread receives the prepared conflict preview.
     });
     worker_->setParent(this);
     connect(worker_, &QThread::finished, this, &BackupRestoreJob::preparationFinished, Qt::QueuedConnection);
