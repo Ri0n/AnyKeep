@@ -7,6 +7,7 @@
 #include "localmediastore.h"
 #include "ptfstorage.h"
 #include "portablebackup.h"
+#include "portablebackuprestore.h"
 #include "secureenvelope.h"
 
 #include <QCryptographicHash>
@@ -48,6 +49,92 @@ class PTFStorageTest : public QObject {
     }
 
 private slots:
+    void prepareBackupRestoresMediaInIsolationAndKeepsMissingIdentity()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QVERIFY(QDir(directory.path()).mkpath(QStringLiteral("private")));
+        const auto privatePath = directory.filePath(QStringLiteral("private"));
+        LocalMediaStore oldMedia(directory.filePath(QStringLiteral("old-media")), SecureEnvelope::generateMasterKey());
+        PTFStorage source(oldMedia, directory.filePath(QStringLiteral("source")));
+        QVERIFY(source.init());
+        const auto present = oldMedia.importData(QByteArrayLiteral("real image"), QStringLiteral("same.png"),
+                                                  QStringLiteral("image/png"));
+        QVERIFY(present);
+        MediaReference missing;
+        missing.id = QUuid::createUuid();
+        missing.originalName = QStringLiteral("same.png");
+        missing.portableName = missing.originalName;
+        missing.mediaType = QStringLiteral("image/png");
+        missing.size = 123;
+        missing.checksum = QCryptographicHash::hash(QByteArrayLiteral("different image"), QCryptographicHash::Sha256);
+        const auto folder = QUuid::createUuid();
+        Note note = source.createNote();
+        note.setTitle(QStringLiteral("Restored note"));
+        note.setText(QStringLiteral("![Present](%1)\n\n![Missing](%2)").arg(present.value.uri(), missing.uri()),
+                     Note::Markdown);
+        note.setMedia({ present.value, missing });
+        note.setFolderId(folder);
+        note.setFavorite(true);
+        const auto modified = QDateTime::currentDateTimeUtc();
+        note.setLastChangeUTC(modified);
+        PortableBackupStorage provider;
+        provider.storageId = QStringLiteral("original-provider");
+        provider.complete = true;
+        provider.notes.append({ note, QStringLiteral("opaque-note-id"), {} });
+
+        const auto target = directory.filePath(QStringLiteral("backup"));
+        QVERIFY(PortableBackup::exportDirectory(target, { provider }, catalogWithFolder(folder), oldMedia));
+        const auto preview = PortableBackup::inspectDirectory(target);
+        QVERIFY2(preview, qPrintable(preview.error));
+        QVERIFY(!preview.complete);
+        QCOMPARE(preview.unavailableMedia, 1);
+        QString error;
+        auto restored = PortableBackupRestore::prepareDirectory(target, preview.manifestSha256, privatePath, &error);
+        QVERIFY2(restored, qPrintable(error));
+        QVERIFY(!restored->inspection().complete);
+        QCOMPARE(restored->storages().size(), 1);
+        const auto &entry = restored->storages().first().notes.first();
+        QCOMPARE(entry.sourceNoteId, QStringLiteral("opaque-note-id"));
+        QCOMPARE(entry.snapshot.id(), entry.sourceNoteId);
+        QVERIFY(entry.snapshot.storage() == nullptr);
+        QCOMPARE(entry.snapshot.folderId(), folder);
+        QVERIFY(entry.snapshot.isFavorite());
+        QCOMPARE(entry.snapshot.lastChangeUTC(), modified);
+        QCOMPARE(entry.snapshot.media().size(), 2);
+        QVERIFY(entry.snapshot.text().contains(missing.uri()));
+        bool foundPresent = false;
+        bool foundMissing = false;
+        for (const auto &reference : entry.snapshot.media()) {
+            if (reference.id == present.value.id) {
+                foundPresent = true;
+                QVERIFY(reference.blobId != present.value.blobId);
+                const auto data = restored->mediaStore().data(reference);
+                QVERIFY(data);
+                QCOMPARE(data.value, QByteArrayLiteral("real image"));
+            } else if (reference.id == missing.id) {
+                foundMissing = true;
+                QVERIFY(reference.blobId.isEmpty());
+                QCOMPARE(reference.checksum, missing.checksum);
+                QCOMPARE(reference.uri(), missing.uri());
+                QVERIFY(!restored->mediaStore().contains(reference));
+            }
+        }
+        QVERIFY(foundPresent && foundMissing);
+        QVERIFY(QFileInfo::exists(target));
+        QVERIFY(!QDir(privatePath).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
+        restored.reset();
+        QVERIFY(QDir(privatePath).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
+
+        auto wrong = PortableBackupRestore::prepareDirectory(target, QByteArray(32, 'x'), privatePath, &error);
+        QVERIFY(!wrong);
+        QVERIFY(!error.isEmpty());
+        auto cancelled = PortableBackupRestore::prepareDirectory(
+            target, preview.manifestSha256, privatePath, &error, [](int, int) { return false; });
+        QVERIFY(!cancelled);
+        QVERIFY(QDir(privatePath).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
+    }
+
     void portableBackupAvoidsCaseAliasesAndReservedSidecarNames()
     {
         QTemporaryDir directory;
