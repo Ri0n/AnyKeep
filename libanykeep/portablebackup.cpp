@@ -55,7 +55,8 @@ namespace {
 PortableBackupResult PortableBackup::exportDirectory(const QString &directory,
                                                        const QList<PortableBackupStorage> &storages,
                                                        const FolderCatalogSnapshot &folders,
-                                                       LocalMediaStore &mediaStore, const Progress &progress)
+                                                       LocalMediaStore &mediaStore, const Progress &progress,
+                                                       const Continue &continueWriting, const Continue &beforePublish)
 {
     PortableBackupResult result;
     const auto fail = [&result](const QString &message) {
@@ -69,6 +70,10 @@ PortableBackupResult PortableBackup::exportDirectory(const QString &directory,
     const QFileInfo target(QDir::cleanPath(directory));
     if (target.exists() || target.isSymLink() || target.fileName().isEmpty() || !target.dir().exists())
         return fail(QStringLiteral("The backup destination must be a new directory in an existing parent"));
+
+    const auto cancelled = [&] { return continueWriting && !continueWriting(); };
+    if (cancelled())
+        return fail(QStringLiteral("Backup cancelled"));
 
     int total = 0;
     QSet<QString> storageIds;
@@ -93,7 +98,7 @@ PortableBackupResult PortableBackup::exportDirectory(const QString &directory,
     int storageNumber = 0;
 
     for (const auto &storage : storages) {
-        if (progress && !progress(result.notesWritten, total))
+        if (cancelled() || (progress && !progress(result.notesWritten, total)))
             return fail(QStringLiteral("Backup cancelled"));
         const QString folder = QStringLiteral("storage-%1").arg(++storageNumber);
         PTFStorage destination(mediaStore, staging.filePath(folder));
@@ -110,7 +115,7 @@ PortableBackupResult PortableBackup::exportDirectory(const QString &directory,
         QJsonArray notes;
         QSet<QString> exportedIdentities;
         for (const auto &entry : storage.notes) {
-            if (progress && !progress(result.notesWritten, total))
+            if (cancelled() || (progress && !progress(result.notesWritten, total)))
                 return fail(QStringLiteral("Backup cancelled"));
             const auto &source = entry.snapshot;
             if (source.isNull() || !source.isLoaded()
@@ -125,8 +130,8 @@ PortableBackupResult PortableBackup::exportDirectory(const QString &directory,
 
             Note saved;
             QList<MediaReference> missing;
-            if (!destination.copySnapshot(source, &saved, &missing) || saved.id().isEmpty())
-                return fail(QStringLiteral("Could not export a PTF note"));
+            if (!destination.copySnapshot(source, &saved, &missing, continueWriting) || saved.id().isEmpty())
+                return fail(cancelled() ? QStringLiteral("Backup cancelled") : QStringLiteral("Could not export a PTF note"));
             QJsonArray unavailable;
             for (const auto &media : missing)
                 unavailable.append(missingMediaEntry(media));
@@ -179,7 +184,7 @@ PortableBackupResult PortableBackup::exportDirectory(const QString &directory,
         complete = complete && storage.complete && storage.omittedNoteIds.isEmpty();
     }
 
-    if (progress && !progress(result.notesWritten, total))
+    if (cancelled() || (progress && !progress(result.notesWritten, total)))
         return fail(QStringLiteral("Backup cancelled"));
 
     complete = complete && result.unavailableMedia == 0;
@@ -198,7 +203,11 @@ PortableBackupResult PortableBackup::exportDirectory(const QString &directory,
         || !manifestFile.commit())
         return fail(QStringLiteral("Could not commit the backup manifest"));
 
-    if (!target.dir().rename(staging.path(), target.absoluteFilePath()))
+    if (cancelled() || (beforePublish && !beforePublish()))
+        return fail(QStringLiteral("Backup cancelled"));
+    const QFileInfo finalTarget(target.absoluteFilePath());
+    if (finalTarget.exists() || finalTarget.isSymLink()
+        || !target.dir().rename(staging.path(), target.absoluteFilePath()))
         return fail(QStringLiteral("Could not publish the staged backup directory"));
     staging.setAutoRemove(false);
     result.complete = complete;
