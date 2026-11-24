@@ -1,4 +1,5 @@
 #include "backupsnapshotjob.h"
+#include "backuprestorepreviewjob.h"
 #include "draftmanager.h"
 #include "draftstore.h"
 #include "notedata.h"
@@ -262,6 +263,8 @@ class DraftManagerTransferTest : public QObject {
 
 private slots:
     void recoveredCopiesNeverReplaceExistingNotesAndRollbackOnError();
+    void restorePreviewDistinguishesIdenticalConflictingMissingAndUnavailable();
+    void restorePreviewHonorsLocalIntentsAndCancellation();
     void backupCapturesLiveEditsWithoutPublication();
     void backupReportsFailedLoadsAndSupportsCancellation();
     void publishesDestinationBeforeDeletingSource();
@@ -478,6 +481,107 @@ void DraftManagerTransferTest::synchronouslyFailedRemovalDoesNotStrandDelete()
     };
     QTRY_VERIFY(deletionRetried());
     QCOMPARE(raw->removeCalls_, 0);
+}
+
+void DraftManagerTransferTest::restorePreviewDistinguishesIdenticalConflictingMissingAndUnavailable()
+{
+    TransferStorage storage(QStringLiteral("restore-origin"));
+    TransferStorage unavailable(QStringLiteral("restore-unavailable"));
+    unavailable.failLoadsSynchronously_ = true;
+    storage.addStored(QStringLiteral("same"), QStringLiteral("Title"), QStringLiteral("Same"));
+    storage.addStored(QStringLiteral("different"), QStringLiteral("Title"), QStringLiteral("Current"));
+    auto memory = std::make_unique<MemoryDraftStore>();
+    auto *data = memory.get();
+    DraftManager drafts(std::move(memory));
+    const auto snapshot = [](const QString &body) {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(body, Note::Markdown);
+        note.setLastChangeUTC(QDateTime::currentDateTimeUtc());
+        return note;
+    };
+    PortableBackupStorage group;
+    group.storageId = storage.systemName();
+    group.notes = { { snapshot(QStringLiteral("Same")), QStringLiteral("same"), {} },
+                    { snapshot(QStringLiteral("Backup")), QStringLiteral("different"), {} },
+                    { snapshot(QStringLiteral("Missing")), QStringLiteral("missing"), {} } };
+    PortableBackupStorage failed;
+    failed.storageId = unavailable.systemName();
+    failed.notes = { { snapshot(QStringLiteral("Unavailable")), QStringLiteral("id"), {} } };
+    PortableBackupStorage missing;
+    missing.storageId = QStringLiteral("not-configured");
+    missing.notes = { { snapshot(QStringLiteral("Provider missing")), QStringLiteral("id"), {} } };
+    PortableBackupStorage local;
+    local.storageId = DraftManager::draftsStorageId();
+    PortableBackupDraftInfo origin;
+    origin.id = QUuid::createUuid();
+    origin.storageId = storage.systemName();
+    origin.noteId = QStringLiteral("different");
+    local.drafts.append(origin);
+    local.notes.append({ snapshot(QStringLiteral("Unsaved version")), origin.noteId, origin.id });
+
+    const QMap<QString, NoteStorage::Ptr> providers { { storage.systemName(), &storage },
+                                                     { unavailable.systemName(), &unavailable } };
+    auto *job = BackupRestorePreviewJob::compare({ group, failed, missing, local }, providers, drafts, {}, this);
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->state(), StorageJob::Succeeded);
+    const auto &result = job->result();
+    QCOMPARE(result.size(), 6);
+    QCOMPARE(result[0].status, BackupRestoreDecision::Identical);
+    QCOMPARE(result[1].status, BackupRestoreDecision::Conflict);
+    QCOMPARE(result[1].resolution.action, ConflictResolution::CreateCopy);
+    QVERIFY(!result[1].resolution.copyTitle.isEmpty());
+    QCOMPARE(result[2].status, BackupRestoreDecision::NoteMissing);
+    QCOMPARE(result[3].status, BackupRestoreDecision::Unavailable);
+    QCOMPARE(result[4].status, BackupRestoreDecision::ProviderMissing);
+    QVERIFY(result[4].destinationStorageId.isEmpty());
+    QCOMPARE(result[5].status, BackupRestoreDecision::Conflict);
+    QCOMPARE(result[5].originStorageId, storage.systemName());
+    QCOMPARE(result[5].originNoteId, origin.noteId);
+    QCOMPARE(data->writeCount_, 0);
+    QCOMPARE(storage.saveCalls_, 0);
+    QCOMPARE(storage.removeCalls_, 0);
+    delete job;
+}
+
+void DraftManagerTransferTest::restorePreviewHonorsLocalIntentsAndCancellation()
+{
+    TransferStorage storage(QStringLiteral("restore-local-intent"));
+    const auto original = storage.addStored(QStringLiteral("original"), QStringLiteral("Title"),
+                                             QStringLiteral("Body"));
+    auto memory = std::make_unique<MemoryDraftStore>();
+    auto *data = memory.get();
+    DraftRecord removal;
+    removal.id = QUuid::createUuid();
+    removal.operation = DraftRecord::Delete;
+    removal.storageId = storage.systemName();
+    removal.remoteNoteId = original.id();
+    data->records_.insert(removal.id, removal);
+    DraftManager drafts(std::move(memory));
+
+    Note snapshot(new NoteData(nullptr));
+    snapshot.setTitle(original.title());
+    snapshot.setText(original.text(), original.format());
+    snapshot.setLastChangeUTC(original.lastChangeUTC());
+    PortableBackupStorage group;
+    group.storageId = storage.systemName();
+    group.notes.append({ snapshot, original.id(), {} });
+    const QMap<QString, NoteStorage::Ptr> providers { { storage.systemName(), &storage } };
+    auto *job = BackupRestorePreviewJob::compare({ group }, providers, drafts, {}, this);
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->state(), StorageJob::Succeeded);
+    QCOMPARE(job->result().first().status, BackupRestoreDecision::Conflict);
+    QCOMPARE(data->writeCount_, 0);
+    QCOMPARE(data->records_.size(), 1);
+    QCOMPARE(storage.removeCalls_, 0);
+    delete job;
+
+    auto *cancelled = BackupRestorePreviewJob::compare({ group }, providers, drafts, {}, this);
+    cancelled->cancel();
+    QCOMPARE(cancelled->state(), StorageJob::Cancelled);
+    QCoreApplication::processEvents();
+    QCOMPARE(data->writeCount_, 0);
+    delete cancelled;
 }
 
 void DraftManagerTransferTest::backupCapturesLiveEditsWithoutPublication()
