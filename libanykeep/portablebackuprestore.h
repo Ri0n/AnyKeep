@@ -22,6 +22,23 @@ public:
 
     ~PortableBackupRestore();
 
+    struct CopySelection {
+        qsizetype storageIndex;
+        qsizetype noteIndex;
+        QString destinationStorageId;
+    };
+
+    // Run on a worker after initializing the destination media key on the
+    // application thread. Copies only selected attachments into the profile
+    // media store; no draft or provider is mutated. A later application-thread
+    // stageRecoveredCopies commits the returned notes as editing drafts.
+    // Every copy gets fresh attachment identities, including missing media,
+    // to avoid aliasing an existing profile's external-file locators.
+    DraftStoreResult<QList<RecoveredNoteCopy>> prepareCopies(
+        const QList<CopySelection> &selection, LocalMediaStore &destination,
+        const PortableBackup::Progress &progress = {},
+        const PortableBackup::Continue &continueReading = {}) const;
+
     const PortableBackupInspection &inspection() const { return inspection_; }
     const QList<PortableBackupStorage> &storages() const { return storages_; }
     const FolderCatalogSnapshot &folders() const { return folders_; }

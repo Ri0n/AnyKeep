@@ -84,6 +84,11 @@ public:
      */
     FolderCatalogError mergeProviderCatalog(const QString &storageId, const FolderCatalogSnapshot &snapshot);
 
+    // Import missing folder records from a verified backup without changing
+    // existing folders, assignments or provider path hints. Conflicts are
+    // returned to the caller rather than silently changing the live tree.
+    FolderCatalogError mergeRecoveredFolders(const FolderCatalogSnapshot &snapshot);
+
     /** Explicit recovery operations; neither is attempted automatically. */
     FolderCatalogError restoreBackup(QString *preservedPath = nullptr);
     FolderCatalogError recreate(QString *preservedPath = nullptr);

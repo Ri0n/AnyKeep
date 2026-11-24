@@ -76,6 +76,10 @@ public:
     DraftStoreError moveDraft(const QUuid &draftId, const QString &destinationStorageId);
     /** Publish a copy of the same local draft contents to another storage. */
     DraftStoreError copyDraft(const QUuid &draftId, const QString &destinationStorageId, QUuid *copyDraftId = nullptr);
+    // Write recovered snapshots as new, non-publishable editing drafts.
+    // Never retain a remote identity, a delete intent or a backend token.
+    // On failure the result lists any new IDs that could not be rolled back.
+    DraftStoreResult<QList<QUuid>> stageRecoveredCopies(const QList<RecoveredNoteCopy> &copies);
     /** Update local folder metadata without touching a storage until publication. */
     DraftStoreError setDraftFolder(const QUuid &draftId, const QUuid &folderId, bool userOverride = true);
     /** Amend a publish draft without creating a second writer or losing its concurrency token. */

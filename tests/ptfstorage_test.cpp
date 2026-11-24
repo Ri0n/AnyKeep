@@ -3,6 +3,8 @@
 #include "backupexportjob.h"
 #include "draftmanager.h"
 #include "filedraftstore.h"
+#include "filefoldercatalogstore.h"
+#include "foldercatalogmanager.h"
 #include "localdatakeystore.h"
 #include "localmediastore.h"
 #include "ptfstorage.h"
@@ -121,6 +123,56 @@ private slots:
             }
         }
         QVERIFY(foundPresent && foundMissing);
+
+        // Recovery copies are encrypted under the actual destination key,
+        // not the key of the temporary preparation or the old installation.
+        const auto profileKey = SecureEnvelope::generateMasterKey();
+        LocalMediaStore profileMedia(directory.filePath(QStringLiteral("profile-media")), profileKey);
+        const auto copies = restored->prepareCopies({ { 0, 0, {} } }, profileMedia);
+        QVERIFY2(copies, qPrintable(copies.error.message));
+        QCOMPARE(copies.value.size(), 1);
+        const auto &copy = copies.value.first().snapshot;
+        QCOMPARE(copy.media().size(), 2);
+        QVERIFY(copy.id().isEmpty());
+        for (const auto &reference : copy.media()) {
+            QVERIFY(reference.id != present.value.id && reference.id != missing.id);
+            QVERIFY(copy.text().contains(reference.uri()));
+            if (reference.blobId.isEmpty()) {
+                QCOMPARE(reference.checksum, missing.checksum);
+                QVERIFY(!profileMedia.contains(reference));
+            } else {
+                const auto data = profileMedia.data(reference);
+                QVERIFY(data);
+                QCOMPARE(data.value, QByteArrayLiteral("real image"));
+            }
+        }
+        QVERIFY(!copy.text().contains(missing.uri()));
+
+        FolderCatalogManager folders(std::make_unique<FileFolderCatalogStore>(
+            directory.filePath(QStringLiteral("profile-folders")), profileKey));
+        QVERIFY(folders.initialize());
+        QVERIFY(!folders.mergeRecoveredFolders(restored->folders()));
+        QVERIFY(folders.catalog().folder(folder));
+        QVERIFY(!folders.renameFolder(folder, QStringLiteral("Current folder")));
+        QVERIFY(!folders.mergeRecoveredFolders(restored->folders()));
+        QCOMPARE(folders.catalog().folder(folder)->name, QStringLiteral("Current folder"));
+
+        DraftManager drafts(std::make_unique<FileDraftStore>(directory.filePath(QStringLiteral("profile-drafts")),
+                                                             profileKey));
+        const auto staged = drafts.stageRecoveredCopies(copies.value);
+        QVERIFY2(staged, qPrintable(staged.error.message));
+        QCOMPARE(staged.value.size(), 1);
+        drafts.publishPending();
+        const auto draft = drafts.pendingDraft(staged.value.first());
+        QVERIFY(draft);
+        QCOMPARE(draft.value.state, DraftRecord::Editing);
+        QVERIFY(draft.value.storageId.isEmpty());
+        QVERIFY(draft.value.remoteNoteId.isEmpty());
+        QVERIFY(draft.value.removeSourceNoteId.isEmpty());
+        QCOMPARE(draft.value.folderId, folder);
+        QVERIFY(draft.value.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool());
+        QCOMPARE(draft.value.media, copy.media());
+
         QVERIFY(QFileInfo::exists(target));
         QVERIFY(!QDir(privatePath).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
         restored.reset();

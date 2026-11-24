@@ -9,10 +9,14 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
+#include <QPair>
 #include <QSaveFile>
 #include <QSet>
 #include <QTemporaryDir>
 #include <QUrl>
+
+#include <utility>
 
 namespace AnyKeep {
 namespace {
@@ -205,6 +209,95 @@ std::unique_ptr<PortableBackupRestore> PortableBackupRestore::prepareDirectory(
         return fail(QStringLiteral("Backup preparation cancelled"));
     prepared->folders_ = catalog.snapshot();
     return prepared;
+}
+
+
+DraftStoreResult<QList<RecoveredNoteCopy>> PortableBackupRestore::prepareCopies(
+    const QList<CopySelection> &selection, LocalMediaStore &destination,
+    const PortableBackup::Progress &progress, const PortableBackup::Continue &continueReading) const
+{
+    const auto fail = [](DraftStoreError::Code code, const QString &message)
+        -> DraftStoreResult<QList<RecoveredNoteCopy>> { return { {}, { code, message } }; };
+    const auto cancelled = [&] { return continueReading && !continueReading(); };
+    // Validate the entire selection before changing even the media cache.
+    QSet<QPair<qsizetype, qsizetype>> selected;
+    for (const auto &item : selection) {
+        if (item.storageIndex < 0 || item.storageIndex >= storages_.size()
+            || item.noteIndex < 0 || item.noteIndex >= storages_.at(item.storageIndex).notes.size())
+            return fail(DraftStoreError::InvalidArgument, QStringLiteral("Invalid recovery selection"));
+        const auto key = qMakePair(item.storageIndex, item.noteIndex);
+        if (selected.contains(key))
+            return fail(DraftStoreError::InvalidArgument, QStringLiteral("Duplicate recovery selection"));
+        selected.insert(key);
+    }
+
+    // The verified PTF tree already contains the clear bytes. Reuse those
+    // files instead of decrypting the temporary cache into another copy.
+    const QDir stage(QDir(workingDirectory_->path()).filePath(QStringLiteral("ptf")));
+    QHash<QString, QList<const PortableBackupFileInfo *>> sidecars;
+    for (const auto &file : inspection_.files) {
+        const auto parts = file.path.split(QLatin1Char('/'));
+        if (parts.size() == 3 && parts.last() != QStringLiteral(".anykeep-media.json"))
+            sidecars[parts[0] + QLatin1Char('/') + parts[1]].append(&file);
+    }
+
+    QList<RecoveredNoteCopy> copies;
+    copies.reserve(selection.size());
+    int done = 0;
+    for (const auto &item : selection) {
+        if (cancelled() || (progress && !progress(done, int(selection.size()))))
+            return fail(DraftStoreError::Io, QStringLiteral("Recovery copy preparation cancelled"));
+        const auto &storageInfo = inspection_.storages.at(item.storageIndex);
+        const auto &noteInfo = storageInfo.notes.at(item.noteIndex);
+        const auto &source = storages_.at(item.storageIndex).notes.at(item.noteIndex).snapshot;
+        Note note = source;
+        note.setId({});
+        const auto candidates = sidecars.value(storageInfo.directory + QLatin1Char('/') + noteInfo.ptfId);
+        QSet<QUuid> unavailable;
+        for (const auto &missing : noteInfo.unavailableMedia)
+            unavailable.insert(missing.id);
+
+        QList<MediaReference> media;
+        auto title = note.title();
+        auto body = note.text();
+        for (const auto &reference : source.media()) {
+            if (cancelled())
+                return fail(DraftStoreError::Io, QStringLiteral("Recovery copy preparation cancelled"));
+            MediaReference copy = reference;
+            copy.id = QUuid::createUuid();
+            copy.blobId.clear();
+            copy.remoteData.clear();
+            copy.posterBlobId.clear();
+            if (!unavailable.contains(reference.id)) {
+                const PortableBackupFileInfo *matching = nullptr;
+                for (const auto *candidate : candidates) {
+                    if (candidate->size == reference.size && candidate->sha256 == reference.checksum) {
+                        matching = candidate;
+                        break;
+                    }
+                }
+                if (!matching)
+                    return fail(DraftStoreError::Corrupt, QStringLiteral("Missing verified recovery attachment"));
+                const auto imported = destination.importFile(stage.filePath(matching->path), copy.id);
+                if (!imported)
+                    return fail(DraftStoreError::Io, imported.error);
+                if (imported.value.size != reference.size || imported.value.checksum != reference.checksum)
+                    return fail(DraftStoreError::Corrupt, QStringLiteral("Recovery attachment changed during import"));
+                copy.blobId = imported.value.blobId;
+            }
+            title.replace(reference.uri(), copy.uri());
+            body.replace(reference.uri(), copy.uri());
+            media.append(std::move(copy));
+        }
+        note.setTitle(title);
+        note.setText(body, note.format());
+        note.setMedia(media);
+        copies.append({ note, item.destinationStorageId });
+        ++done;
+    }
+    if (cancelled() || (progress && !progress(done, int(selection.size()))))
+        return fail(DraftStoreError::Io, QStringLiteral("Recovery copy preparation cancelled"));
+    return { copies, {} };
 }
 
 } // namespace AnyKeep
