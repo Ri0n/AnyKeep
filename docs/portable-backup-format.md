@@ -145,6 +145,40 @@ profile data is written during preparation. The later commit operation
 must transfer media into the destination profile, resolve conflicts and
 handle routing explicitly.
 
+## Recovery as new local drafts
+
+The initial recovery commit path is deliberately lossless and non-destructive.
+The caller selects prepared note versions and an optional configured target.
+PortableBackupRestore::prepareCopies imports selected available media into
+the destination profile's initialized media store, reusing verified private
+PTF files and checking size and checksum again. New attachment UUIDs are
+allocated for copies (including unavailable attachments) and the document
+URIs are rewritten, so a restored copy cannot alias a live external-file
+locator. Missing attachments remain missing with their expected fingerprint.
+Original attachment identities remain in the isolated prepared snapshot.
+
+FolderCatalogManager::mergeRecoveredFolders adds missing live folder records
+using normal catalog validation, preserving existing records and assignments.
+An existing deleted folder or a conflicting hierarchy requires an explicit
+decision rather than silently overwriting the current folder tree.
+
+DraftManager::stageRecoveredCopies is an application-thread commit into the
+normal encrypted draft store. It allocates fresh draft IDs, preserves portable
+user metadata, strips remote identities, transfer/delete intents and opaque
+backend tokens, and writes Editing drafts only. It does not schedule
+publication. A later explicit normal publication creates a new note. Failed
+batch writes roll back newly written drafts when possible and report any
+surviving IDs. Existing drafts are never overwritten.
+
+Media preparation, missing-folder merge and draft batch commit are separate
+operations; they are not a cross-store transaction. A failure or cancellation
+may leave unreferenced encrypted blobs in the profile media cache, and a
+subsequent draft-write failure does not undo already accepted folder imports.
+Selection/destination validation and conflict preview must be completed before
+orchestration invokes these operations. Matching existing remote versions,
+skipping identical notes and resolving conflicts with the normal resolver
+remain follow-up work; no original remote identity is used for publication.
+
 ## Remaining work before exposing a user-facing backup
 
 1. Capture provider-specific safe recovery metadata, recycle-bin history,
@@ -160,9 +194,10 @@ handle routing explicitly.
    Android uses SAF for the file or directory destination; desktop can use the
    same core with ordinary paths. Verify external destination writes before
    offering the system uninstall confirmation.
-4. Commit the prepared snapshots using existing copy/draft/conflict
-   paths. Transfer media into the destination profile under its current
-   local key. Import must preserve existing data and handle unavailable
-   providers explicitly. No automatic remote deletion or overwrite.
+4. Integrate recovery selection, destination lookup and conflict preview
+   with the prepared-copy and existing draft publication paths. Distinguish
+   identical notes from conflicting versions, handle missing providers and
+   define cross-store failure/retry behavior. No automatic remote deletion
+   or overwrite.
 
 No Settings action or complete restore is exposed yet.
