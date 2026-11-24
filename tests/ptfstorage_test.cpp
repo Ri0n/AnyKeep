@@ -11,6 +11,7 @@
 #include "notemanager.h"
 #include "ptfstorage.h"
 #include "portablebackup.h"
+#include "protectedbackup.h"
 #include "portablebackuprestore.h"
 #include "secureenvelope.h"
 
@@ -53,6 +54,113 @@ class PTFStorageTest : public QObject {
     }
 
 private slots:
+    void protectedBackupRoundTripAndRejectsTampering()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto privatePath = directory.filePath(QStringLiteral("private"));
+        QVERIFY(QDir().mkpath(privatePath));
+        LocalMediaStore media(directory.filePath(QStringLiteral("media")), SecureEnvelope::generateMasterKey());
+        PTFStorage source(media, directory.filePath(QStringLiteral("source")));
+        QVERIFY(source.init());
+        const QByteArray payload(2 * 1024 * 1024 + 17, 'v');
+        const auto imported = media.importData(payload, QStringLiteral("private-video.mp4"),
+                                               QStringLiteral("video/mp4"));
+        QVERIFY(imported);
+        Note note = source.createNote();
+        note.setTitle(QStringLiteral("Confidential title"));
+        note.setText(QStringLiteral("<video src=\"%1\"></video>").arg(imported.value.uri()), Note::Markdown);
+        note.setMedia({ imported.value });
+        PortableBackupStorage provider;
+        provider.storageId = QStringLiteral("confidential-provider");
+        provider.complete = true;
+        provider.notes.append({ note, QStringLiteral("original-id"), {} });
+        const auto plain = QDir(privatePath).filePath(QStringLiteral("plain"));
+        QVERIFY(PortableBackup::exportDirectory(plain, { provider }, {}, media));
+        const auto original = PortableBackup::inspectDirectory(plain);
+        QVERIFY2(original, qPrintable(original.error));
+
+        const auto protectedPath = directory.filePath(QStringLiteral("protected"));
+        const QString password = QStringLiteral("A password for portable recovery 123");
+        const auto encrypted = ProtectedBackup::protectDirectory(plain, protectedPath, password);
+        QVERIFY2(encrypted, qPrintable(encrypted.error));
+        QCOMPARE(encrypted.manifestSha256, original.manifestSha256);
+        const QDir protectedTree(protectedPath);
+        const auto files = protectedTree.entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden);
+        QCOMPARE(files.size(), original.files.size() + 2);
+        QVERIFY(!files.contains(QStringLiteral("manifest.json")));
+        QVERIFY(!files.contains(QStringLiteral("storage-1")));
+        for (const auto &name : files) {
+            QFile file(protectedTree.filePath(name));
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            const auto bytes = file.readAll();
+            QVERIFY(!bytes.contains("Confidential title"));
+            QVERIFY(!bytes.contains("private-video.mp4"));
+            QVERIFY(!bytes.contains("confidential-provider"));
+        }
+
+        const auto unlocked = QDir(privatePath).filePath(QStringLiteral("unlocked"));
+        QVERIFY(!ProtectedBackup::unlockDirectory(protectedPath, unlocked, QStringLiteral("wrong password")));
+        QVERIFY(!QFileInfo::exists(unlocked));
+        const auto decrypted = ProtectedBackup::unlockDirectory(protectedPath, unlocked, password);
+        QVERIFY2(decrypted, qPrintable(decrypted.error));
+        QCOMPARE(decrypted.manifestSha256, original.manifestSha256);
+        QCOMPARE(decrypted.files.size(), original.files.size());
+        for (qsizetype i = 0; i < original.files.size(); ++i) {
+            QCOMPARE(decrypted.files.at(i).path, original.files.at(i).path);
+            QCOMPARE(decrypted.files.at(i).sha256, original.files.at(i).sha256);
+        }
+        QVERIFY(QDir(unlocked).removeRecursively());
+
+        // Swap two complete encrypted files. The authenticated file identity
+        // and manifest inventory must reject substitution.
+        QVERIFY(original.files.size() >= 2);
+        const auto first = protectedTree.filePath(QStringLiteral("file-00000000.enc"));
+        const auto second = protectedTree.filePath(QStringLiteral("file-00000001.enc"));
+        const auto temporary = protectedTree.filePath(QStringLiteral("swap.tmp"));
+        QVERIFY(QFile::rename(first, temporary));
+        QVERIFY(QFile::rename(second, first));
+        QVERIFY(QFile::rename(temporary, second));
+        QVERIFY(!ProtectedBackup::unlockDirectory(protectedPath, unlocked, password));
+        QVERIFY(!QFileInfo::exists(unlocked));
+        QVERIFY(QFile::rename(first, temporary));
+        QVERIFY(QFile::rename(second, first));
+        QVERIFY(QFile::rename(temporary, second));
+
+        // Change one byte without changing the file length.
+        QFile manifest(protectedTree.filePath(QStringLiteral("manifest.enc")));
+        QVERIFY(manifest.open(QIODevice::ReadWrite));
+        QVERIFY(manifest.seek(manifest.size() - 1));
+        const auto tail = manifest.read(1);
+        QCOMPARE(tail.size(), 1);
+        QVERIFY(manifest.seek(manifest.size() - 1));
+        QCOMPARE(manifest.write(QByteArray(1, char(tail.at(0) ^ 1))), qint64(1));
+        manifest.close();
+        QVERIFY(!ProtectedBackup::unlockDirectory(protectedPath, unlocked, password));
+        QVERIFY(!QFileInfo::exists(unlocked));
+    }
+
+    void protectedBackupHonorsCancellationAndEmptyInventory()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        LocalMediaStore media(directory.filePath(QStringLiteral("media")), SecureEnvelope::generateMasterKey());
+        const auto plain = directory.filePath(QStringLiteral("plain"));
+        QVERIFY(PortableBackup::exportDirectory(plain, {}, {}, media));
+        const auto target = directory.filePath(QStringLiteral("protected"));
+        const auto password = QStringLiteral("password for empty backup");
+        QVERIFY(!ProtectedBackup::protectDirectory(plain, target, password, {}, [] { return false; }));
+        QVERIFY(!QFileInfo::exists(target));
+        QVERIFY(!ProtectedBackup::protectDirectory(plain, target, password, {}, {}, [] { return false; }));
+        QVERIFY(!QFileInfo::exists(target));
+        QVERIFY(ProtectedBackup::protectDirectory(plain, target, password));
+        const auto unlocked = directory.filePath(QStringLiteral("unlocked"));
+        QVERIFY(!ProtectedBackup::unlockDirectory(target, unlocked, password, {}, {}, [] { return false; }));
+        QVERIFY(!QFileInfo::exists(unlocked));
+        QVERIFY(ProtectedBackup::unlockDirectory(target, unlocked, password));
+        QVERIFY(PortableBackup::inspectDirectory(unlocked));
+    }
+
     void restoreJobWaitsForExplicitSelectionAndStagesOnlySelectedNotes()
     {
         QTemporaryDir directory;
