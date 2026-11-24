@@ -165,6 +165,7 @@ set(anykeep_CORE_SRCS
     notetransfercontroller.cpp
     portablebackup.cpp
     backupsnapshotjob.cpp
+    backupexportjob.cpp
     ptfstorage.cpp
     ptffolderindex.cpp
     qcainitializer.cpp
@@ -247,6 +248,7 @@ set(anykeep_CORE_HDRS
     notetransfercontroller.h
     portablebackup.h
     backupsnapshotjob.h
+    backupexportjob.h
     ptfstorage.h
     ptffolderindex.h
     qcainitializer.h
