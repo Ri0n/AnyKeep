@@ -117,11 +117,38 @@ a successful inspection of an externally writable directory does not make it
 immutable. The inspection does not validate all PTF document semantics or
 authorize any automatic remote operation.
 
+## Private restore preparation
+
+PortableBackupRestore::prepareDirectory requires the manifest digest from
+a successful preview and an existing application-private staging parent.
+It rechecks the source, copies only verified inventory entries with
+streamed SHA-256 verification, and inspects the private copy again before
+opening any PTF storage. It uses a separate temporary LocalMediaStore
+encrypted with a newly generated key, not the current profile's keychain
+or attachment cache. The prepared object owns both temporary directories
+and removes them on destruction or failure.
+
+PTFStorage::readSnapshot reuses the PTF document loader with strict
+sidecar metadata. It imports all declared sidecar files into the isolated
+media store and rewrites only the corresponding relative references.
+Unmaterialized anykeep-media URIs are not resolved by filename. Their
+UUID, URI, expected size and checksum are retained from the backup manifest.
+The prepared snapshots carry the original provider/note/draft identities,
+folder, favorite and timestamp, but are detached from provider QObjects.
+Draft deletion and transfer intents are still descriptive.
+
+Preparation is a worker operation; cancellation is checked during file
+staging and between notes. A single PTF media import is not yet
+interruptible. PTF documents and indexes are limited to 32 MiB each during
+preparation; media are streamed without that document limit. No live
+profile data is written during preparation. The later commit operation
+must transfer media into the destination profile, resolve conflicts and
+handle routing explicitly.
+
 ## Remaining work before exposing a user-facing backup
 
 1. Capture provider-specific safe recovery metadata, recycle-bin history,
-   partial media availability and safe application settings. Stage and
-   revalidate input privately before reading its PTF contents. Prevent
+   partial media availability and safe application settings. Prevent
    destructive follow-up actions if coverage or verification fails.
 2. Implement optional password protection using a password KDF and a separate
    SecureEnvelope domain, with authenticated file identities and an authenticated
@@ -133,9 +160,9 @@ authorize any automatic remote operation.
    Android uses SAF for the file or directory destination; desktop can use the
    same core with ordinary paths. Verify external destination writes before
    offering the system uninstall confirmation.
-4. Restore by validating and staging the entire input, opening ordinary PTF
-   with the new profile media key, and reusing existing copy/draft/conflict
-   paths. Import must preserve existing data and handle unavailable providers
-   explicitly. No automatic remote deletion or overwrite.
+4. Commit the prepared snapshots using existing copy/draft/conflict
+   paths. Transfer media into the destination profile under its current
+   local key. Import must preserve existing data and handle unavailable
+   providers explicitly. No automatic remote deletion or overwrite.
 
 No Settings action or complete restore is exposed yet.
