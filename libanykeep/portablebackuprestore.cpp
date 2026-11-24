@@ -10,10 +10,13 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QPair>
 #include <QSaveFile>
 #include <QSet>
 #include <QTemporaryDir>
 #include <QUrl>
+
+#include <utility>
 
 namespace AnyKeep {
 namespace {
