@@ -18,7 +18,8 @@ enum class KeyDomain : quint8 {
     LocalMedia,
     LocalFolderCatalog,
     LocalRuleStore,
-    RemoteMediaChunk
+    RemoteMediaChunk,
+    PortableBackup
 };
 
 /**

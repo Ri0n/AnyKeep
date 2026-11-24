@@ -136,7 +136,12 @@ public:
                                                       const Progress &progress = {},
                                                       const Continue &continueReading = {});
 
-private:
+    // Parse and validate the manifest independently of its on-disk files.
+    // Used by authenticated transport adapters before creating any paths.
+    // The returned inventory is structurally validated but not yet verified.
+    static PortableBackupInspection inspectManifest(const QByteArray &bytes,
+                                                     const Continue &continueReading = {});
+
     static constexpr qint64 MaximumManifestBytes = 32 * 1024 * 1024;
 };
 

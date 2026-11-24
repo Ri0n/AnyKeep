@@ -66,6 +66,8 @@ namespace {
             return QByteArrayLiteral("local-rule-store");
         case KeyDomain::RemoteMediaChunk:
             return QByteArrayLiteral("remote-media-chunk");
+        case KeyDomain::PortableBackup:
+            return QByteArrayLiteral("portable-backup");
         }
         return {};
     }

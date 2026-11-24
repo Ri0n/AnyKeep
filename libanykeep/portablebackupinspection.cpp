@@ -30,6 +30,16 @@ namespace {
                 || QStringLiteral("<>:\"/\\|?*").contains(ch))
                 return false;
         }
+        // Windows treats device names as special even with extensions.
+        // Reject these before an authenticated manifest is materialized.
+        const auto stem = name.section(QLatin1Char('.'), 0, 0).trimmed().toUpper();
+        if (stem == QStringLiteral("CON") || stem == QStringLiteral("PRN")
+            || stem == QStringLiteral("AUX") || stem == QStringLiteral("NUL")
+            || stem == QStringLiteral("CONIN$") || stem == QStringLiteral("CONOUT$"))
+            return false;
+        if (stem.size() == 4 && (stem.startsWith(QStringLiteral("COM")) || stem.startsWith(QStringLiteral("LPT")))
+            && QStringLiteral("123456789¹²³").contains(stem.at(3)))
+            return false;
         return true;
     }
 
@@ -260,6 +270,85 @@ PortableBackupInspection PortableBackup::inspectDirectory(const QString &directo
     const QByteArray bytes = manifest.read(MaximumManifestBytes + 1);
     if (bytes.size() > MaximumManifestBytes || manifest.error() != QFileDevice::NoError || !manifest.atEnd())
         return fail(QStringLiteral("Could not read the complete backup manifest"));
+    auto result = inspectManifest(bytes, continueReading);
+    if (!result)
+        return result;
+
+    QHash<QString, qsizetype> inventory;
+    QSet<QString> allowedDirectories;
+    for (const auto &storage : result.storages) {
+        allowedDirectories.insert(storage.directory);
+        for (const auto &note : storage.notes)
+            allowedDirectories.insert(storage.directory + QLatin1Char('/') + note.ptfId);
+    }
+    for (qsizetype i = 0; i < result.files.size(); ++i)
+        inventory.insert(result.files.at(i).path, i);
+
+    QSet<QString> seen;
+    QSet<QString> treeAliases { portablePathKey(ManifestName) };
+    QByteArray buffer(1024 * 1024, Qt::Uninitialized);
+    QDirIterator entries(root.absolutePath(), QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+                         QDirIterator::Subdirectories);
+    while (entries.hasNext()) {
+        if (cancelled() || (progress && !progress(int(seen.size()), int(result.files.size()))))
+            return fail(QStringLiteral("Backup inspection cancelled"));
+        entries.next();
+        const auto info = entries.fileInfo();
+        const auto path = root.relativeFilePath(info.absoluteFilePath());
+        if (!regularEntry(info) || !safePath(path))
+            return fail(QStringLiteral("Unsafe backup filesystem entry: %1").arg(path));
+        if (path == ManifestName)
+            continue;
+        const auto alias = portablePathKey(path);
+        if (treeAliases.contains(alias))
+            return fail(QStringLiteral("Aliased backup filesystem entry: %1").arg(path));
+        treeAliases.insert(alias);
+        if (info.isDir()) {
+            if (!allowedDirectories.contains(path))
+                return fail(QStringLiteral("Unexpected backup directory: %1").arg(path));
+            continue;
+        }
+        const auto expected = inventory.constFind(path);
+        if (expected == inventory.cend() || seen.contains(path))
+            return fail(QStringLiteral("Unexpected backup file: %1").arg(path));
+        const auto &fileInfo = result.files.at(expected.value());
+        QFile file(info.absoluteFilePath());
+        if (!file.open(QIODevice::ReadOnly) || file.size() != fileInfo.size)
+            return fail(QStringLiteral("Backup file size mismatch: %1").arg(path));
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        qint64 read = 0;
+        while (read < fileInfo.size) {
+            if (cancelled())
+                return fail(QStringLiteral("Backup inspection cancelled"));
+            const auto count = file.read(buffer.data(), qMin<qint64>(buffer.size(), fileInfo.size - read));
+            if (count <= 0)
+                return fail(QStringLiteral("Could not read backup file: %1").arg(path));
+            hash.addData(QByteArrayView(buffer.constData(), count));
+            read += count;
+        }
+        if (!file.atEnd() || file.size() != fileInfo.size || hash.result() != fileInfo.sha256)
+            return fail(QStringLiteral("Backup file integrity mismatch: %1").arg(path));
+        seen.insert(path);
+    }
+    if (seen.size() != inventory.size())
+        return fail(QStringLiteral("One or more inventoried backup files are missing"));
+    if (cancelled() || (progress && !progress(int(seen.size()), int(result.files.size()))))
+        return fail(QStringLiteral("Backup inspection cancelled"));
+    return result;
+}
+
+PortableBackupInspection PortableBackup::inspectManifest(const QByteArray &bytes, const Continue &continueReading)
+{
+    const auto fail = [](const QString &message) {
+        PortableBackupInspection invalid;
+        invalid.error = message;
+        return invalid;
+    };
+    const auto cancelled = [&] { return continueReading && !continueReading(); };
+    if (cancelled())
+        return fail(QStringLiteral("Backup inspection cancelled"));
+    if (bytes.size() > MaximumManifestBytes)
+        return fail(QStringLiteral("The backup manifest exceeds the supported size limit"));
     QJsonParseError parseError;
     const auto document = QJsonDocument::fromJson(bytes, &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject())
@@ -382,56 +471,6 @@ PortableBackupInspection PortableBackup::inspectDirectory(const QString &directo
             return fail(QStringLiteral("Missing required backup file: %1").arg(path));
     }
 
-    QSet<QString> seen;
-    QSet<QString> treeAliases { portablePathKey(ManifestName) };
-    QByteArray buffer(1024 * 1024, Qt::Uninitialized);
-    QDirIterator entries(root.absolutePath(), QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
-                         QDirIterator::Subdirectories);
-    while (entries.hasNext()) {
-        if (cancelled() || (progress && !progress(int(seen.size()), int(result.files.size()))))
-            return fail(QStringLiteral("Backup inspection cancelled"));
-        entries.next();
-        const auto info = entries.fileInfo();
-        const auto path = root.relativeFilePath(info.absoluteFilePath());
-        if (!regularEntry(info) || !safePath(path))
-            return fail(QStringLiteral("Unsafe backup filesystem entry: %1").arg(path));
-        if (path == ManifestName)
-            continue;
-        const auto alias = portablePathKey(path);
-        if (treeAliases.contains(alias))
-            return fail(QStringLiteral("Aliased backup filesystem entry: %1").arg(path));
-        treeAliases.insert(alias);
-        if (info.isDir()) {
-            if (!allowedDirectories.contains(path))
-                return fail(QStringLiteral("Unexpected backup directory: %1").arg(path));
-            continue;
-        }
-        const auto expected = inventory.constFind(path);
-        if (expected == inventory.cend() || seen.contains(path))
-            return fail(QStringLiteral("Unexpected backup file: %1").arg(path));
-        const auto &fileInfo = result.files.at(expected.value());
-        QFile file(info.absoluteFilePath());
-        if (!file.open(QIODevice::ReadOnly) || file.size() != fileInfo.size)
-            return fail(QStringLiteral("Backup file size mismatch: %1").arg(path));
-        QCryptographicHash hash(QCryptographicHash::Sha256);
-        qint64 read = 0;
-        while (read < fileInfo.size) {
-            if (cancelled())
-                return fail(QStringLiteral("Backup inspection cancelled"));
-            const auto count = file.read(buffer.data(), qMin<qint64>(buffer.size(), fileInfo.size - read));
-            if (count <= 0)
-                return fail(QStringLiteral("Could not read backup file: %1").arg(path));
-            hash.addData(QByteArrayView(buffer.constData(), count));
-            read += count;
-        }
-        if (!file.atEnd() || file.size() != fileInfo.size || hash.result() != fileInfo.sha256)
-            return fail(QStringLiteral("Backup file integrity mismatch: %1").arg(path));
-        seen.insert(path);
-    }
-    if (seen.size() != inventory.size())
-        return fail(QStringLiteral("One or more inventoried backup files are missing"));
-    if (cancelled() || (progress && !progress(int(seen.size()), int(result.files.size()))))
-        return fail(QStringLiteral("Backup inspection cancelled"));
     return result;
 }
 
