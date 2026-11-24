@@ -168,6 +168,7 @@ set(anykeep_CORE_SRCS
     portablebackuprestore.cpp
     backupsnapshotjob.cpp
     backupexportjob.cpp
+    backuprestorepreviewjob.cpp
     ptfstorage.cpp
     ptffolderindex.cpp
     qcainitializer.cpp
@@ -252,6 +253,7 @@ set(anykeep_CORE_HDRS
     portablebackuprestore.h
     backupsnapshotjob.h
     backupexportjob.h
+    backuprestorepreviewjob.h
     ptfstorage.h
     ptffolderindex.h
     qcainitializer.h
