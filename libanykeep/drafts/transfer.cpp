@@ -260,6 +260,14 @@ DraftStoreResult<QList<QUuid>> DraftManager::stageRecoveredCopies(const QList<Re
     return { written, {} };
 }
 
+void DraftManager::previewRecoveryConflict(NoteConflict conflict, ConflictResolver::Completion completion)
+{
+    if (conflictResolver_)
+        conflictResolver_->resolve(std::move(conflict), std::move(completion));
+    else
+        completion({});
+}
+
 bool DraftManager::hasPendingTransferFrom(const QString &storageId, const QString &noteId) const
 {
     if (!store_ || storageId.isEmpty() || noteId.isEmpty())
