@@ -229,17 +229,50 @@ A single media import is not yet interruptible. Folder, media and draft
 stores remain separate persistence boundaries; this is not a crash-atomic
 cross-store transaction.
 
+## Password-protected PTF transport
+
+ProtectedBackup operates on ordinary PTF trees, not a second note format.
+Version 1 uses a public header.json containing the format, KDF identifier,
+fixed iteration count (600000) and independently generated 32-byte salt.
+Qt Network's PBKDF2-HMAC-SHA256 derives the 32-byte password key; no
+keychain key, OMEMO key, or provider credentials are exported. Passwords
+are encoded as UTF-8 without normalization. Argon2id can be introduced in a
+later version with a separately bounded parameter profile; it is not part
+of version 1.
+
+The manifest is encrypted in manifest.enc. Individual inventoried files
+are encrypted in opaque file-NNNNNNNN.enc entries in manifest inventory
+order. Each has a fixed big-endian magic/version/plain-size header, followed
+by 1 MiB plaintext chunks (including one authenticated record for an empty
+file). Each record stores the existing SecureEnvelope AES-256-GCM nonce,
+tag and ciphertext, using the PortableBackup key domain. The encrypted
+payload includes the existing serialized associated-data context binding the
+SHA-256 of the exact public header, opaque file identity, format version,
+total plaintext size and chunk index. There are no untrusted variable-length
+allocation fields. The encrypted manifest authenticates original paths and
+the expected content fingerprints. File counts and sizes are not hidden.
+
+Protection verifies the input PTF inventory, encrypts each file, reads back
+and authenticates the ciphertext, then publishes only the encrypted tree
+at the selected destination. Unlocking authenticates the manifest first,
+uses the common structural manifest validator before creating paths,
+requires the exact opaque file inventory, authenticates every chunk and
+checks the resulting PTF hashes before publishing a private temporary tree.
+Cancellation or failure discards staging; the source is never modified.
+
+The caller must arrange application-private plaintext staging and its
+cleanup. Password transport is not yet wired into BackupExportJob or
+BackupRestoreJob, archive/SAF or UI. The current implementation does not
+promise secure deletion on flash storage or zeroization of Qt strings.
+
 ## Remaining work before exposing a user-facing backup
 
 1. Capture provider-specific safe recovery metadata, recycle-bin history,
    partial media availability and safe application settings. Prevent
    destructive follow-up actions if coverage or verification fails.
-2. Implement optional password protection using a password KDF and a separate
-   SecureEnvelope domain, with authenticated file identities and an authenticated
-   manifest; protect filenames as well as file contents when confidentiality
-   is selected. Explicitly distinguish eligible recovery secrets from
-   device-local keys and OMEMO state. Do not leave an unencrypted export at
-   the user-selected destination in protected mode.
+2. Connect password protection to the shared export/restore jobs using private
+   plaintext staging, and add a password prompt and optional credential export.
+   Keep authenticated destination verification before offering uninstall.
 3. Use an existing archive implementation if single-file transport is selected.
    Android uses SAF for the file or directory destination; desktop can use the
    same core with ordinary paths. Verify external destination writes before
