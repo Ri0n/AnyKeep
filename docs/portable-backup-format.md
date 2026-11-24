@@ -175,9 +175,33 @@ operations; they are not a cross-store transaction. A failure or cancellation
 may leave unreferenced encrypted blobs in the profile media cache, and a
 subsequent draft-write failure does not undo already accepted folder imports.
 Selection/destination validation and conflict preview must be completed before
-orchestration invokes these operations. Matching existing remote versions,
-skipping identical notes and resolving conflicts with the normal resolver
-remain follow-up work; no original remote identity is used for publication.
+orchestration invokes these operations. Conflict comparison is provided by the read-only preview below. Selection
+and application of its recommendations remain follow-up work; no original
+remote identity is used for publication.
+
+## Conflict preview
+
+BackupRestorePreviewJob compares each prepared version with its recorded
+origin, using the existing asynchronous storage load API. Draft origins
+are recovered from the manifest's draft metadata. A single indexed snapshot
+of current local editing and deletion/transfer intents protects pending
+local work. A configured but unavailable provider is distinguished from a
+missing provider or an explicitly missing note.
+
+Identical means matching observed portable content, folder, favorite, tags
+and attachment identities, sizes and SHA-256 fingerprints. A timestamp
+alone is insufficient, and an unknown fingerprint is not treated as equal.
+Current provider bodies are converted using the existing transfer format
+conversion. The preview is conservative about current local intents: these
+are conflicts even if the bodies happen to match.
+
+For conflicts, the configured DraftManager ConflictResolver supplies an
+advisory decision and copy title. No draft is persisted, no resolver action
+is executed, and no remote operation other than a load is requested.
+The provider's observed state is not a distributed transaction or a promise
+that a remote cached body is current. A user-approved selection and any
+required revalidation must precede commit; in particular a suggested
+Discard or Identical decision must not silently discard backup data.
 
 ## Remaining work before exposing a user-facing backup
 
@@ -194,10 +218,9 @@ remain follow-up work; no original remote identity is used for publication.
    Android uses SAF for the file or directory destination; desktop can use the
    same core with ordinary paths. Verify external destination writes before
    offering the system uninstall confirmation.
-4. Integrate recovery selection, destination lookup and conflict preview
-   with the prepared-copy and existing draft publication paths. Distinguish
-   identical notes from conflicting versions, handle missing providers and
-   define cross-store failure/retry behavior. No automatic remote deletion
-   or overwrite.
+4. Integrate the conflict preview with user-approved recovery selection,
+   the prepared-copy and existing draft publication paths. Revalidate
+   selection, handle missing providers and define cross-store failure/retry
+   behavior. No automatic remote deletion or overwrite.
 
 No Settings action or complete restore is exposed yet.
