@@ -205,13 +205,9 @@ namespace {
                                         << descriptions.join(QStringLiteral(", "));
     }
 
-    QHash<QString, SidecarMetadata> readMediaMetadata(const QDir &sidecar)
+    QHash<QString, SidecarMetadata> parseMediaMetadata(const QJsonDocument &document)
     {
         QHash<QString, SidecarMetadata> result;
-        QFile                           file(sidecar.filePath(MediaManifestName));
-        if (!file.open(QIODevice::ReadOnly))
-            return result;
-        const auto document = QJsonDocument::fromJson(file.readAll());
         for (const auto value : document.array()) {
             const auto  object = value.toObject();
             const QUuid id(object.value(QStringLiteral("id")).toString());
@@ -223,6 +219,14 @@ namespace {
             }
         }
         return result;
+    }
+
+    QHash<QString, SidecarMetadata> readMediaMetadata(const QDir &sidecar)
+    {
+        QFile file(sidecar.filePath(MediaManifestName));
+        if (!file.open(QIODevice::ReadOnly))
+            return {};
+        return parseMediaMetadata(QJsonDocument::fromJson(file.readAll()));
     }
 
     QString portableNameKey(const QString &name)
@@ -264,12 +268,64 @@ namespace {
     }
 
     QString importSidecarMedia(QString body, const QString &noteId, const QDir &notesDir, LocalMediaStore &mediaStore,
-                               QList<MediaReference> &media)
+                               QList<MediaReference> &media, QString *snapshotError = nullptr)
     {
         const QDir sidecar(notesDir.filePath(noteId));
         if (!sidecar.exists())
             return body;
-        const auto metadata = readMediaMetadata(sidecar);
+        QHash<QString, SidecarMetadata> metadata;
+        QHash<QString, MediaReference> portableMedia;
+        if (snapshotError) {
+            const auto fail = [&](const QString &error) {
+                *snapshotError = error;
+                return body;
+            };
+            const QFileInfo indexInfo(sidecar.filePath(MediaManifestName));
+            if (QFileInfo(sidecar.absolutePath()).isSymLink() || !indexInfo.isFile() || indexInfo.isSymLink())
+                return fail(QStringLiteral("Unsafe portable attachment index"));
+            QFile index(indexInfo.absoluteFilePath());
+            if (!index.open(QIODevice::ReadOnly) || index.size() > 32 * 1024 * 1024)
+                return fail(QStringLiteral("Could not read portable attachment index"));
+            const auto document = QJsonDocument::fromJson(index.readAll());
+            metadata = parseMediaMetadata(document);
+            if (!document.isArray() || document.array().size() != metadata.size())
+                return fail(QStringLiteral("Invalid or duplicate portable attachment metadata"));
+            QSet<QUuid> ids;
+            QSet<QString> files { MediaManifestName };
+            for (const auto &value : document.array()) {
+                const auto item = value.toObject();
+                const auto name = item.value(QStringLiteral("file")).toString();
+                const auto entry = metadata.constFind(name);
+                if (entry == metadata.cend() || ids.contains(entry->id) || files.contains(name)
+                    || name == QStringLiteral(".") || name == QStringLiteral("..")
+                    || name.contains(QLatin1Char('/')) || name.contains(QLatin1Char('\\'))
+                    || QDir::isAbsolutePath(name))
+                    return fail(QStringLiteral("Unsafe or duplicate portable attachment identity"));
+                const QFileInfo info(sidecar.filePath(name));
+                if (!info.isFile() || info.isSymLink())
+                    return fail(QStringLiteral("Missing or unsafe portable attachment"));
+                ids.insert(entry->id);
+                files.insert(name);
+                auto imported = mediaStore.importFile(info.absoluteFilePath(), entry->id);
+                if (!imported)
+                    return fail(imported.error);
+                if (!entry->originalName.isEmpty())
+                    imported.value.originalName = entry->originalName;
+                if (!entry->mediaType.isEmpty())
+                    imported.value.mediaType = entry->mediaType;
+                portableMedia.insert(name, imported.value);
+                media.append(imported.value);
+            }
+            const auto entries = sidecar.entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
+            if (entries.size() != files.size())
+                return fail(QStringLiteral("Unexpected file in portable attachment directory"));
+            for (const auto &entry : entries) {
+                if (!files.contains(entry))
+                    return fail(QStringLiteral("Unexpected file in portable attachment directory"));
+            }
+        } else {
+            metadata = readMediaMetadata(sidecar);
+        }
 
         struct SourceMatch {
             qsizetype start;
@@ -315,6 +371,25 @@ namespace {
             previousEnd = source.start + source.length;
 
             const auto rawTarget = source.target;
+            if (snapshotError) {
+                // The writer replaces materialized URIs with noteId/file.
+                // A surviving anykeep-media URI denotes an unavailable source,
+                // never a request to find a different file with the same name.
+                if (rawTarget.startsWith(QStringLiteral("anykeep-media:/"), Qt::CaseInsensitive))
+                    continue;
+                const auto target = QUrl::fromPercentEncoding(rawTarget.toUtf8());
+                const auto prefix = noteId + QLatin1Char('/');
+                if (!target.startsWith(prefix))
+                    continue;
+                const auto name = target.mid(prefix.size());
+                const auto imported = portableMedia.constFind(name);
+                if (imported == portableMedia.cend()) {
+                    *snapshotError = QStringLiteral("Unresolved portable attachment path");
+                    return body;
+                }
+                replacements.prepend({ source.start, source.length, imported->uri() });
+                continue;
+            }
             QString    mediaName;
             QUuid      uriId;
             if (rawTarget.startsWith(QStringLiteral("anykeep-media:/"), Qt::CaseInsensitive)) {
@@ -530,7 +605,40 @@ Note PTFStorage::note(const QString &noteId)
     return Note();
 }
 
+Note PTFStorage::readSnapshot(const QString &noteId, QString *error)
+{
+    if (!error)
+        return {};
+    error->clear();
+    if (!explicitPath_ || !folderCatalogAvailable_ || noteId.isEmpty()
+        || noteId == QStringLiteral(".") || noteId == QStringLiteral("..")
+        || noteId.contains(QLatin1Char('/')) || noteId.contains(QLatin1Char('\\'))
+        || QDir::isAbsolutePath(noteId)) {
+        *error = tr("Invalid portable note identity");
+        return {};
+    }
+    const QFileInfo info(notesDir.filePath(noteId + QStringLiteral(".md")));
+    if (!info.isFile() || info.isSymLink()) {
+        *error = tr("Portable note file is missing or unsafe");
+        return {};
+    }
+    Note loaded(new NoteData(this));
+    loaded.setId(noteId);
+    loaded.setBackendValue(QStringLiteral("fileName"), info.absoluteFilePath());
+    if (!loadNoteImpl(loaded, error)) {
+        if (error->isEmpty())
+            *error = tr("Could not read portable note");
+        return {};
+    }
+    return loaded;
+}
+
 bool PTFStorage::loadNote(Note &note)
+{
+    return loadNoteImpl(note, nullptr);
+}
+
+bool PTFStorage::loadNoteImpl(Note &note, QString *snapshotError)
 {
     QString fileName = note.backendValue(QStringLiteral("fileName")).toString();
     if (fileName.isEmpty()) {
@@ -555,7 +663,10 @@ bool PTFStorage::loadNote(Note &note)
                           << "suffix=" << QFileInfo(fileName).suffix() << "bytes=" << file.size();
     QList<MediaReference> media;
     if (QFileInfo(fileName).suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0)
-        contents = importSidecarMedia(contents, QFileInfo(fileName).completeBaseName(), notesDir, mediaStore_, media);
+        contents = importSidecarMedia(contents, QFileInfo(fileName).completeBaseName(), notesDir, mediaStore_, media,
+                                      snapshotError);
+    if (snapshotError && !snapshotError->isEmpty())
+        return false;
     const Note::Format format = QFileInfo(fileName).suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0
         ? Note::Markdown
         : Note::PlainText;

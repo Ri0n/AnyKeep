@@ -55,6 +55,9 @@ public:
     Note createNote() override;
     Note note(const QString &noteId) override;
     bool loadNote(Note &note) override;
+    // Read a verified portable Markdown note and all declared attachments.
+    // Only for detached PTF instances; unresolved original URIs are preserved.
+    Note readSnapshot(const QString &noteId, QString *error);
     bool saveNote(const Note &note) override;
     // Copy a loaded snapshot without publication or global storage lookup.
     // Missing media are reported separately; the original URI remains in the body.
@@ -85,6 +88,7 @@ public:
     static QString storageId;
 
 private:
+    bool loadNoteImpl(Note &note, QString *snapshotError);
     bool saveNoteImpl(const Note &note, Note *savedNote, QList<MediaReference> *unavailableMedia,
                       const std::function<bool()> &continueCopy = {});
     void               applyNoteReorderChanges(QList<NoteReorderChange> changes, NoteReorderJob *job) override;
