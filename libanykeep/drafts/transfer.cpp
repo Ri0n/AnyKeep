@@ -183,6 +183,83 @@ DraftStoreError DraftManager::copyDraft(const QUuid &draftId, const QString &des
     return {};
 }
 
+DraftStoreResult<QList<QUuid>> DraftManager::stageRecoveredCopies(const QList<RecoveredNoteCopy> &copies)
+{
+    if (!store_)
+        return { {}, { DraftStoreError::Locked, lastError_.isEmpty() ? tr("Draft store is locked") : lastError_ } };
+    const auto existing = store_->records();
+    if (!existing)
+        return { {}, existing.error };
+
+    QSet<QUuid> used;
+    for (const auto &record : existing.value)
+        used.insert(record.id);
+    for (auto it = editingSessions_.cbegin(); it != editingSessions_.cend(); ++it)
+        used.insert(it.key());
+
+    QList<DraftRecord> records;
+    records.reserve(copies.size());
+    for (const auto &copy : copies) {
+        const auto &note = copy.snapshot;
+        if (note.isNull() || !note.isLoaded() || note.storage())
+            return { {}, { DraftStoreError::InvalidArgument, tr("A detached loaded recovery snapshot is required") } };
+        if (!copy.destinationStorageId.isEmpty()) {
+            const auto storage = NoteManager::instance()->storage(copy.destinationStorageId);
+            // An offline but configured provider is a valid editing target.
+            // Never route to an unrelated/default provider implicitly here.
+            if (!storage)
+                return { {}, { DraftStoreError::InvalidArgument, tr("The recovery destination is not configured") } };
+            Note::Format targetFormat = note.format();
+            if (const auto formatError = resolveDestinationFormat(storage, note.format(), &targetFormat))
+                return { {}, formatError };
+            if (!note.media().isEmpty() && !storage->supportsMedia())
+                return { {}, { DraftStoreError::InvalidArgument, tr("The recovery destination does not support attachments") } };
+        }
+        DraftRecord record;
+        do {
+            record.id = QUuid::createUuid();
+        } while (used.contains(record.id));
+        used.insert(record.id);
+        record.operation = DraftRecord::Publish;
+        record.state = DraftRecord::Editing;
+        record.storageId = copy.destinationStorageId;
+        record.title = note.title();
+        record.body = note.text();
+        record.format = note.format();
+        record.tags = note.tags();
+        record.folderId = note.folderId();
+        record.folderUserOverride = true;
+        record.media = note.media();
+        record.backendData.insert(QString::fromLatin1(FavoriteBackendKey), note.isFavorite());
+        record.revision = 1;
+        record.updatedAt = note.lastChangeUTC().isValid() ? note.lastChangeUTC() : QDateTime::currentDateTimeUtc();
+        records.append(std::move(record));
+    }
+
+    QList<QUuid> written;
+    for (const auto &record : records) {
+        if (const auto error = store_->write(record)) {
+            QList<QUuid> remaining;
+            for (const auto &id : written) {
+                const auto removal = store_->remove(id);
+                if (removal && removal.code != DraftStoreError::NotFound)
+                    remaining.append(id);
+            }
+            if (!remaining.isEmpty()) {
+                emit draftsChanged();
+                return { remaining, { DraftStoreError::Io,
+                                      tr("Recovery draft write failed and some new drafts could not be rolled back: %1")
+                                          .arg(error.message) } };
+            }
+            return { {}, error };
+        }
+        written.append(record.id);
+    }
+    if (!written.isEmpty())
+        emit draftsChanged();
+    return { written, {} };
+}
+
 bool DraftManager::hasPendingTransferFrom(const QString &storageId, const QString &noteId) const
 {
     if (!store_ || storageId.isEmpty() || noteId.isEmpty())
