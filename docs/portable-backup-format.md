@@ -92,12 +92,37 @@ relative path, decimal byte size and SHA-256 read from disk. This supports
 later input/destination verification; it is not yet an authenticated manifest,
 and does not establish that a separate SAF copy has been verified.
 
+## Read-only inspection
+
+PortableBackup::inspectDirectory reads the bounded versioned manifest and
+returns typed provider, note, draft, missing-media and file metadata for the
+restore preview. It does not construct PTFStorage, resolve a media key, import
+attachments, or mutate any provider. It recomputes coverage and counts, checks
+the required PTF note and folder-index paths, rejects duplicate or aliased
+paths, unexpected files and directories, traversal, symbolic links and
+redirected entries, and streams every inventoried file to verify its size and
+SHA-256. Inspection can be cancelled between read chunks. A consistent but
+incomplete export is a valid preview with complete=false.
+
+Only the current inventory-bearing directory format is accepted; a manifest
+without an inventory cannot be verified and is rejected. Both writer and
+reader enforce the same 32 MiB manifest limit. Portable note copies and
+sidecar attachment names avoid case-folded aliases, and reserve PTF metadata
+filenames instead of overwriting attachments with sidecar indexes.
+
+The plaintext manifest is not authenticated. Its digest identifies the
+inspected manifest for subsequent private staging, not the identity of the
+author. Before actual restore, copy into private staging and revalidate there;
+a successful inspection of an externally writable directory does not make it
+immutable. The inspection does not validate all PTF document semantics or
+authorize any automatic remote operation.
+
 ## Remaining work before exposing a user-facing backup
 
 1. Capture provider-specific safe recovery metadata, recycle-bin history,
-   partial media availability and safe application settings. Implement a
-   manifest/inventory reader for verification on restore or destination copy.
-   Prevent destructive follow-up actions if coverage or verification fails.
+   partial media availability and safe application settings. Stage and
+   revalidate input privately before reading its PTF contents. Prevent
+   destructive follow-up actions if coverage or verification fails.
 2. Implement optional password protection using a password KDF and a separate
    SecureEnvelope domain, with authenticated file identities and an authenticated
    manifest; protect filenames as well as file contents when confidentiality
