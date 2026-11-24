@@ -239,23 +239,7 @@ FolderCatalogError FolderCatalogManager::mergeProviderCatalog(const QString     
 
 FolderCatalogError FolderCatalogManager::mergeRecoveredFolders(const FolderCatalogSnapshot &snapshot)
 {
-    return mutate([&snapshot](FolderCatalog &catalog) {
-        auto candidate = catalog.snapshot();
-        for (const auto &folder : snapshot.folders) {
-            if (folder.tombstone || FolderCatalog::isRecycleBinId(folder.id))
-                continue;
-            if (const auto *existing = catalog.folder(folder.id)) {
-                if (existing->tombstone)
-                    return FolderCatalogError { FolderCatalogError::Conflict,
-                                                tr("A recovered folder was deleted in the current profile") };
-                continue;
-            }
-            candidate.folders.append(folder);
-        }
-        // Reuse normal catalog validation, including sibling name conflicts,
-        // missing parents and cycles. No live metadata is overwritten.
-        return catalog.replaceSnapshot(std::move(candidate));
-    });
+    return mutate([&snapshot](FolderCatalog &catalog) { return catalog.mergeRecoveredFolders(snapshot); });
 }
 
 FolderCatalogError FolderCatalogManager::restoreBackup(QString *preservedPath)

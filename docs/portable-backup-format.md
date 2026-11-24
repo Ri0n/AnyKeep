@@ -203,6 +203,32 @@ that a remote cached body is current. A user-approved selection and any
 required revalidation must precede commit; in particular a suggested
 Discard or Identical decision must not silently discard backup data.
 
+## Shared restore orchestration
+
+BackupRestoreJob runs private preparation on a worker, compares observed
+provider versions on the application thread, and pauses at AwaitingSelection.
+Every row requires an explicit Skip, KeepDraft or CreateCopy choice.
+An incomplete source requires separate consent. An unconfigured target,
+unsupported media or conflicting/missing folder is rejected before copying;
+destination and folder validation is repeated before committing. The
+folder preview and persistence use the same FolderCatalog merge operation.
+
+The media key is prepared asynchronously, and selected attachments are
+copied on a worker. The final commit imports folders if requested and
+writes durable Editing drafts using DraftManager. CreateCopy accepts the
+suggested conflict title or an explicit title, but does not publish; a
+normal subsequent publication is a separate action. No automatic rule
+routing or remote write occurs during recovery. Skipping is an explicit
+user choice based on the observed preview, not a promise that the remote
+version will remain identical.
+
+Cancellation is cooperative until commit starts; the result reports
+skipped rows, created draft IDs (including rollback survivors), whether
+folder import succeeded and whether unused media may remain after failure.
+A single media import is not yet interruptible. Folder, media and draft
+stores remain separate persistence boundaries; this is not a crash-atomic
+cross-store transaction.
+
 ## Remaining work before exposing a user-facing backup
 
 1. Capture provider-specific safe recovery metadata, recycle-bin history,
@@ -218,9 +244,9 @@ Discard or Identical decision must not silently discard backup data.
    Android uses SAF for the file or directory destination; desktop can use the
    same core with ordinary paths. Verify external destination writes before
    offering the system uninstall confirmation.
-4. Integrate the conflict preview with user-approved recovery selection,
-   the prepared-copy and existing draft publication paths. Revalidate
-   selection, handle missing providers and define cross-store failure/retry
-   behavior. No automatic remote deletion or overwrite.
+4. Expose the shared restore job in desktop/mobile UI, with explicit
+   destination mapping and publication after recovery. Resolve folder
+   conflicts and support retries/cleanup across persistence boundaries.
+   No automatic remote deletion or overwrite.
 
 No Settings action or complete restore is exposed yet.
