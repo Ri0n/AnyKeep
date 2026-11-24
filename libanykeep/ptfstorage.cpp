@@ -568,7 +568,8 @@ bool PTFStorage::saveNote(const Note &note)
     return saveNoteImpl(note, nullptr, nullptr);
 }
 
-bool PTFStorage::copySnapshot(const Note &source, Note *saved, QList<MediaReference> *unavailableMedia)
+bool PTFStorage::copySnapshot(const Note &source, Note *saved, QList<MediaReference> *unavailableMedia,
+                              const std::function<bool()> &continueCopy)
 {
     if (!explicitPath_ || !isAccessible() || !folderCatalogAvailable_ || source.isNull() || !source.isLoaded()
         || !saved || !unavailableMedia)
@@ -584,10 +585,11 @@ bool PTFStorage::copySnapshot(const Note &source, Note *saved, QList<MediaRefere
     destination.setFavorite(source.isFavorite());
     destination.setMedia(source.media());
     destination.setBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey), source.lastChangeUTC());
-    return saveNoteImpl(destination, saved, unavailableMedia);
+    return saveNoteImpl(destination, saved, unavailableMedia, continueCopy);
 }
 
-bool PTFStorage::saveNoteImpl(const Note &note, Note *savedNote, QList<MediaReference> *unavailableMedia)
+bool PTFStorage::saveNoteImpl(const Note &note, Note *savedNote, QList<MediaReference> *unavailableMedia,
+                              const std::function<bool()> &continueCopy)
 {
     qCInfo(logPtfStorage) << "Saving PTF note: idHash=" << diagnosticName(note.id()) << "format=" << int(note.format())
                           << "titleLength=" << note.title().size() << "bodyLength=" << note.text().size()
@@ -627,6 +629,8 @@ bool PTFStorage::saveNoteImpl(const Note &note, Note *savedNote, QList<MediaRefe
         QJsonArray    manifest;
         QSet<QString> usedNames;
         for (const auto &reference : note.media()) {
+            if (continueCopy && !continueCopy())
+                return false;
             auto source = createLocalMediaSource(reference, &mediaStore_);
             QString sourceError;
             const auto unavailable = [&]() {
@@ -655,6 +659,11 @@ bool PTFStorage::saveNoteImpl(const Note &note, Note *savedNote, QList<MediaRefe
             bool sourceFailed = false;
             const qint64 size = source->size();
             while (offset < size) {
+                if (continueCopy && !continueCopy()) {
+                    source->close();
+                    mediaFile.cancelWriting();
+                    return false;
+                }
                 const auto count = source->read(offset, chunk.data(), qMin<qint64>(chunk.size(), size - offset),
                                                 &sourceError);
                 if (count <= 0) {

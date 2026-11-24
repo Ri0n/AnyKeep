@@ -1,12 +1,17 @@
 #include <QtTest>
 
+#include "backupexportjob.h"
+#include "draftmanager.h"
+#include "filedraftstore.h"
 #include "localdatakeystore.h"
 #include "localmediastore.h"
 #include "ptfstorage.h"
 #include "portablebackup.h"
 #include "secureenvelope.h"
 
+#include <QCryptographicHash>
 #include <QDir>
+#include <QSignalSpy>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -43,6 +48,152 @@ class PTFStorageTest : public QObject {
     }
 
 private slots:
+    void asynchronousBackupWritesProviderAndDraftMediaWithInventory()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto key = SecureEnvelope::generateMasterKey();
+        LocalMediaStore media(directory.filePath(QStringLiteral("media")), key);
+        PTFStorage source(media, directory.filePath(QStringLiteral("source")));
+        QVERIFY(source.init());
+        const QByteArray imageBytes("image payload");
+        const auto image = media.importData(imageBytes, QStringLiteral("diagram.png"), QStringLiteral("image/png"));
+        QVERIFY(image);
+
+        Note note = source.createNote();
+        note.setTitle(QStringLiteral("Published note"));
+        note.setText(QStringLiteral("![Picture](%1)").arg(image.value.uri()), Note::Markdown);
+        note.setMedia({ image.value });
+        QVERIFY(source.saveNote(note));
+        const auto published = source.noteList().constFirst();
+        QVERIFY(!published.id().isEmpty());
+
+        auto store = std::make_unique<FileDraftStore>(directory.filePath(QStringLiteral("drafts")), key);
+        DraftRecord record;
+        record.id = QUuid::createUuid();
+        record.storageId = source.systemName();
+        record.remoteNoteId = published.id();
+        record.title = QStringLiteral("Unpublished edit");
+        record.body = QStringLiteral("New body with ![Picture](%1)").arg(image.value.uri());
+        record.format = Note::Markdown;
+        record.media = { image.value };
+        record.updatedAt = QDateTime::currentDateTimeUtc();
+        QVERIFY(!store->write(record));
+        DraftManager drafts(std::move(store));
+
+        const QMap<QString, NoteStorage::Ptr> providers { { source.systemName(), &source } };
+        const auto destination = directory.filePath(QStringLiteral("backup"));
+        auto *job = BackupExportJob::exportDirectory(destination, providers, drafts, {}, media, this);
+        QSignalSpy phases(job, &BackupExportJob::phaseChanged);
+        QSignalSpy finished(job, &StorageJob::finished);
+        QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 15000);
+        QCOMPARE(job->state(), StorageJob::Succeeded);
+        QVERIFY2(job->result(), qPrintable(job->result().error));
+        QVERIFY(job->result().complete);
+        QCOMPARE(job->result().notesWritten, 2);
+        QCOMPARE(job->result().unavailableMedia, 0);
+        QCOMPARE(finished.size(), 1);
+        QCOMPARE(phases.size(), 2);
+        QCOMPARE(drafts.pendingDrafts().size(), 1);
+        QCOMPARE(drafts.pendingDrafts().constFirst().state, DraftRecord::Editing);
+
+        QFile manifest(QDir(destination).filePath(QStringLiteral("manifest.json")));
+        QVERIFY(manifest.open(QIODevice::ReadOnly));
+        const auto root = QJsonDocument::fromJson(manifest.readAll()).object();
+        const auto files = root.value(QStringLiteral("files")).toArray();
+        QVERIFY(!files.isEmpty());
+        int matchedImages = 0;
+        bool hasSidecar = false;
+        for (const auto &entry : files) {
+            const auto item = entry.toObject();
+            const auto path = item.value(QStringLiteral("path")).toString();
+            QFile file(QDir(destination).filePath(path));
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            const auto bytes = file.readAll();
+            QCOMPARE(item.value(QStringLiteral("size")).toString(), QString::number(bytes.size()));
+            QCOMPARE(item.value(QStringLiteral("sha256")).toString(),
+                     QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex()));
+            if (path.endsWith(QStringLiteral("/diagram.png"))) {
+                QCOMPARE(bytes, imageBytes);
+                ++matchedImages;
+            }
+            if (path.endsWith(QStringLiteral("/.anykeep-media.json")))
+                hasSidecar = true;
+        }
+        QCOMPARE(matchedImages, 2);
+        QVERIFY(hasSidecar);
+        delete job;
+    }
+
+    void asynchronousBackupCancellationBeforeWritingAndAtPublishGate()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto key = SecureEnvelope::generateMasterKey();
+        LocalMediaStore media(directory.filePath(QStringLiteral("media")), key);
+        DraftManager drafts(std::make_unique<FileDraftStore>(directory.filePath(QStringLiteral("drafts")), key));
+        const QMap<QString, NoteStorage::Ptr> providers;
+        const auto earlyPath = directory.filePath(QStringLiteral("early"));
+        auto *early = BackupExportJob::exportDirectory(earlyPath, providers, drafts, {}, media, this);
+        early->cancel();
+        QCOMPARE(early->state(), StorageJob::Cancelled);
+        QCoreApplication::processEvents();
+        QVERIFY(!QFileInfo::exists(earlyPath));
+        delete early;
+
+        const auto writingPath = directory.filePath(QStringLiteral("writing"));
+        auto *writing = BackupExportJob::exportDirectory(writingPath, providers, drafts, {}, media, this);
+        connect(writing, &BackupExportJob::phaseChanged, writing, [writing](BackupExportJob::Phase phase) {
+            if (phase == BackupExportJob::Writing)
+                writing->cancel();
+        });
+        QTRY_VERIFY(writing->isFinished());
+        QCOMPARE(writing->state(), StorageJob::Cancelled);
+        QVERIFY(!QFileInfo::exists(writingPath));
+        delete writing;
+
+        const auto gatePath = directory.filePath(QStringLiteral("gate"));
+        bool gateCalled = false;
+        const auto rejected = PortableBackup::exportDirectory(gatePath, {}, {}, media, {}, {},
+                                                               [&gateCalled] {
+                                                                   gateCalled = true;
+                                                                   return false;
+                                                               });
+        QVERIFY(gateCalled);
+        QVERIFY(!rejected);
+        QVERIFY(!QFileInfo::exists(gatePath));
+    }
+
+    void portableExportCanCancelDuringAttachmentCopy()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        LocalMediaStore media(directory.filePath(QStringLiteral("media")), SecureEnvelope::generateMasterKey());
+        PTFStorage source(media, directory.filePath(QStringLiteral("source")));
+        QVERIFY(source.init());
+        const QByteArray bytes(3 * 1024 * 1024, 'a');
+        const auto attachment = media.importData(bytes, QStringLiteral("large.dat"),
+                                                  QStringLiteral("application/octet-stream"));
+        QVERIFY(attachment);
+        Note note = source.createNote();
+        note.setTitle(QStringLiteral("Large attachment"));
+        note.setText(QStringLiteral("<a href=\"%1\" data-anykeep-attachment=\"1\">File</a>")
+                         .arg(attachment.value.uri()), Note::Markdown);
+        note.setMedia({ attachment.value });
+        PortableBackupStorage provider;
+        provider.storageId = source.systemName();
+        provider.complete = true;
+        provider.notes.append({ note, QStringLiteral("note"), {} });
+        const auto target = directory.filePath(QStringLiteral("cancelled-media"));
+        int checks = 0;
+        // Initial, storage and note checks, then attachment and chunk checks.
+        const auto result = PortableBackup::exportDirectory(target, { provider }, {}, media, {},
+                                                             [&checks] { return ++checks < 6; });
+        QVERIFY(!result);
+        QCOMPARE(checks, 7); // cancellation is also checked when copy returns
+        QVERIFY(!QFileInfo::exists(target));
+    }
+
     void portableExportUsesDetachedPtfAndRestoresWithNewKey()
     {
         QTemporaryDir directory;

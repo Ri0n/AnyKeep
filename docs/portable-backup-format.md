@@ -73,28 +73,44 @@ restore must not replay those operations automatically. Opaque provider
 backend state is excluded. This is a per-note snapshot collected over
 time, not a distributed transaction across independent remote providers.
 
+## Export operation
+
+BackupExportJob joins snapshot collection, asynchronous keychain preparation
+on the application thread, and PTF writing on a dedicated worker. Its phases
+are Collecting, PreparingMedia and Writing, with phase-local progress. It
+never blocks the application event loop waiting for a remote storage or the
+keychain. The worker uses only detached snapshots and the initialized media
+store. Cancellation stops collection or cooperatively stops copying, including
+between media chunks and staged file readback chunks. A final publish gate
+arbitrates cancellation against the directory rename; once the rename is
+authorized, report the actual write outcome. Destroying the job requests
+cancellation and joins the writer.
+
+The manifest includes a sorted inventory of all staged regular files other
+than the manifest itself, including hidden PTF indexes. Each entry has a
+relative path, decimal byte size and SHA-256 read from disk. This supports
+later input/destination verification; it is not yet an authenticated manifest,
+and does not establish that a separate SAF copy has been verified.
+
 ## Remaining work before exposing a user-facing backup
 
-1. Wire BackupSnapshotJob to the directory writer on a worker with the media
-   key already resolved on the application thread. Validate source coverage
-   and cancellation across both stages; prevent destructive follow-up actions
-   if the snapshot or destination is incomplete.
-2. Capture provider-specific safe recovery metadata, recycle-bin history,
-   partial media availability and safe application settings. Verify the
-   resulting file inventory and SHA-256 before declaring a complete backup.
-3. Implement optional password protection using a password KDF and a separate
+1. Capture provider-specific safe recovery metadata, recycle-bin history,
+   partial media availability and safe application settings. Implement a
+   manifest/inventory reader for verification on restore or destination copy.
+   Prevent destructive follow-up actions if coverage or verification fails.
+2. Implement optional password protection using a password KDF and a separate
    SecureEnvelope domain, with authenticated file identities and an authenticated
    manifest; protect filenames as well as file contents when confidentiality
    is selected. Explicitly distinguish eligible recovery secrets from
    device-local keys and OMEMO state. Do not leave an unencrypted export at
    the user-selected destination in protected mode.
-4. Use an existing archive implementation if single-file transport is selected.
+3. Use an existing archive implementation if single-file transport is selected.
    Android uses SAF for the file or directory destination; desktop can use the
    same core with ordinary paths. Verify external destination writes before
    offering the system uninstall confirmation.
-5. Restore by validating and staging the entire input, opening ordinary PTF
+4. Restore by validating and staging the entire input, opening ordinary PTF
    with the new profile media key, and reusing existing copy/draft/conflict
    paths. Import must preserve existing data and handle unavailable providers
    explicitly. No automatic remote deletion or overwrite.
 
-No Settings action or complete restore is exposed by this first stage.
+No Settings action or complete restore is exposed yet.
