@@ -30,6 +30,16 @@ namespace {
                 || QStringLiteral("<>:\"/\\|?*").contains(ch))
                 return false;
         }
+        // Windows treats device names as special even with extensions.
+        // Reject these before an authenticated manifest is materialized.
+        const auto stem = name.section(QLatin1Char('.'), 0, 0).trimmed().toUpper();
+        if (stem == QStringLiteral("CON") || stem == QStringLiteral("PRN")
+            || stem == QStringLiteral("AUX") || stem == QStringLiteral("NUL")
+            || stem == QStringLiteral("CONIN$") || stem == QStringLiteral("CONOUT$"))
+            return false;
+        if (stem.size() == 4 && (stem.startsWith(QStringLiteral("COM")) || stem.startsWith(QStringLiteral("LPT")))
+            && QStringLiteral("123456789¹²³").contains(stem.at(3)))
+            return false;
         return true;
     }
 
