@@ -66,11 +66,16 @@ public:
     // the snapshots. The progress callback may return false to cancel between
     // notes. A successfully written but incomplete snapshot has complete=false.
     using Progress = std::function<bool(int completed, int total)>;
+    using Continue = std::function<bool()>;
+    // continueWriting is checked within media copies. beforePublish is the
+    // final cancellation boundary, called immediately before the directory rename.
     static PortableBackupResult exportDirectory(const QString &directory,
                                                 const QList<PortableBackupStorage> &storages,
                                                 const FolderCatalogSnapshot &folders,
                                                 LocalMediaStore &mediaStore,
-                                                const Progress &progress = {});
+                                                const Progress &progress = {},
+                                                const Continue &continueWriting = {},
+                                                const Continue &beforePublish = {});
 };
 
 } // namespace AnyKeep
