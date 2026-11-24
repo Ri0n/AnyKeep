@@ -27,6 +27,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include <QSet>
 
+#include <functional>
+
 namespace AnyKeep {
 
 class LocalMediaStore;
@@ -56,7 +58,8 @@ public:
     bool saveNote(const Note &note) override;
     // Copy a loaded snapshot without publication or global storage lookup.
     // Missing media are reported separately; the original URI remains in the body.
-    bool copySnapshot(const Note &source, Note *saved, QList<MediaReference> *unavailableMedia);
+    bool copySnapshot(const Note &source, Note *saved, QList<MediaReference> *unavailableMedia,
+                      const std::function<bool()> &continueCopy = {});
     void removeNote(const QString &noteId) override;
 
     bool                  supportsFavorite() const override { return true; }
@@ -82,7 +85,8 @@ public:
     static QString storageId;
 
 private:
-    bool saveNoteImpl(const Note &note, Note *savedNote, QList<MediaReference> *unavailableMedia);
+    bool saveNoteImpl(const Note &note, Note *savedNote, QList<MediaReference> *unavailableMedia,
+                      const std::function<bool()> &continueCopy = {});
     void               applyNoteReorderChanges(QList<NoteReorderChange> changes, NoteReorderJob *job) override;
     void               loadFolderCatalog();
     QUuid              folderIdForNote(const QString &noteId) const;
