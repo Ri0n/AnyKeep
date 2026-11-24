@@ -265,6 +265,7 @@ private slots:
     void recoveredCopiesNeverReplaceExistingNotesAndRollbackOnError();
     void restorePreviewDistinguishesIdenticalConflictingMissingAndUnavailable();
     void restorePreviewHonorsLocalIntentsAndCancellation();
+    void restorePreviewRequiresAttachmentFingerprints();
     void backupCapturesLiveEditsWithoutPublication();
     void backupReportsFailedLoadsAndSupportsCancellation();
     void publishesDestinationBeforeDeletingSource();
@@ -541,6 +542,51 @@ void DraftManagerTransferTest::restorePreviewDistinguishesIdenticalConflictingMi
     QCOMPARE(data->writeCount_, 0);
     QCOMPARE(storage.saveCalls_, 0);
     QCOMPARE(storage.removeCalls_, 0);
+    delete job;
+}
+
+void DraftManagerTransferTest::restorePreviewRequiresAttachmentFingerprints()
+{
+    TransferStorage storage(QStringLiteral("restore-media"));
+    MediaReference reference;
+    reference.id = QUuid::createUuid();
+    reference.portableName = QStringLiteral("image.png");
+    reference.originalName = reference.portableName;
+    reference.mediaType = QStringLiteral("image/png");
+    reference.size = 10;
+    reference.checksum = QByteArray(32, 'a');
+    const auto body = QStringLiteral("![Image](%1)").arg(reference.uri());
+    storage.addStored(QStringLiteral("note"), QStringLiteral("Title"), body);
+    storage.notes_.last().setMedia({ reference });
+    DraftManager drafts(std::make_unique<MemoryDraftStore>());
+    Note snapshot(new NoteData(nullptr));
+    snapshot.setTitle(QStringLiteral("Title"));
+    auto recovered = reference;
+    recovered.portableName = QStringLiteral("image (2).png");
+    snapshot.setText(QStringLiteral("![Image](%1)").arg(recovered.uri()), Note::Markdown);
+    snapshot.setMedia({ recovered });
+    PortableBackupStorage group;
+    group.storageId = storage.systemName();
+    group.notes.append({ snapshot, QStringLiteral("note"), {} });
+    const QMap<QString, NoteStorage::Ptr> providers { { storage.systemName(), &storage } };
+    const auto compare = [&]() {
+        return BackupRestorePreviewJob::compare({ group }, providers, drafts, {}, this);
+    };
+    auto *job = compare();
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->result().first().status, BackupRestoreDecision::Identical);
+    delete job;
+    reference.checksum.clear();
+    storage.notes_.last().setMedia({ reference });
+    job = compare();
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->result().first().status, BackupRestoreDecision::Conflict);
+    delete job;
+    reference.checksum = QByteArray(32, 'b');
+    storage.notes_.last().setMedia({ reference });
+    job = compare();
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->result().first().status, BackupRestoreDecision::Conflict);
     delete job;
 }
 
