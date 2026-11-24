@@ -6,6 +6,7 @@
 #include "conflictresolver.h"
 
 #include <QMap>
+#include <QHash>
 #include <QPointer>
 
 namespace AnyKeep {
@@ -54,6 +55,9 @@ private:
     QPointer<DraftManager> drafts_;
     FolderCatalog folders_;
     QList<BackupRestoreDecision> decisions_;
+    QList<DraftRecord> currentDrafts_;
+    QHash<QUuid, qsizetype> draftById_;
+    QMultiHash<QPair<QString, QString>, qsizetype> draftsByOrigin_;
     qsizetype index_ { 0 };
     QPointer<NoteLoadJob> active_;
     QMetaObject::Connection providerDestroyed_;
