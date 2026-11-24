@@ -269,15 +269,12 @@ QString Utils::portableFileName(const QString &source, const QString &fallback, 
     if (name.isEmpty())
         return {};
 
-    static const QSet<QString> reserved { QStringLiteral("CON"),  QStringLiteral("PRN"),  QStringLiteral("AUX"),
-                                          QStringLiteral("NUL"),  QStringLiteral("COM1"), QStringLiteral("COM2"),
-                                          QStringLiteral("COM3"), QStringLiteral("COM4"), QStringLiteral("COM5"),
-                                          QStringLiteral("COM6"), QStringLiteral("COM7"), QStringLiteral("COM8"),
-                                          QStringLiteral("COM9"), QStringLiteral("LPT1"), QStringLiteral("LPT2"),
-                                          QStringLiteral("LPT3"), QStringLiteral("LPT4"), QStringLiteral("LPT5"),
-                                          QStringLiteral("LPT6"), QStringLiteral("LPT7"), QStringLiteral("LPT8"),
-                                          QStringLiteral("LPT9") };
-    if (reserved.contains(QFileInfo(name).completeBaseName().toUpper()))
+    const auto stem = name.section(QLatin1Char('.'), 0, 0).trimmed().toUpper();
+    static const QSet<QString> reserved { QStringLiteral("CON"), QStringLiteral("PRN"), QStringLiteral("AUX"),
+                                          QStringLiteral("NUL"), QStringLiteral("CONIN$"), QStringLiteral("CONOUT$") };
+    if (reserved.contains(stem)
+        || (stem.size() == 4 && (stem.startsWith(QStringLiteral("COM")) || stem.startsWith(QStringLiteral("LPT")))
+            && QStringLiteral("123456789¹²³").contains(stem.at(3))))
         name.prepend(QLatin1Char('_'));
 
     maxLength = qMax<qsizetype>(1, maxLength);
