@@ -3,6 +3,7 @@
 
 #include "anykeep_export.h"
 #include "foldercatalog.h"
+#include "draftstore.h"
 #include "note.h"
 
 #include <functional>
@@ -20,6 +21,20 @@ struct ANYKEEP_EXPORT PortableBackupNote {
     QUuid   draftId;
 };
 
+// Lifecycle metadata is descriptive only. Restore must never replay deletion
+// or publication simply because an old backup contained an intent.
+struct ANYKEEP_EXPORT PortableBackupDraftInfo {
+    QUuid                  id;
+    QString                storageId;
+    QString                noteId;
+    DraftRecord::Operation operation { DraftRecord::Publish };
+    DraftRecord::State     state { DraftRecord::Editing };
+    QString                transferSourceStorageId;
+    QString                transferSourceNoteId;
+    quint64                revision { 0 };
+    QDateTime              updatedAt;
+};
+
 struct ANYKEEP_EXPORT PortableBackupStorage {
     QString storageId;
     QString displayName;
@@ -27,6 +42,8 @@ struct ANYKEEP_EXPORT PortableBackupStorage {
     // False when the caller could only enumerate a subset (e.g. offline cache).
     bool    complete { false };
     QList<PortableBackupNote> notes;
+    QList<PortableBackupDraftInfo> drafts;
+    QStringList omittedNoteIds;
 };
 
 struct ANYKEEP_EXPORT PortableBackupResult {

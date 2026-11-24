@@ -55,14 +55,30 @@ Provider IDs are metadata, never filesystem path components. Missing media are
 not silently removed from the source note. The current writer does not yet
 capture available portions of an incomplete media download.
 
+## Snapshot collection
+
+BackupSnapshotJob enumerates registered providers, including inaccessible
+ones, through their asynchronous list and load jobs. It records failed
+full loads (while preserving a readable cached body if supplied by the
+list), marks offline providers and providers changed during collection
+incomplete, and applies the application-wide folder assignments. It does
+not use the synchronous network APIs. DraftManager::backupRecords captures
+durable intents and dirty canonical editors at the start, without a
+checkpoint write or changing publication eligibility.
+
+Published notes and local draft versions are separate entries. The draft
+group also records delete and transfer intents descriptively in the
+manifest, including original storage/note IDs, draft IDs and state. A
+restore must not replay those operations automatically. Opaque provider
+backend state is excluded. This is a per-note snapshot collected over
+time, not a distributed transaction across independent remote providers.
+
 ## Remaining work before exposing a user-facing backup
 
-1. A controller obtains consistent checkpoints from live NoteEditor and
-   DraftManager without changing publication state, enumerates all selected
-   providers and loads notes through asynchronous storage jobs. It must report
-   omissions and races, and preserve pending edit/deletion intent without
-   replaying it automatically. The directory writer runs on a worker with the
-   media key already resolved on the application thread.
+1. Wire BackupSnapshotJob to the directory writer on a worker with the media
+   key already resolved on the application thread. Validate source coverage
+   and cancellation across both stages; prevent destructive follow-up actions
+   if the snapshot or destination is incomplete.
 2. Capture provider-specific safe recovery metadata, recycle-bin history,
    partial media availability and safe application settings. Verify the
    resulting file inventory and SHA-256 before declaring a complete backup.
