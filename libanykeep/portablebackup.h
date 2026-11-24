@@ -55,6 +55,57 @@ struct ANYKEEP_EXPORT PortableBackupResult {
     explicit operator bool() const { return error.isEmpty(); }
 };
 
+// Read-only metadata for a backup preview. No NoteStorage or LocalMediaStore
+// is opened while inspecting untrusted input.
+struct ANYKEEP_EXPORT PortableBackupFileInfo {
+    QString path;
+    qint64 size { 0 };
+    QByteArray sha256;
+};
+
+struct ANYKEEP_EXPORT PortableBackupMissingMedia {
+    QUuid id;
+    QString uri;
+    QString originalName;
+    QString mimeType;
+    qint64 size { 0 };
+    QByteArray sha256;
+};
+
+struct ANYKEEP_EXPORT PortableBackupNoteInfo {
+    QString ptfId;
+    QString sourceNoteId;
+    QUuid draftId;
+    Note::Format originalFormat { Note::Markdown };
+    QDateTime modifiedUtc;
+    QStringList tags;
+    QList<PortableBackupMissingMedia> unavailableMedia;
+};
+
+struct ANYKEEP_EXPORT PortableBackupStorageInfo {
+    QString directory;
+    QString storageId;
+    QString displayName;
+    bool remote { false };
+    bool complete { false };
+    QList<PortableBackupNoteInfo> notes;
+    QList<PortableBackupDraftInfo> drafts;
+    QStringList omittedNoteIds;
+};
+
+struct ANYKEEP_EXPORT PortableBackupInspection {
+    QString error;
+    bool complete { false };
+    QDateTime createdUtc;
+    QList<PortableBackupStorageInfo> storages;
+    QList<PortableBackupFileInfo> files;
+    QByteArray manifestSha256;
+    int notesWritten { 0 };
+    int unavailableMedia { 0 };
+
+    explicit operator bool() const { return error.isEmpty(); }
+};
+
 class ANYKEEP_EXPORT PortableBackup {
 public:
     // Write normal PTF trees and a versioned origin manifest into a new local
@@ -76,6 +127,17 @@ public:
                                                 const Progress &progress = {},
                                                 const Continue &continueWriting = {},
                                                 const Continue &beforePublish = {});
+
+    // Validate a directory without importing media or touching application
+    // state. A valid but incomplete backup is a successful inspection with
+    // complete=false. This is integrity checking, not authentication.
+    // Revalidate a private staged copy before using it for restoration.
+    static PortableBackupInspection inspectDirectory(const QString &directory,
+                                                      const Progress &progress = {},
+                                                      const Continue &continueReading = {});
+
+private:
+    static constexpr qint64 MaximumManifestBytes = 32 * 1024 * 1024;
 };
 
 } // namespace AnyKeep

@@ -48,6 +48,218 @@ class PTFStorageTest : public QObject {
     }
 
 private slots:
+    void portableBackupAvoidsCaseAliasesAndReservedSidecarNames()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        LocalMediaStore media(directory.filePath(QStringLiteral("media")), SecureEnvelope::generateMasterKey());
+        PTFStorage source(media, directory.filePath(QStringLiteral("source")));
+        QVERIFY(source.init());
+        const auto first = media.importData(QByteArrayLiteral("one"), QStringLiteral("Photo.png"),
+                                            QStringLiteral("image/png"));
+        const auto second = media.importData(QByteArrayLiteral("two"), QStringLiteral("photo.png"),
+                                             QStringLiteral("image/png"));
+        const auto reserved = media.importData(QByteArrayLiteral("three"), QStringLiteral(".anykeep-media.json"),
+                                               QStringLiteral("application/json"));
+        QVERIFY(first);
+        QVERIFY(second);
+        QVERIFY(reserved);
+        Note note = source.createNote();
+        note.setTitle(QStringLiteral("Report"));
+        note.setText(QStringLiteral("![A](%1)\n\n![B](%2)\n\n<a href=\"%3\" data-anykeep-attachment=\"1\">File</a>")
+                         .arg(first.value.uri(), second.value.uri(), reserved.value.uri()), Note::Markdown);
+        note.setMedia({ first.value, second.value, reserved.value });
+        Note other = source.createNote();
+        other.setTitle(QStringLiteral("report"));
+        other.setText(QStringLiteral("Another note"), Note::Markdown);
+        PortableBackupStorage provider;
+        provider.storageId = source.systemName();
+        provider.complete = true;
+        provider.notes.append({ note, QStringLiteral("first"), {} });
+        provider.notes.append({ other, QStringLiteral("second"), {} });
+        const auto target = directory.filePath(QStringLiteral("backup"));
+        QVERIFY(PortableBackup::exportDirectory(target, { provider }, {}, media));
+        const auto preview = PortableBackup::inspectDirectory(target);
+        QVERIFY2(preview, qPrintable(preview.error));
+        QCOMPARE(preview.notesWritten, 2);
+        const auto &notes = preview.storages.first().notes;
+        QVERIFY(notes[0].ptfId.compare(notes[1].ptfId, Qt::CaseInsensitive) != 0);
+
+        LocalMediaStore fresh(directory.filePath(QStringLiteral("fresh-media")), SecureEnvelope::generateMasterKey());
+        PTFStorage restored(fresh, QDir(target).filePath(preview.storages.first().directory));
+        QVERIFY(restored.init());
+        const auto imported = restored.note(notes.first().ptfId);
+        QCOMPARE(imported.media().size(), 3);
+        QSet<QByteArray> payloads;
+        for (const auto &reference : imported.media()) {
+            const auto data = fresh.data(reference);
+            QVERIFY(data);
+            payloads.insert(data.value);
+        }
+        QCOMPARE(payloads, (QSet<QByteArray> { QByteArrayLiteral("one"), QByteArrayLiteral("two"),
+                                               QByteArrayLiteral("three") }));
+    }
+
+    void backupInspectionVerifiesInventoryAndOrigin()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        LocalMediaStore media(directory.filePath(QStringLiteral("media")), SecureEnvelope::generateMasterKey());
+        PTFStorage source(media, directory.filePath(QStringLiteral("source")));
+        QVERIFY(source.init());
+        const auto image = media.importData(QByteArrayLiteral("image bytes"), QStringLiteral("photo.png"),
+                                            QStringLiteral("image/png"));
+        QVERIFY(image);
+        Note note = source.createNote();
+        note.setTitle(QStringLiteral("A note"));
+        note.setText(QStringLiteral("![Picture](%1)").arg(image.value.uri()), Note::Markdown);
+        note.setMedia({ image.value });
+        const auto originalDate = QDateTime::currentDateTimeUtc();
+        note.setLastChangeUTC(originalDate);
+        PortableBackupStorage provider;
+        provider.storageId = QStringLiteral("original-provider");
+        provider.displayName = QStringLiteral("Provider");
+        provider.complete = true;
+        provider.remote = true;
+        provider.notes.append({ note, QStringLiteral("opaque/id"), {} });
+
+        PortableBackupStorage drafts;
+        drafts.storageId = DraftManager::draftsStorageId();
+        drafts.displayName = QStringLiteral("Drafts");
+        drafts.complete = true;
+        PortableBackupDraftInfo pending;
+        pending.id = QUuid::createUuid();
+        pending.storageId = provider.storageId;
+        pending.noteId = QStringLiteral("opaque/id");
+        pending.state = DraftRecord::Retry;
+        pending.revision = 3;
+        pending.updatedAt = originalDate;
+        drafts.drafts.append(pending);
+        drafts.notes.append({ note, pending.noteId, pending.id });
+        PortableBackupDraftInfo deletion;
+        deletion.id = QUuid::createUuid();
+        deletion.operation = DraftRecord::Delete;
+        deletion.storageId = provider.storageId;
+        deletion.noteId = QStringLiteral("another/id");
+        drafts.drafts.append(deletion);
+
+        const auto target = directory.filePath(QStringLiteral("backup"));
+        QVERIFY(PortableBackup::exportDirectory(target, { provider, drafts }, {}, media));
+        const auto inspected = PortableBackup::inspectDirectory(target);
+        QVERIFY2(inspected, qPrintable(inspected.error));
+        QVERIFY(inspected.complete);
+        QCOMPARE(inspected.notesWritten, 2);
+        QCOMPARE(inspected.storages.size(), 2);
+        QCOMPARE(inspected.storages.first().storageId, provider.storageId);
+        QCOMPARE(inspected.storages.first().notes.first().sourceNoteId, QStringLiteral("opaque/id"));
+        QCOMPARE(inspected.storages.first().notes.first().modifiedUtc, originalDate);
+        QCOMPARE(inspected.storages.last().notes.first().draftId, pending.id);
+        QCOMPARE(inspected.storages.last().drafts.size(), 2);
+        QCOMPARE(inspected.storages.last().drafts.first().revision, quint64(3));
+        QCOMPARE(inspected.storages.last().drafts.last().operation, DraftRecord::Delete);
+        QCOMPARE(inspected.manifestSha256.size(), 32);
+
+        QString attachmentPath;
+        for (const auto &file : inspected.files) {
+            if (file.path.endsWith(QStringLiteral("/photo.png"))) {
+                attachmentPath = QDir(target).filePath(file.path);
+                break;
+            }
+        }
+        QVERIFY(!attachmentPath.isEmpty());
+        QFile attachment(attachmentPath);
+        QVERIFY(attachment.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QCOMPARE(attachment.write("wrong bytes"), qint64(11)); // same size as original
+        attachment.close();
+        const auto damaged = PortableBackup::inspectDirectory(target);
+        QVERIFY(!damaged);
+        QVERIFY(damaged.error.contains(QStringLiteral("integrity")));
+    }
+
+    void backupInspectionRejectsMissingExtraAndUnsafeEntries()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        LocalMediaStore media(directory.filePath(QStringLiteral("media")), SecureEnvelope::generateMasterKey());
+        PTFStorage source(media, directory.filePath(QStringLiteral("source")));
+        QVERIFY(source.init());
+        Note note = source.createNote();
+        note.setTitle(QStringLiteral("Stored"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        PortableBackupStorage provider;
+        provider.storageId = QStringLiteral("provider");
+        provider.complete = false;
+        provider.omittedNoteIds = { QStringLiteral("unavailable-note") };
+        provider.notes.append({ note, QStringLiteral("id"), {} });
+        const auto target = directory.filePath(QStringLiteral("backup"));
+        QVERIFY(PortableBackup::exportDirectory(target, { provider }, {}, media));
+        const auto preview = PortableBackup::inspectDirectory(target);
+        QVERIFY2(preview, qPrintable(preview.error));
+        QVERIFY(!preview.complete);
+        QCOMPARE(preview.storages.first().omittedNoteIds, provider.omittedNoteIds);
+
+        const auto manifestPath = QDir(target).filePath(QStringLiteral("manifest.json"));
+        QFile file(manifestPath);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto originalBytes = file.readAll();
+        file.close();
+        const auto originalManifest = QJsonDocument::fromJson(originalBytes).object();
+        const auto writeManifest = [&](const QJsonObject &object) {
+            QFile output(manifestPath);
+            QVERIFY(output.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            const auto bytes = QJsonDocument(object).toJson();
+            QCOMPARE(output.write(bytes), qint64(bytes.size()));
+        };
+
+        auto invalid = originalManifest;
+        invalid.insert(QStringLiteral("complete"), true);
+        writeManifest(invalid);
+        QVERIFY(!PortableBackup::inspectDirectory(target));
+
+        invalid = originalManifest;
+        auto files = invalid.value(QStringLiteral("files")).toArray();
+        auto first = files.first().toObject();
+        first.insert(QStringLiteral("path"), QStringLiteral("storage-1/../outside.md"));
+        files.replace(0, first);
+        invalid.insert(QStringLiteral("files"), files);
+        writeManifest(invalid);
+        QVERIFY(!PortableBackup::inspectDirectory(target));
+
+        invalid = originalManifest;
+        files = invalid.value(QStringLiteral("files")).toArray();
+        files.append(files.first());
+        invalid.insert(QStringLiteral("files"), files);
+        writeManifest(invalid);
+        QVERIFY(!PortableBackup::inspectDirectory(target));
+
+        writeManifest(originalManifest);
+        QFile extra(QDir(target).filePath(QStringLiteral("extra.md")));
+        QVERIFY(extra.open(QIODevice::WriteOnly));
+        extra.close();
+        QVERIFY(!PortableBackup::inspectDirectory(target));
+        QVERIFY(extra.remove());
+
+#ifndef Q_OS_WIN
+        const auto extraLink = QDir(target).filePath(QStringLiteral("external-link"));
+        QVERIFY(QFile::link(manifestPath, extraLink));
+        QVERIFY(!PortableBackup::inspectDirectory(target));
+        QVERIFY(QFile::remove(extraLink));
+#endif
+        QVERIFY(PortableBackup::inspectDirectory(target));
+        bool checked = false;
+        const auto cancelled = PortableBackup::inspectDirectory(target, [&checked](int, int) {
+            checked = true;
+            return false;
+        });
+        QVERIFY(checked);
+        QVERIFY(!cancelled);
+
+        const auto &noteInfo = preview.storages.first().notes.first();
+        QVERIFY(QFile::remove(QDir(target).filePath(QStringLiteral("storage-1/") + noteInfo.ptfId
+                                                    + QStringLiteral(".md"))));
+        QVERIFY(!PortableBackup::inspectDirectory(target));
+    }
+
     void asynchronousBackupWritesProviderAndDraftMediaWithInventory()
     {
         QTemporaryDir directory;
