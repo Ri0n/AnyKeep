@@ -1,12 +1,14 @@
 #include <QtTest>
 
 #include "backupexportjob.h"
+#include "backuprestorejob.h"
 #include "draftmanager.h"
 #include "filedraftstore.h"
 #include "filefoldercatalogstore.h"
 #include "foldercatalogmanager.h"
 #include "localdatakeystore.h"
 #include "localmediastore.h"
+#include "notemanager.h"
 #include "ptfstorage.h"
 #include "portablebackup.h"
 #include "portablebackuprestore.h"
@@ -51,6 +53,111 @@ class PTFStorageTest : public QObject {
     }
 
 private slots:
+    void restoreJobWaitsForExplicitSelectionAndStagesOnlySelectedNotes()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QVERIFY(QDir(directory.path()).mkpath(QStringLiteral("private")));
+        const auto privatePath = directory.filePath(QStringLiteral("private"));
+        LocalMediaStore oldMedia(directory.filePath(QStringLiteral("old-media")), SecureEnvelope::generateMasterKey());
+        PTFStorage source(oldMedia, directory.filePath(QStringLiteral("source")));
+        QVERIFY(source.init());
+        const auto media = oldMedia.importData(QByteArrayLiteral("restored media"), QStringLiteral("picture.png"),
+                                               QStringLiteral("image/png"));
+        QVERIFY(media);
+        Note first = source.createNote();
+        first.setTitle(QStringLiteral("First"));
+        first.setText(QStringLiteral("![Picture](%1)").arg(media.value.uri()), Note::Markdown);
+        first.setMedia({ media.value });
+        const auto folder = QUuid::createUuid();
+        first.setFolderId(folder);
+        Note second = source.createNote();
+        second.setTitle(QStringLiteral("Second"));
+        second.setText(QStringLiteral("Not selected"), Note::Markdown);
+        PortableBackupStorage provider;
+        provider.storageId = QStringLiteral("restore-job-original-unconfigured");
+        provider.complete = false;
+        provider.notes = { { first, QStringLiteral("first"), {} }, { second, QStringLiteral("second"), {} } };
+        const auto target = directory.filePath(QStringLiteral("backup"));
+        QVERIFY(PortableBackup::exportDirectory(target, { provider }, catalogWithFolder(folder), oldMedia));
+        const auto preview = PortableBackup::inspectDirectory(target);
+        QVERIFY2(preview, qPrintable(preview.error));
+        QVERIFY(!preview.complete);
+
+        const auto key = SecureEnvelope::generateMasterKey();
+        LocalMediaStore profileMedia(directory.filePath(QStringLiteral("profile-media")), key);
+        DraftManager drafts(std::make_unique<FileDraftStore>(directory.filePath(QStringLiteral("drafts")), key));
+        FolderCatalogManager folders(std::make_unique<FileFolderCatalogStore>(
+            directory.filePath(QStringLiteral("folders")), key));
+        QVERIFY(folders.initialize());
+
+        auto *job = BackupRestoreJob::restoreDirectory(target, preview.manifestSha256, privatePath,
+                                                       *NoteManager::instance(), drafts, folders, profileMedia, this);
+        QTRY_VERIFY_WITH_TIMEOUT(job->phase() == BackupRestoreJob::AwaitingSelection || job->isFinished(), 15000);
+        QVERIFY2(!job->isFinished(), qPrintable(job->error().message));
+        QCOMPARE(job->decisions().size(), 2);
+        QCOMPARE(job->decisions().first().status, BackupRestoreDecision::ProviderMissing);
+        QVERIFY(drafts.pendingDrafts().isEmpty());
+        QVERIFY(!folders.catalog().folder(folder));
+        const QList<BackupRestoreJob::Choice> choices {
+            { 0, BackupRestoreJob::Choice::CreateCopy, {}, QStringLiteral("Recovered title") },
+            { 1, BackupRestoreJob::Choice::Skip, {}, {} }
+        };
+        QVERIFY(job->apply(choices, true, false)); // incomplete requires explicit consent
+        QVERIFY(job->apply({ choices.first() }, true, true)); // missing row
+        QVERIFY(job->apply(choices, false, true)); // missing folder
+        auto wrong = choices;
+        wrong[0].destinationStorageId = QStringLiteral("not-configured");
+        QVERIFY(job->apply(wrong, true, true));
+        QCOMPARE(job->phase(), BackupRestoreJob::AwaitingSelection);
+        QVERIFY(drafts.pendingDrafts().isEmpty());
+        QVERIFY(!job->apply(choices, true, true));
+        QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 15000);
+        QCOMPARE(job->state(), StorageJob::Succeeded);
+        QCOMPARE(job->result().skipped, 1);
+        QCOMPARE(job->result().draftIds.size(), 1);
+        QVERIFY(job->result().foldersMerged);
+        QVERIFY(folders.catalog().folder(folder));
+        drafts.publishPending();
+        const auto record = drafts.pendingDraft(job->result().draftIds.first());
+        QVERIFY(record);
+        QCOMPARE(record.value.state, DraftRecord::Editing);
+        QCOMPARE(record.value.title, QStringLiteral("Recovered title"));
+        QCOMPARE(record.value.media.size(), 1);
+        QVERIFY(record.value.remoteNoteId.isEmpty());
+        const auto data = profileMedia.data(record.value.media.first());
+        QVERIFY(data);
+        QCOMPARE(data.value, QByteArrayLiteral("restored media"));
+        delete job;
+        QVERIFY(QDir(privatePath).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
+    }
+
+    void restoreJobCancellationBeforeCommitLeavesProfileUntouched()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QVERIFY(QDir(directory.path()).mkpath(QStringLiteral("private")));
+        const auto privatePath = directory.filePath(QStringLiteral("private"));
+        const auto key = SecureEnvelope::generateMasterKey();
+        LocalMediaStore media(directory.filePath(QStringLiteral("media")), key);
+        const auto target = directory.filePath(QStringLiteral("backup"));
+        QVERIFY(PortableBackup::exportDirectory(target, {}, {}, media));
+        const auto preview = PortableBackup::inspectDirectory(target);
+        QVERIFY(preview);
+        DraftManager drafts(std::make_unique<FileDraftStore>(directory.filePath(QStringLiteral("drafts")), key));
+        FolderCatalogManager folders(std::make_unique<FileFolderCatalogStore>(
+            directory.filePath(QStringLiteral("folders")), key));
+        QVERIFY(folders.initialize());
+        auto *job = BackupRestoreJob::restoreDirectory(target, preview.manifestSha256, privatePath,
+                                                       *NoteManager::instance(), drafts, folders, media, this);
+        job->cancel();
+        QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 15000);
+        QCOMPARE(job->state(), StorageJob::Cancelled);
+        QVERIFY(drafts.pendingDrafts().isEmpty());
+        delete job;
+        QVERIFY(QDir(privatePath).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
+    }
+
     void prepareBackupRestoresMediaInIsolationAndKeepsMissingIdentity()
     {
         QTemporaryDir directory;

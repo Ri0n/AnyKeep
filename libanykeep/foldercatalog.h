@@ -126,6 +126,7 @@ public:
 
     FolderCatalogError replaceSnapshot(FolderCatalogSnapshot snapshot);
     FolderCatalogError merge(const FolderCatalogSnapshot &snapshot);
+    FolderCatalogError mergeRecoveredFolders(const FolderCatalogSnapshot &snapshot);
 
     const FolderCatalogSnapshot       &snapshot() const { return snapshot_; }
     const QList<FolderRecord>         &folders() const { return snapshot_.folders; }

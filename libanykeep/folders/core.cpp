@@ -145,6 +145,22 @@ FolderCatalogError FolderCatalog::replaceSnapshot(FolderCatalogSnapshot snapshot
     return {};
 }
 
+FolderCatalogError FolderCatalog::mergeRecoveredFolders(const FolderCatalogSnapshot &incoming)
+{
+    auto candidate = snapshot_;
+    for (const auto &record : incoming.folders) {
+        if (record.tombstone || isRecycleBinId(record.id))
+            continue;
+        if (const auto *existing = folder(record.id)) {
+            if (existing->tombstone)
+                return error(FolderCatalogError::Conflict, QStringLiteral("A recovered folder was deleted in the current profile"));
+            continue;
+        }
+        candidate.folders.append(record);
+    }
+    return replaceSnapshot(std::move(candidate));
+}
+
 FolderCatalogError FolderCatalog::merge(const FolderCatalogSnapshot &incoming)
 {
     if (const auto validation = validate(incoming))
