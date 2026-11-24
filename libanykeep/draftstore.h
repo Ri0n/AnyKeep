@@ -59,6 +59,13 @@ struct ANYKEEP_EXPORT DraftRecord {
     QDateTime             retryAt;
 };
 
+// A detached, profile-local snapshot selected for recovery as a new note.
+// The destination is optional until the user explicitly routes the draft.
+struct ANYKEEP_EXPORT RecoveredNoteCopy {
+    Note snapshot;
+    QString destinationStorageId;
+};
+
 struct ANYKEEP_EXPORT DraftStoreError {
     enum Code { None, InvalidArgument, NotFound, Locked, CryptoUnavailable, Corrupt, Io };
 
