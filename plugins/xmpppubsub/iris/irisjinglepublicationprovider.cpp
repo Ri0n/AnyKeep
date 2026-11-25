@@ -47,6 +47,7 @@ namespace {
         QElapsedTimer transfer;
         quint64       offset       = 0;
         quint64       sent         = 0;
+        quint64       expected     = 0;
         qint64        lastReportMs = 0;
     };
 
@@ -480,13 +481,33 @@ bool IrisJinglePublicationProvider::cacheCapability(const IrisJingleCapability &
                                          << "elapsed-ms=" << elapsed;
                                  });
                 QObject::connect(content, &XMPP::Jingle::FileTransfer::Application::stateChanged, content,
-                                 [diagnostics, publicationId, sid](XMPP::Jingle::State state) {
-                                     if (state != XMPP::Jingle::State::Finished || !diagnostics->transfer.isValid())
+                                 [diagnostics, publicationId, sid, content, fileName = capability.reference.portableName](
+                                     XMPP::Jingle::State state) {
+                                     if (state != XMPP::Jingle::State::Finished)
                                          return;
-                                     qCInfo(lcIrisJingleMedia)
-                                         << "MEDIA_DIAG send finished:" << "publication=" << publicationId
-                                         << "sid=" << sid() << "wire-bytes=" << diagnostics->sent
-                                         << "elapsed-ms=" << diagnostics->transfer.elapsed();
+                                     const auto reason = content->lastReason();
+                                     const auto condition = reason.condition();
+                                     const bool complete = diagnostics->transfer.isValid()
+                                         && diagnostics->sent >= diagnostics->expected;
+                                     const qint64 elapsed = diagnostics->requested.isValid()
+                                         ? diagnostics->requested.elapsed() : -1;
+                                     if (complete && condition == XMPP::Jingle::Reason::Success) {
+                                         qCInfo(lcIrisJingleMedia)
+                                             << "Media send completed:" << "file=" << fileName
+                                             << "publication=" << publicationId << "sid=" << sid()
+                                             << "wire-bytes=" << diagnostics->sent
+                                             << "expected-bytes=" << diagnostics->expected
+                                             << "elapsed-ms=" << elapsed;
+                                     } else {
+                                         qCWarning(lcIrisJingleMedia)
+                                             << "Media send did not complete:" << "file=" << fileName
+                                             << "publication=" << publicationId << "sid=" << sid()
+                                             << "wire-bytes=" << diagnostics->sent
+                                             << "expected-bytes=" << diagnostics->expected
+                                             << "source-ready=" << diagnostics->transfer.isValid()
+                                             << "reason-code=" << int(condition)
+                                             << "reason=" << reason.text() << "elapsed-ms=" << elapsed;
+                                     }
                                  });
 #ifdef IRIS_FT_DEFERRED_RECEIPTS
                 content->setKeepTransportUntilReceipt();
@@ -498,6 +519,7 @@ bool IrisJinglePublicationProvider::cacheCapability(const IrisJingleCapability &
                         diagnostics->transfer.invalidate();
                         diagnostics->offset       = offset;
                         diagnostics->sent         = 0;
+                        diagnostics->expected     = size.value_or(capability.wireSize - std::min(offset, capability.wireSize));
                         diagnostics->lastReportMs = 0;
                         qCInfo(lcIrisJingleMedia)
                             << "MEDIA_DIAG send requested:"

@@ -2231,10 +2231,17 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
         if (state->finished)
             return;
         state->finished = true;
-        qCDebug(lcIrisJingleMedia) << "Jingle media range completed: publication=" << publicationId
-                                   << "sid=" << (state->session ? state->session->sid() : QString())
-                                   << "offset=" << offset << "length=" << length << "received=" << state->bytes->size()
-                                   << "error=" << error;
+        const auto sid = state->session ? state->session->sid()
+                                        : (state->request ? state->request->sid() : QString());
+        if (error.isEmpty()) {
+            qCInfo(lcIrisJingleMedia) << "Jingle media range received: publication=" << publicationId
+                                     << "sid=" << sid << "offset=" << offset << "length=" << length
+                                     << "received=" << state->bytes->size();
+        } else {
+            qCWarning(lcIrisJingleMedia) << "Jingle media range failed: publication=" << publicationId
+                                        << "sid=" << sid << "offset=" << offset << "length=" << length
+                                        << "received=" << state->bytes->size() << "error=" << error;
+        }
         QObject::disconnect(state->incoming);
         if (state->timer)
             state->timer->deleteLater();
@@ -2307,7 +2314,8 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
                         if (status == XMPP::Jingle::State::Finished) {
                             if (app->lastReason().condition() != XMPP::Jingle::Reason::Success) {
                                 complete(
-                                    QStringLiteral("Media range transfer failed: %1").arg(app->lastReason().text()));
+                                    QStringLiteral("Media range transfer failed (reason %1): %2")
+                                        .arg(int(app->lastReason().condition())).arg(app->lastReason().text()));
                             } else {
                                 complete(quint64(state->bytes->size()) == length
                                              ? QString()
