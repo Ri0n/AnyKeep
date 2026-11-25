@@ -331,8 +331,8 @@ initial resource limits, not limits of the PTF format. The archive contains
 no explicit directory entries; required storage directories are reconstructed
 from the manifest. This is the readable archive transport only; integration
 with backup jobs and whole-archive authenticated encryption follow separately.
-Distribution builds can supply the pinned miniz source with
-FETCHCONTENT_SOURCE_DIR_ANYKEEP_MINIZ to avoid configure-time network access.
+The pinned miniz sources and license are included in 3rdparty/miniz, so
+Debian source packages and other offline builds require no network access.
 
 ## Remaining work before exposing a user-facing backup
 
