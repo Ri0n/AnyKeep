@@ -314,6 +314,26 @@ a single SAF document, whereas directory mode requires a destination tree.
 Only the final output may be published; intermediate plaintext directories
 and archives for encrypted exports must remain inside private staging.
 
+## Readable ZIP transport
+
+PortableBackupArchive creates ZIP64 archives of the verified PTF inventory
+and manifest using a pinned miniz library compiled privately into the core.
+File contents are streamed through Qt devices, including Unicode filesystem
+paths. The archive is read back and every entry's size and SHA-256 checked
+before publication. Extraction accepts only the exact validated manifest
+inventory; it rejects duplicate names, encrypted or special entries,
+unexpected paths and directories. It writes regular files into private
+staging, then reuses directory inspection before publishing the tree.
+
+The initial reader accepts at most 100,000 entries and 64 GiB of expanded
+data, and limits individual miniz allocations to 64 MiB. These are explicit
+initial resource limits, not limits of the PTF format. The archive contains
+no explicit directory entries; required storage directories are reconstructed
+from the manifest. This is the readable archive transport only; integration
+with backup jobs and whole-archive authenticated encryption follow separately.
+Distribution builds can supply the pinned miniz source with
+FETCHCONTENT_SOURCE_DIR_ANYKEEP_MINIZ to avoid configure-time network access.
+
 ## Remaining work before exposing a user-facing backup
 
 1. Capture provider-specific safe recovery metadata, recycle-bin history,
