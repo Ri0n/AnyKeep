@@ -82,16 +82,10 @@ if(NOT TARGET Qt6Keychain::Qt6Keychain)
   find_package(Qt6Keychain REQUIRED)
 endif()
 
-# Build the pinned ZIP implementation privately, without a runtime dependency
-# or upstream global build options. FETCHCONTENT_SOURCE_DIR_ANYKEEP_MINIZ
-# allows distribution/offline builds to provide the same source tree.
-include(FetchContent)
+# Build the vendored ZIP implementation privately. Debian source packages
+# and other offline builds must not download dependencies during configure.
 enable_language(C)
-FetchContent_Declare(anykeep_miniz
-  GIT_REPOSITORY https://github.com/richgel999/miniz.git
-  GIT_TAG 174573d60290f447c13a2b1b3405de2b96e27d6c
-  SOURCE_SUBDIR anykeep-no-upstream-build)
-FetchContent_MakeAvailable(anykeep_miniz)
+set(anykeep_miniz_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/miniz")
 add_library(anykeep_miniz STATIC
   "${anykeep_miniz_SOURCE_DIR}/miniz.c"
   "${anykeep_miniz_SOURCE_DIR}/miniz_zip.c"
