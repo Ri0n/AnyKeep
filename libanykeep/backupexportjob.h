@@ -9,13 +9,13 @@ class QThread;
 
 namespace AnyKeep {
 
-// Shared desktop/mobile orchestration for a readable directory export.
+// Shared desktop/mobile orchestration for readable and password-protected directory export.
 // Call on the application thread. The media store must outlive the job.
 // Deleting the job cancels outstanding work and joins its file writer.
 class ANYKEEP_EXPORT BackupExportJob final : public StorageJob {
     Q_OBJECT
 public:
-    enum Phase { Collecting, PreparingMedia, Writing };
+    enum Phase { Collecting, PreparingMedia, Writing, Protecting };
     Q_ENUM(Phase)
 
     static BackupExportJob *exportDirectory(const QString &directory, NoteManager &notes, DraftManager &drafts,
@@ -24,6 +24,18 @@ public:
     static BackupExportJob *exportDirectory(const QString &directory, const QMap<QString, NoteStorage::Ptr> &providers,
                                              DraftManager &drafts, const FolderCatalogSnapshot &folders,
                                              LocalMediaStore &mediaStore, QObject *owner = nullptr);
+
+    // The caller supplies an existing application-private parent for plaintext
+    // staging. The final destination receives only authenticated ciphertext.
+    static BackupExportJob *exportProtectedDirectory(const QString &directory, const QString &privateParent,
+                                                      const QString &password, NoteManager &notes, DraftManager &drafts,
+                                                      FolderCatalogManager &folders, LocalMediaStore &mediaStore,
+                                                      QObject *owner = nullptr);
+    static BackupExportJob *exportProtectedDirectory(const QString &directory, const QString &privateParent,
+                                                      const QString &password,
+                                                      const QMap<QString, NoteStorage::Ptr> &providers,
+                                                      DraftManager &drafts, const FolderCatalogSnapshot &folders,
+                                                      LocalMediaStore &mediaStore, QObject *owner = nullptr);
 
     ~BackupExportJob() override;
     Phase phase() const { return phase_; }
@@ -37,6 +49,7 @@ signals:
 private:
     struct WorkerState;
     explicit BackupExportJob(const QString &directory, LocalMediaStore &mediaStore, QObject *owner);
+    bool configureProtection(const QString &privateParent, const QString &password);
     void observeSnapshot(BackupSnapshotJob *job);
     void snapshotFinished();
     void startWriter();
@@ -44,6 +57,8 @@ private:
     void setPhase(Phase phase);
 
     QString directory_;
+    QString privateParent_;
+    QString password_;
     LocalMediaStore &mediaStore_;
     QPointer<BackupSnapshotJob> snapshotJob_;
     BackupSnapshot snapshot_;

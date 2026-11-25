@@ -18,7 +18,7 @@ class NoteManager;
 class ANYKEEP_EXPORT BackupRestoreJob final : public StorageJob {
     Q_OBJECT
 public:
-    enum Phase { Preparing, Comparing, AwaitingSelection, PreparingMedia, CopyingMedia, Committing };
+    enum Phase { Preparing, Comparing, AwaitingSelection, PreparingMedia, CopyingMedia, Committing, Unlocking };
     Q_ENUM(Phase)
 
     struct Choice {
@@ -44,6 +44,12 @@ public:
                                               const QString &privateParent, NoteManager &notes, DraftManager &drafts,
                                               FolderCatalogManager &folders, LocalMediaStore &mediaStore,
                                               QObject *owner = nullptr);
+    // Authenticate the protected tree and prepare the same conflict/selection
+    // preview in one job. No separate plaintext preview is published.
+    static BackupRestoreJob *restoreProtectedDirectory(const QString &directory, const QString &password,
+                                                        const QString &privateParent, NoteManager &notes,
+                                                        DraftManager &drafts, FolderCatalogManager &folders,
+                                                        LocalMediaStore &mediaStore, QObject *owner = nullptr);
     ~BackupRestoreJob() override;
 
     Phase phase() const { return phase_; }
@@ -65,7 +71,8 @@ private:
     struct WorkerState;
     BackupRestoreJob(NoteManager &notes, DraftManager &drafts, FolderCatalogManager &folders,
                      LocalMediaStore &mediaStore, QObject *owner);
-    void startPreparation(const QString &directory, const QByteArray &digest, const QString &privateParent);
+    void startPreparation(const QString &directory, const QByteArray &digest, const QString &privateParent,
+                          const QString &password = {});
     void preparationFinished();
     void comparisonFinished();
     void startMediaCopy();

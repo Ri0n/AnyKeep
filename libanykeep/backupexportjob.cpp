@@ -1,11 +1,13 @@
 #include "backupexportjob.h"
 
 #include "localmediastore.h"
+#include "protectedbackup.h"
 
 #include <QDir>
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QThread>
+#include <QTemporaryDir>
 
 #include <atomic>
 #include <utility>
@@ -75,6 +77,44 @@ BackupExportJob *BackupExportJob::exportDirectory(const QString &directory,
     return job;
 }
 
+bool BackupExportJob::configureProtection(const QString &privateParent, const QString &password)
+{
+    const QFileInfo parent(privateParent);
+    if (password.isEmpty() || !QDir::isAbsolutePath(privateParent) || !parent.isDir()
+        || parent.isSymLink() || parent.canonicalFilePath().isEmpty()) {
+        result_.error = tr("A password and an existing private staging directory are required");
+        fail({ StorageError::Other, result_.error, false });
+        return false;
+    }
+    privateParent_ = parent.canonicalFilePath();
+    password_ = password;
+    return true;
+}
+
+BackupExportJob *BackupExportJob::exportProtectedDirectory(
+    const QString &directory, const QString &privateParent, const QString &password,
+    NoteManager &notes, DraftManager &drafts, FolderCatalogManager &folders, LocalMediaStore &mediaStore,
+    QObject *owner)
+{
+    auto *job = new BackupExportJob(directory, mediaStore, owner);
+    job->start();
+    if (job->configureProtection(privateParent, password))
+        job->observeSnapshot(BackupSnapshotJob::collect(notes, drafts, folders, job));
+    return job;
+}
+
+BackupExportJob *BackupExportJob::exportProtectedDirectory(
+    const QString &directory, const QString &privateParent, const QString &password,
+    const QMap<QString, NoteStorage::Ptr> &providers, DraftManager &drafts,
+    const FolderCatalogSnapshot &folders, LocalMediaStore &mediaStore, QObject *owner)
+{
+    auto *job = new BackupExportJob(directory, mediaStore, owner);
+    job->start();
+    if (job->configureProtection(privateParent, password))
+        job->observeSnapshot(BackupSnapshotJob::collect(providers, drafts, folders, job));
+    return job;
+}
+
 void BackupExportJob::observeSnapshot(BackupSnapshotJob *job)
 {
     snapshotJob_ = job;
@@ -98,10 +138,12 @@ void BackupExportJob::snapshotFinished()
     job->deleteLater();
 
     if (state == Cancelled) {
+        password_.clear();
         StorageJob::cancel();
         return;
     }
     if (state != Succeeded) {
+        password_.clear();
         result_.error = error.message;
         fail(error);
         return;
@@ -116,6 +158,7 @@ void BackupExportJob::snapshotFinished()
         if (isFinished())
             return;
         if (!errorText.isEmpty()) {
+            password_.clear();
             result_.error = errorText;
             fail({ StorageError::Authentication, errorText, false });
             return;
@@ -141,7 +184,8 @@ void BackupExportJob::startWriter()
     workerState_ = std::make_shared<WorkerState>();
     auto state = workerState_;
     auto *media = &mediaStore_;
-    worker_ = QThread::create([this, state, media, directory = directory_, snapshot = std::move(snapshot_)] {
+    worker_ = QThread::create([this, state, media, directory = directory_, privateParent = privateParent_,
+                               password = std::exchange(password_, {}), snapshot = std::move(snapshot_)] {
         const auto progress = [this, state](int done, int total) {
             if (!state->mayContinue())
                 return false;
@@ -152,9 +196,36 @@ void BackupExportJob::startWriter()
             return true;
         };
 
-        state->result = PortableBackup::exportDirectory(
-            directory, snapshot.storages, snapshot.folders, *media, progress,
-            [state] { return state->mayContinue(); }, [state] { return state->beginPublish(); });
+        const auto keepGoing = [state] { return state->mayContinue(); };
+        const auto beforePublish = [state] { return state->beginPublish(); };
+        if (password.isEmpty()) {
+            state->result = PortableBackup::exportDirectory(directory, snapshot.storages, snapshot.folders, *media,
+                                                              progress, keepGoing, beforePublish);
+            return;
+        }
+
+        // The ordinary writer is reused unchanged, but its intermediate
+        // rename must not close the final publication gate.
+        QTemporaryDir privateStage(QDir(privateParent).filePath(QStringLiteral("anykeep-protect-XXXXXX")));
+        if (!privateStage.isValid()) {
+            state->result.error = privateStage.errorString();
+            return;
+        }
+        const auto plain = privateStage.filePath(QStringLiteral("ptf"));
+        state->result = PortableBackup::exportDirectory(plain, snapshot.storages, snapshot.folders, *media,
+                                                         progress, keepGoing);
+        if (!state->result || !keepGoing())
+            return;
+        QMetaObject::invokeMethod(this, [this] {
+            if (!isFinished())
+                setPhase(Protecting);
+        }, Qt::QueuedConnection);
+        const auto protectedResult = ProtectedBackup::protectDirectory(plain, directory, password, progress,
+                                                                        keepGoing, beforePublish);
+        if (!protectedResult) {
+            state->result.error = protectedResult.error;
+            state->result.complete = false;
+        }
     });
     worker_->setParent(this);
     connect(worker_, &QThread::finished, this, &BackupExportJob::writerFinished, Qt::QueuedConnection);
@@ -201,6 +272,7 @@ void BackupExportJob::cancel()
         job->deleteLater();
     }
     snapshot_ = {};
+    password_.clear();
     StorageJob::cancel();
 }
 

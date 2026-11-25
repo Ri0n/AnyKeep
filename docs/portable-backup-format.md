@@ -260,23 +260,72 @@ requires the exact opaque file inventory, authenticates every chunk and
 checks the resulting PTF hashes before publishing a private temporary tree.
 Cancellation or failure discards staging; the source is never modified.
 
-The caller must arrange application-private plaintext staging and its
-cleanup. Password transport is not yet wired into BackupExportJob or
-BackupRestoreJob, archive/SAF or UI. The current implementation does not
-promise secure deletion on flash storage or zeroization of Qt strings.
+The protected export/restore job factories require an existing application-private
+staging parent. BackupExportJob writes ordinary PTF into a private temporary
+directory and publishes only verified ciphertext. The intermediate PTF rename
+does not consume the final publication gate, so cancellation remains possible
+until the protected destination is published. The temporary plaintext tree is
+removed before completion.
+
+BackupRestoreJob authenticates and unlocks the selected protected tree in
+private staging, then passes the authenticated manifest digest into the
+same isolated preparation and conflict preview used for readable backups.
+The intermediate unlocked tree is removed before showing the selection.
+The isolated prepared tree lives with the restore job; destroying it removes
+the remaining private staging. A wrong password never reaches the selection
+phase or mutates the profile. The password is not persisted.
+
+The caller must choose a genuinely application-private parent; this API
+does not establish sandbox policy. The current implementation does not
+promise secure deletion on flash storage, cleanup after an abrupt process
+termination, or zeroization of Qt strings. Archive/SAF and UI remain separate
+follow-up work.
+
+## Independent archive and encryption options
+
+Expose two independent export options in the UI: Encrypt and Archive.
+All four combinations use the same ordinary PTF tree and origin manifest
+as their logical backup representation.
+
+| Encrypt | Archive | Output |
+| --- | --- | --- |
+| No | No | Readable PTF directory |
+| Yes | No | Protected PTF directory with individually encrypted files |
+| No | Yes | Standard archive of the readable PTF tree |
+| Yes | Yes | A single encrypted archive of the readable PTF tree |
+
+When both options are enabled, first create a normal archive of the
+readable PTF tree, then encrypt that archive as one logical object using
+the common authenticated streaming encryption primitives. Do not archive
+the individually encrypted PTF files and do not use archive-specific
+password protection. Compression, when enabled by the archive format,
+must precede encryption. The protected archive must authenticate its
+format/header and the entire archive payload, including chunk ordering
+and completeness, without buffering large attachments in memory.
+
+Restore reverses these steps: authenticate and decrypt the protected
+archive before extraction, safely extract in private staging, then reuse
+the normal PTF manifest verification and restore workflow. Never expose
+an unauthenticated or partially extracted tree to the note loader.
+Use an established archive library rather than a custom archive codec.
+
+Both options are independent on desktop and Android. Archive mode permits
+a single SAF document, whereas directory mode requires a destination tree.
+Only the final output may be published; intermediate plaintext directories
+and archives for encrypted exports must remain inside private staging.
 
 ## Remaining work before exposing a user-facing backup
 
 1. Capture provider-specific safe recovery metadata, recycle-bin history,
    partial media availability and safe application settings. Prevent
    destructive follow-up actions if coverage or verification fails.
-2. Connect password protection to the shared export/restore jobs using private
-   plaintext staging, and add a password prompt and optional credential export.
-   Keep authenticated destination verification before offering uninstall.
-3. Use an existing archive implementation if single-file transport is selected.
-   Android uses SAF for the file or directory destination; desktop can use the
-   same core with ordinary paths. Verify external destination writes before
-   offering the system uninstall confirmation.
+2. Expose password-protected export/restore in the UI, add a password prompt
+   and optional credential export. Keep authenticated destination verification
+   before offering uninstall.
+3. Implement the independent archive option and whole-archive protection
+   described above. Android uses SAF for the file or directory destination;
+   desktop can use the same core with ordinary paths. Verify external
+   destination writes before offering the system uninstall confirmation.
 4. Expose the shared restore job in desktop/mobile UI, with explicit
    destination mapping and publication after recovery. Resolve folder
    conflicts and support retries/cleanup across persistence boundaries.
