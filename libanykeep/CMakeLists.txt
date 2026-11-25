@@ -82,6 +82,28 @@ if(NOT TARGET Qt6Keychain::Qt6Keychain)
   find_package(Qt6Keychain REQUIRED)
 endif()
 
+# Build the pinned ZIP implementation privately, without a runtime dependency
+# or upstream global build options. FETCHCONTENT_SOURCE_DIR_ANYKEEP_MINIZ
+# allows distribution/offline builds to provide the same source tree.
+include(FetchContent)
+enable_language(C)
+FetchContent_Declare(anykeep_miniz
+  GIT_REPOSITORY https://github.com/richgel999/miniz.git
+  GIT_TAG 174573d60290f447c13a2b1b3405de2b96e27d6c
+  SOURCE_SUBDIR anykeep-no-upstream-build)
+FetchContent_MakeAvailable(anykeep_miniz)
+add_library(anykeep_miniz STATIC
+  "${anykeep_miniz_SOURCE_DIR}/miniz.c"
+  "${anykeep_miniz_SOURCE_DIR}/miniz_zip.c"
+  "${anykeep_miniz_SOURCE_DIR}/miniz_tinfl.c"
+  "${anykeep_miniz_SOURCE_DIR}/miniz_tdef.c")
+include(GenerateExportHeader)
+generate_export_header(anykeep_miniz BASE_NAME MINIZ EXPORT_FILE_NAME "${CMAKE_CURRENT_BINARY_DIR}/miniz_export.h")
+target_include_directories(anykeep_miniz PUBLIC "${anykeep_miniz_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_definitions(anykeep_miniz PUBLIC MINIZ_STATIC_DEFINE MINIZ_NO_ZLIB_COMPATIBLE_NAMES)
+set_target_properties(anykeep_miniz PROPERTIES POSITION_INDEPENDENT_CODE ON C_VISIBILITY_PRESET hidden
+  AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+
 set(anykeep_CORE_SRCS
     audioattachmentrecorder.cpp
     mediaplaybackcontroller.cpp
@@ -166,6 +188,7 @@ set(anykeep_CORE_SRCS
     portablebackup.cpp
     portablebackupinspection.cpp
     protectedbackup.cpp
+    portablebackuparchive.cpp
     portablebackuprestore.cpp
     backupsnapshotjob.cpp
     backupexportjob.cpp
@@ -253,6 +276,7 @@ set(anykeep_CORE_HDRS
     notetransfercontroller.h
     portablebackup.h
     protectedbackup.h
+    portablebackuparchive.h
     portablebackuprestore.h
     backupsnapshotjob.h
     backupexportjob.h
@@ -303,7 +327,7 @@ target_include_directories(
 set_target_properties(anykeep_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(anykeep_core PUBLIC Qt6::Core Qt6::Gui Qt6::Quick Qt6::Qml Qt6::Svg)
 target_link_libraries(anykeep_core PRIVATE ${ANYKEEP_QCA_TARGET} QSourceHighlite::QSourceHighlite)
-target_link_libraries(anykeep_core PRIVATE Qt6Keychain::Qt6Keychain Qt6::Network)
+target_link_libraries(anykeep_core PRIVATE Qt6Keychain::Qt6Keychain Qt6::Network anykeep_miniz)
 if(WIN32)
   target_compile_definitions(anykeep_core PRIVATE NOMINMAX)
 endif()
