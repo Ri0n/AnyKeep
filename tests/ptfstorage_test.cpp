@@ -11,6 +11,7 @@
 #include "notemanager.h"
 #include "ptfstorage.h"
 #include "portablebackup.h"
+#include "portablebackuparchive.h"
 #include "protectedbackup.h"
 #include "portablebackuprestore.h"
 #include "secureenvelope.h"
@@ -54,6 +55,55 @@ class PTFStorageTest : public QObject {
     }
 
 private slots:
+    void portableZipRoundTripAndCancellation()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        LocalMediaStore media(directory.filePath(QStringLiteral("media")), SecureEnvelope::generateMasterKey());
+        PTFStorage source(media, directory.filePath(QStringLiteral("source")));
+        QVERIFY(source.init());
+        const QByteArray payload(2 * 1024 * 1024 + 17, 'v');
+        const auto imported = media.importData(payload, QStringLiteral("video.mp4"), QStringLiteral("video/mp4"));
+        QVERIFY(imported);
+        Note note = source.createNote();
+        note.setTitle(QStringLiteral("Portable ZIP"));
+        note.setText(QStringLiteral("<video src=\"%1\"></video>").arg(imported.value.uri()), Note::Markdown);
+        note.setMedia({ imported.value });
+        PortableBackupStorage provider;
+        provider.storageId = QStringLiteral("source");
+        provider.complete = true;
+        provider.notes.append({ note, QStringLiteral("original"), {} });
+        const auto plain = directory.filePath(QStringLiteral("plain"));
+        QVERIFY(PortableBackup::exportDirectory(plain, { provider }, {}, media));
+        const auto original = PortableBackup::inspectDirectory(plain);
+        QVERIFY2(original, qPrintable(original.error));
+
+        const auto archive = directory.filePath(QStringLiteral("backup.zip"));
+        QVERIFY(!PortableBackupArchive::create(plain, archive, {}, [] { return false; }));
+        QVERIFY(!QFileInfo::exists(archive));
+        const auto written = PortableBackupArchive::create(plain, archive);
+        QVERIFY2(written, qPrintable(written.error));
+        QCOMPARE(written.manifestSha256, original.manifestSha256);
+        QVERIFY(!PortableBackupArchive::create(plain, archive));
+
+        const auto restored = directory.filePath(QStringLiteral("restored"));
+        QVERIFY(!PortableBackupArchive::extract(archive, restored, {}, [] { return false; }));
+        QVERIFY(!QFileInfo::exists(restored));
+        const auto extracted = PortableBackupArchive::extract(archive, restored);
+        QVERIFY2(extracted, qPrintable(extracted.error));
+        QCOMPARE(extracted.manifestSha256, original.manifestSha256);
+        QVERIFY(PortableBackup::inspectDirectory(restored));
+        QVERIFY(!PortableBackupArchive::extract(archive, restored));
+
+        QFile truncated(archive);
+        QVERIFY(truncated.open(QIODevice::ReadWrite));
+        QVERIFY(truncated.resize(16));
+        truncated.close();
+        const auto invalid = directory.filePath(QStringLiteral("invalid"));
+        QVERIFY(!PortableBackupArchive::extract(archive, invalid));
+        QVERIFY(!QFileInfo::exists(invalid));
+    }
+
     void protectedBackupJobsRecoverAttachmentsUnderNewProfileKey()
     {
         QTemporaryDir directory;
